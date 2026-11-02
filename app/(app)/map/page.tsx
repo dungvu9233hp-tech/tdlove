@@ -71,6 +71,14 @@ export default function MapPage() {
     navigator.geolocation.getCurrentPosition(p => push(p, su.toISOString()), () => setErr('Không lấy được vị trí. Hãy cho phép trang web truy cập vị trí trong cài đặt trình duyệt.'), { enableHighAccuracy: true })
   }
   const stop = () => sb.from('locations').delete().eq('user_id', me.id)
+  const [spots, setSpots] = useState<any[]>([])
+  useEffect(() => { sb.from('stops').select('name,lat,lng,plans!inner(status)').not('lat', 'is', null).in('plans.status', ['Ý tưởng', 'Đã chốt']).limit(60).then(r => setSpots(r.data ?? [])) }, [])
+  useEffect(() => {
+    if (!ready) return
+    const g = L.current.layerGroup().addTo(map.current)
+    spots.forEach(s => L.current.circleMarker([s.lat, s.lng], { radius: 8, color: '#5B1F3A', weight: 2.5, fillColor: '#FFB3CF', fillOpacity: 1 }).bindTooltip(s.name).addTo(g))
+    return () => { g.remove() }
+  }, [ready, spots])
   const dist = sharing && theirs ? km(mine, theirs) : null
 
   return <>

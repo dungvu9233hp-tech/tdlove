@@ -23,6 +23,7 @@ export default function Chat() {
   }, [space.id, me.id])
   useEffect(() => { end.current?.scrollIntoView() }, [msgs])
 
+  const sendLoc = () => navigator.geolocation.getCurrentPosition(p => sb.from('messages').insert({ space_id: space.id, body: 'Vị trí của mình', lat: p.coords.latitude, lng: p.coords.longitude }), () => alert('Không lấy được vị trí. Hãy cho phép truy cập vị trí.'), { enableHighAccuracy: true })
   async function send() {
     const body = t.trim(); if (!body) return
     setT('')
@@ -34,13 +35,13 @@ export default function Chat() {
     <Head t={partner?.display_name ?? 'Người ấy'} />
     <div className="b">
       {!msgs.length && <div className="k pe"><b>Chưa có tin nhắn</b><div className="s">Nhắn lời đầu tiên cho người ấy nhé.</div></div>}
-      {msgs.map(m => <div key={m.id} className={`k ${m.sender === me.id ? 'pk me' : 'you'}`}>{m.body}</div>)}
+      {msgs.map(m => <div key={m.id} className={`k ${m.sender === me.id ? 'pk me' : 'you'}`}>{m.lat ? <a href={`https://www.google.com/maps?q=${m.lat},${m.lng}`} target="_blank" rel="noreferrer"><b>Vị trí của mình</b><span className="s">Mở trên bản đồ</span></a> : m.body}</div>)}
       {lastMine?.seen_at && <div className="s" style={{ textAlign: 'right' }}>Đã xem</div>}
       <div ref={end} />
     </div>
     <div className="row" style={{ padding: '0 18px 12px' }}>
       <label className="k s"><input value={t} onChange={e => setT(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Nhắn gì đó cho người ấy…" /></label>
-      <button className="rb" onClick={send}>Gửi</button>
+      <button className="rb" onClick={sendLoc} aria-label="Gửi vị trí">Vị trí</button><button className="rb" onClick={send}>Gửi</button>
     </div>
   </>
 }
