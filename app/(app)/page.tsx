@@ -13,6 +13,10 @@ export default function Home() {
   useEffect(() => {
     sb.from('messages').select('id', { count: 'exact', head: true }).neq('sender', me.id).is('seen_at', null).then(r => setUnread(r.count ?? 0))
   }, [me.id])
+  const [plan, setPlan] = useState<any>(null)
+  useEffect(() => {
+    sb.from('plans').select('id,name,start_date').in('status', ['Ý tưởng', 'Đã chốt']).gte('end_date', new Date().toISOString().slice(0, 10)).order('start_date').limit(1).then(r => setPlan(r.data?.[0] ?? null))
+  }, [])
   const day = space.start_date ? Math.floor((Date.now() - new Date(space.start_date).getTime()) / 864e5) + 1 : null
   const next = day ? MILESTONES.find(m => m > day) : null
   const setDate = async (v: string) => { await sb.from('spaces').update({ start_date: v }).eq('id', space.id); reload() }
@@ -29,6 +33,7 @@ export default function Home() {
       </div>
       {!space.start_date && <label className="k li"><b>Hai đứa bắt đầu yêu từ ngày nào?</b><input type="date" onChange={e => e.target.value && setDate(e.target.value)} /></label>}
       {next && day && <div className="k pk"><b>Mốc kế tiếp: {next} ngày</b><div className="s">Còn {next - day} ngày nữa</div></div>}
+      {plan && <Link href={`/plan/${plan.id}`} className="k pe"><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></Link>}
       {!partner && <div className="k pe"><b>Mời người ấy vào Space</b><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></div>}
       <div className="row">
         <Link href="/chat" className="k li"><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></Link>

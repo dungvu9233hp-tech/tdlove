@@ -28,3 +28,8 @@ input,textarea{font:inherit;width:100%;border:0;outline:0;background:transparent
 .strip img{height:180px;border-radius:14px;border:2px solid var(--ink)}
 .me{margin-left:auto;max-width:82%}.you{margin-right:auto;max-width:82%}
 @media (prefers-reduced-motion:no-preference){.btn:active,.rb:active{transform:translate(2px,2px)}}
+.mapbox{flex:none;height:320px;border:2.5px solid var(--ink);border-radius:22px;box-shadow:4px 4px 0 var(--shadow);overflow:hidden;isolation:isolate}
+.pin{width:44px;height:44px;border-radius:50%;border:2.5px solid var(--ink);background:#EBDDFF;display:flex;align-items:center;justify-content:center;font:800 20px var(--f1),sans-serif;color:var(--ink)}
+.pin.on{background:var(--pink)}
+select{font:inherit;border:2px solid var(--ink);border-radius:999px;padding:4px 8px;background:#fff;color:inherit;max-width:130px}
+.days{display:flex;gap:6px;overflow-x:auto;flex:none}.days .pill{flex:none}
