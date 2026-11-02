@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import Head, { Heart } from '@/components/Head'
+import { daysTogether, ok } from '@/lib/util'
 
 const MILESTONES = [100, 200, 365, 500, 1000, 1500, 2000]
 
@@ -23,11 +24,11 @@ export default function Home() {
     Promise.all([sb.from('diary_entries').select('title,entry_date').limit(500), sb.from('moments').select('title,taken_on').is('deleted_at', null).limit(500)]).then(([a, b]) =>
       setMemo([...(a.data ?? []).map((x: any) => ({ t: x.title || 'Nhật ký', d: x.entry_date })), ...(b.data ?? []).map((x: any) => ({ t: x.title, d: x.taken_on }))].filter(x => x.d?.slice(5) === md && +x.d.slice(0, 4) < t.getFullYear())))
   }, [])
-  const day = space.start_date ? Math.floor((Date.now() - new Date(space.start_date).getTime()) / 864e5) + 1 : null
+  const day = space.start_date ? daysTogether(space.start_date) : null
   const next = day ? MILESTONES.find(m => m > day) : null
   const expired = !!space.invite_expires && new Date(space.invite_expires).getTime() < Date.now()
   const renew = async () => { const { error } = await sb.rpc('renew_invite'); if (error) alert(error.message); else reload() }
-  const setDate = async (v: string) => { await sb.from('spaces').update({ start_date: v }).eq('id', space.id); reload() }
+  const setDate = async (v: string) => { if (await ok(sb.from('spaces').update({ start_date: v }).eq('id', space.id), 'Không lưu được ngày bắt đầu')) reload() }
 
   return <>
     <Head t="tdlove"><Link href="/settings" className="pill">Cài đặt</Link></Head>

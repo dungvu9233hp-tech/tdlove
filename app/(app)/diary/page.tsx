@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import Head from '@/components/Head'
+import { ok } from '@/lib/util'
 
 const MOOD = ['😍', '🥰', '😊', '😴', '😢', '😡']
 
@@ -16,7 +17,7 @@ export default function Diary() {
   useEffect(() => { load() }, [load])
   async function save() {
     if (!f.body.trim() && !f.title.trim()) return
-    await sb.from('diary_entries').insert({ space_id: space.id, entry_date: f.date, title: f.title, body: f.body, mood: f.mood })
+    if (!await ok(sb.from('diary_entries').insert({ space_id: space.id, entry_date: f.date, title: f.title, body: f.body, mood: f.mood }), 'Không lưu được nhật ký')) return
     setF({ ...f, title: '', body: '' }); setOpen(false); load()
   }
   const shown = list.filter(e => !q || `${e.title} ${e.body} ${e.mood}`.toLowerCase().includes(q.toLowerCase()))
@@ -36,7 +37,7 @@ export default function Diary() {
       {shown.map(e => <div key={e.id} className={`k ${e.author === me.id ? 'pk' : 'li'}`}>
         <div className="s">{new Date(e.entry_date).toLocaleDateString('vi-VN')}, {e.author === me.id ? 'bạn viết' : `${partner?.display_name ?? 'Người ấy'} viết`} {e.mood}</div>
         {e.title && <b>{e.title}</b>}<div style={{ whiteSpace: 'pre-wrap' }}>{e.body}</div>
-        {e.author === me.id && <button className="pill" style={{ marginTop: 8 }} onClick={async () => { if (confirm('Xóa bài này?')) { await sb.from('diary_entries').delete().eq('id', e.id); load() } }}>Xóa</button>}
+        {e.author === me.id && <button className="pill" style={{ marginTop: 8 }} onClick={async () => { if (confirm('Xóa bài này?')) { await ok(sb.from('diary_entries').delete().eq('id', e.id), 'Không xóa được'); load() } }}>Xóa</button>}
       </div>)}
     </div>
     <button className="rb fab" onClick={() => setOpen(!open)} aria-label="Viết nhật ký">{open ? '×' : '+'}</button>

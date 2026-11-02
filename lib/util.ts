@@ -11,3 +11,20 @@ export const coords = (u: string) => {
   const m = u.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || u.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) || u.match(/[?&](?:q|ll|destination)=(-?\d+\.\d+),(-?\d+\.\d+)/)
   return m ? { lat: +m[1], lng: +m[2] } : {}
 }
+
+// Chỉ nhận link http(s); chặn javascript:, data:... (dữ liệu này do người kia nhập nên không được tin)
+export const safeUrl = (u?: string | null): string | undefined => {
+  if (!u) return undefined
+  try { const x = new URL(u.trim()); return x.protocol === 'http:' || x.protocol === 'https:' ? x.href : undefined } catch { return undefined }
+}
+// Chạy một lệnh ghi của Supabase; lỗi thì báo cho người dùng thay vì im lặng, trả về true nếu thành công
+export async function ok(q: PromiseLike<{ error: { message: string } | null }>, what = 'Không lưu được'): Promise<boolean> {
+  const { error } = await q
+  if (error) { alert(`${what}: ${error.message}`); return false }
+  return true
+}
+// Số ngày bên nhau tính theo NGÀY LỊCH CỦA MÁY (không phụ thuộc UTC), ngày bắt đầu yêu là ngày 1
+export const daysTogether = (start: string) => {
+  const [y, m, d] = start.split('-').map(Number), t = new Date()
+  return Math.round((Date.UTC(t.getFullYear(), t.getMonth(), t.getDate()) - Date.UTC(y, m - 1, d)) / 864e5) + 1
+}

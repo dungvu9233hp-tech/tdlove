@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
-import { shrink, km, coords } from '@/lib/util'
+import { shrink, km, coords, ok, safeUrl } from '@/lib/util'
 import Head from '@/components/Head'
 
 const ST = ['Ý tưởng', 'Đã chốt', 'Đã đi', 'Hủy']
@@ -65,18 +65,23 @@ export default function PlanPage() {
 
   if (!p) return <div className="b s">Đang mở kế hoạch…</div>
   const nDays = p.start_date && p.end_date ? Math.max(1, Math.round((+new Date(p.end_date) - +new Date(p.start_date)) / 864e5) + 1) : 1
-  const upd = async (sid: string, v: any) => { await sb.from('stops').update(v).eq('id', sid); load() }
-  const del = async (sid: string) => { await sb.from('stops').delete().eq('id', sid); load() }
-  const setStatus = async (status: string) => { await sb.from('plans').update({ status }).eq('id', id); load() }
+  // Luôn load() lại sau khi ghi, để giao diện khớp với server kể cả khi ghi thất bại
+  const upd = async (sid: string, v: any) => { await ok(sb.from('stops').update(v).eq('id', sid)); load() }
+  const del = async (sid: string) => { await ok(sb.from('stops').delete().eq('id', sid), 'Không xóa được'); load() }
+  const setStatus = async (status: string) => { await ok(sb.from('plans').update({ status }).eq('id', id)); load() }
   const today = stops.filter(s => s.day === day)
   const mv = async (i: number, d: number) => {
     const a = today[i], b = today[i + d]; if (!b) return
-    await Promise.all([sb.from('stops').update({ sort: b.sort }).eq('id', a.id), sb.from('stops').update({ sort: a.sort }).eq('id', b.id)]); load()
+    const [x, y] = await Promise.all([sb.from('stops').update({ sort: b.sort }).eq('id', a.id), sb.from('stops').update({ sort: a.sort }).eq('id', b.id)])
+    const e = x.error ?? y.error; if (e) alert('Không đổi được thứ tự: ' + e.message)
+    load()
   }
   const vote = (s: any, v: number) => { const l = { ...(s.likes ?? {}) }; l[me.id] = l[me.id] === v ? 0 : v; upd(s.id, { likes: l }) }
   async function addStop() {
     if (!f.name.trim()) return
-    await sb.from('stops').insert({ plan_id: id, space_id: space.id, day, start_time: f.time || null, type: f.type, name: f.name, address: f.address, est_cost: Number(f.est) || 0, link: f.link, hours: f.hours, phone: f.phone, review_url: f.review, note: f.note, ...coords(f.link) })
+    // Link chỉ nhận http(s): chặn javascript:... đi qua dữ liệu chia sẻ giữa hai người
+    if ((f.link && !safeUrl(f.link)) || (f.review && !safeUrl(f.review))) return alert('Link phải bắt đầu bằng http:// hoặc https://')
+    if (!await ok(sb.from('stops').insert({ plan_id: id, space_id: space.id, day, start_time: f.time || null, type: f.type, name: f.name, address: f.address, est_cost: Number(f.est) || 0, link: safeUrl(f.link) ?? '', hours: f.hours, phone: f.phone, review_url: safeUrl(f.review) ?? '', note: f.note, ...coords(f.link) }), 'Không thêm được điểm dừng')) return
     setF(empty); setAdd(false); load()
   }
   const fromWish = (wid: string) => { const w = wish.find(x => x.id === wid); if (w) setF({ ...f, name: w.name, address: w.area ?? '', link: w.link ?? '', note: w.dish ?? '', type: 'Ăn' }) }
@@ -84,16 +89,17 @@ export default function PlanPage() {
     if (!file) return
     const path = `${space.id}/${crypto.randomUUID()}.jpg`
     const { error } = await sb.storage.from('media').upload(path, await shrink(file), { contentType: 'image/jpeg' })
-    if (!error) { await sb.from('plans').update({ cover_path: path }).eq('id', id); load() }
+    if (error) return alert('Không tải được ảnh bìa: ' + error.message)
+    if (await ok(sb.from('plans').update({ cover_path: path }).eq('id', id), 'Không lưu được ảnh bìa')) load()
   }
-  const addTodo = async () => { if (!todo.trim()) return; await sb.from('checklist_items').insert({ plan_id: id, space_id: space.id, text: todo }); setTodo(''); load() }
+  const addTodo = async () => { if (!todo.trim()) return; if (!await ok(sb.from('checklist_items').insert({ plan_id: id, space_id: space.id, text: todo }))) return; setTodo(''); load() }
   async function toMoment() {
-    await sb.from('moments').insert({ space_id: space.id, title: p.name, taken_on: p.end_date ?? p.start_date ?? new Date().toISOString().slice(0, 10), place: p.area })
+    if (!await ok(sb.from('moments').insert({ space_id: space.id, title: p.name, taken_on: p.end_date ?? p.start_date ?? new Date().toISOString().slice(0, 10), place: p.area }), 'Không tạo được khoảnh khắc')) return
     r.push('/moments')
   }
   const setShare = async (v: number) => {
     if (!partner || isNaN(v)) return
-    const x = Math.min(100, Math.max(0, v)); await sb.from('plans').update({ share: { [me.id]: x, [partner.id]: 100 - x } }).eq('id', id); load()
+    const x = Math.min(100, Math.max(0, v)); await ok(sb.from('plans').update({ share: { [me.id]: x, [partner.id]: 100 - x } }).eq('id', id)); load()
   }
 
   const est = sum(stops, 'est_cost'), done = stops.filter(s => s.actual_cost != null)
@@ -127,9 +133,9 @@ export default function PlanPage() {
           {s.hours && <div className="s">Mở cửa: {s.hours}</div>}
           {s.note && <div>{s.note}</div>}
           <div className="row" style={{ marginTop: 6, flexWrap: 'wrap' }}>
-            <a className="pill" href={s.link || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.name + ' ' + (s.address ?? ''))}`} target="_blank" rel="noreferrer">Bản đồ</a>
-            {s.phone && <a className="pill" href={`tel:${s.phone}`}>Gọi</a>}
-            {s.review_url && <a className="pill" href={s.review_url} target="_blank" rel="noreferrer">Review</a>}
+            <a className="pill" href={safeUrl(s.link) ?? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.name + ' ' + (s.address ?? ''))}`} target="_blank" rel="noreferrer">Bản đồ</a>
+            {s.phone && <a className="pill" href={`tel:${String(s.phone).replace(/[^\d+*#]/g, '')}`}>Gọi</a>}
+            {safeUrl(s.review_url) && <a className="pill" href={safeUrl(s.review_url)} target="_blank" rel="noreferrer">Review</a>}
             <button className={`pill ${s.likes?.[me.id] === 1 ? 'on' : ''}`} onClick={() => vote(s, 1)}>Thích {votes(s, 1)}</button>
             <button className={`pill ${s.likes?.[me.id] === -1 ? 'on' : ''}`} onClick={() => vote(s, -1)}>Không {votes(s, -1)}</button>
           </div>
@@ -159,8 +165,8 @@ export default function PlanPage() {
       </div> : <button className="btn" onClick={() => setAdd(true)}>+ Thêm điểm dừng</button>}
       <div className="k"><b>Chuẩn bị</b>
         {items.map(c => <div key={c.id} className="row" style={{ margin: '6px 0' }}>
-          <label className="row" style={{ justifyContent: 'flex-start' }}><input type="checkbox" style={{ width: 22, flex: 'none' }} checked={c.done} onChange={async e => { await sb.from('checklist_items').update({ done: e.target.checked }).eq('id', c.id); load() }} /><span style={{ textDecoration: c.done ? 'line-through' : 'none' }}>{c.text}</span></label>
-          <button className="pill" style={{ flex: 'none' }} onClick={async () => { await sb.from('checklist_items').delete().eq('id', c.id); load() }} aria-label="Xóa">×</button></div>)}
+          <label className="row" style={{ justifyContent: 'flex-start' }}><input type="checkbox" style={{ width: 22, flex: 'none' }} checked={c.done} onChange={async e => { await ok(sb.from('checklist_items').update({ done: e.target.checked }).eq('id', c.id)); load() }} /><span style={{ textDecoration: c.done ? 'line-through' : 'none' }}>{c.text}</span></label>
+          <button className="pill" style={{ flex: 'none' }} onClick={async () => { await ok(sb.from('checklist_items').delete().eq('id', c.id), 'Không xóa được'); load() }} aria-label="Xóa">×</button></div>)}
         <label className="row"><input placeholder="Thêm việc: đặt phòng, mua vé…" value={todo} onChange={e => setTodo(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTodo()} /><button className="pill" style={{ flex: 'none' }} onClick={addTodo}>Thêm</button></label></div>
       <div className="k li"><b>Chia tiền</b>
         <div className="s">{!total ? 'Nhập chi phí thực tế và người trả ở từng điểm dừng.' : Math.abs(owe) < 1 ? 'Hai đứa đã huề.' : owe > 0 ? `Bạn còn nợ ${pn} ${vnd(owe)}` : `${pn} còn nợ bạn ${vnd(-owe)}`}</div>

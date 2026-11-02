@@ -36,8 +36,9 @@ export default function Login() {
         const { data: pr } = await sb.from('profiles').select('space_id').eq('id', session.user.id).maybeSingle()
         if (pr?.space_id) { r.push('/'); return }
         const q = mode === 'create' ? sb.rpc('create_space', { p_name: f.name }) : sb.rpc('join_space', { p_code: f.code.trim(), p_name: f.name })
-        const { error: e2 } = await q
-        if (e2) throw new Error(`${e2.message}. Tài khoản đã được tạo, bạn không cần đăng ký lại: ${mode === 'join' ? 'kiểm tra mã mời rồi bấm "Vào Space" lần nữa (nếu mã hết hạn, nhờ người ấy tạo mã mới).' : 'bấm "Tạo Space" lần nữa.'}`)
+        const { data: res, error: e2 } = await q
+        const why = e2?.message ?? (mode === 'join' && res !== 'ok' ? String(res) : '')   // join_space trả 'ok' hoặc câu báo lỗi
+        if (why) throw new Error(`${why.replace(/\.$/, '')}. Tài khoản đã được tạo, bạn không cần đăng ký lại: ${mode === 'join' ? 'kiểm tra mã mời rồi bấm "Vào Space" lần nữa (nếu mã hết hạn, nhờ người ấy tạo mã mới).' : 'bấm "Tạo Space" lần nữa.'}`)
       }
       r.push('/')
     } catch (e: any) { setErr(e.message ?? 'Có lỗi xảy ra') }

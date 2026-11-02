@@ -4,16 +4,18 @@ import Link from 'next/link'
 import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import Head from '@/components/Head'
+import { ok } from '@/lib/util'
 
 export default function Wishlist() {
   const { space } = useApp()
   const [list, setList] = useState<any[]>([]); const [f, setF] = useState({ name: '', area: '', dish: '', price: '' })
   const load = useCallback(() => { sb.from('wishlist_places').select('*').order('created_at', { ascending: false }).then(r => setList(r.data ?? [])) }, [])
   useEffect(() => { load() }, [load])
-  const upd = async (id: string, v: any) => { await sb.from('wishlist_places').update(v).eq('id', id); load() }
+  const upd = async (id: string, v: any) => { await ok(sb.from('wishlist_places').update(v).eq('id', id)); load() }
   async function save() {
     if (!f.name.trim()) return
-    await sb.from('wishlist_places').insert({ space_id: space.id, ...f }); setF({ name: '', area: '', dish: '', price: '' }); load()
+    if (!await ok(sb.from('wishlist_places').insert({ space_id: space.id, ...f }))) return
+    setF({ name: '', area: '', dish: '', price: '' }); load()
   }
   return <>
     <Head t="Quán muốn thử"><Link href="/plan" className="pill">Quay lại</Link></Head>
@@ -31,7 +33,7 @@ export default function Wishlist() {
         <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>
           <button className={`pill ${w.visited ? 'on' : ''}`} onClick={() => upd(w.id, { visited: !w.visited })}>{w.visited ? 'Đã đến' : 'Chưa đến'}</button>
           {w.visited && [1, 2, 3, 4, 5].map(n => <button key={n} className={`pill ${(w.stars ?? 0) >= n ? 'on' : ''}`} onClick={() => upd(w.id, { stars: n })} aria-label={`${n} sao`}>{n}★</button>)}
-          <button className="pill" onClick={async () => { await sb.from('wishlist_places').delete().eq('id', w.id); load() }}>Xóa</button>
+          <button className="pill" onClick={async () => { await ok(sb.from('wishlist_places').delete().eq('id', w.id), 'Không xóa được'); load() }}>Xóa</button>
         </div>
       </div>)}
     </div>

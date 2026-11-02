@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
+import { notifyPartner } from '@/lib/push'
 
 // CALL-04: STUN + TURN. Không có TURN thì chỉ gọi được khi hai máy cùng mạng/NAT dễ, không đủ cho 4G.
 const turn = process.env.NEXT_PUBLIC_TURN_URL
@@ -95,7 +96,7 @@ export default function Call() {
     try { m = await media(v) } catch { s.busy = false; return flash(permMsg()) }
     s.busy = false
     if (s.yielded || s.st !== 'idle') return stopStream(m) // hai người gọi cùng lúc và mình đã nhường
-    local.current = m; go('calling'); send('invite', { video: v })
+    local.current = m; go('calling'); send('invite', { video: v }); notifyPartner('call') // CALL-05: báo cả khi bên kia đang đóng app
     s.ring = setTimeout(() => end(true, 'missed'), RING)
   }
   // CALL-02: người nhận bấm Nhận
@@ -112,7 +113,7 @@ export default function Call() {
   function reject() { clearTimers(); send('reject'); stopAll(); go('idle') }
 
   useEffect(() => {
-    const c = sb.channel('call-' + space.id, { config: { broadcast: { self: false } } }); ch.current = c
+    const c = sb.channel('call-' + space.id, { config: { private: true, broadcast: { self: false } } }); ch.current = c
     const safe = (f: (p: any) => Promise<void> | void) => async (m: any) => { try { await f(m.payload) } catch (e) { console.error('call', e); end(true, 'failed') } }
     c.on('broadcast', { event: 'invite' }, safe(p => {
       const s = S.current
@@ -141,7 +142,7 @@ export default function Call() {
       if (pc.current?.remoteDescription) await pc.current.addIceCandidate(p.c); else if (S.current.st !== 'idle') pend.current.push(p.c)
     })).on('broadcast', { event: 'reject' }, safe(() => end(false, 'rejected')))
       .on('broadcast', { event: 'hangup' }, safe(() => end(false)))
-      .subscribe()
+      .subscribe((status: string, err?: Error) => { if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') console.error('Kênh cuộc gọi lỗi (đã chạy phase4.sql chưa?)', status, err?.message) })
     const onStart = (e: any) => start(!!e.detail?.video)
     const onLeave = () => { if (S.current.st !== 'idle') send('hangup') } // đóng tab giữa cuộc gọi: báo cho bên kia
     window.addEventListener('tdlove-call', onStart); window.addEventListener('pagehide', onLeave)

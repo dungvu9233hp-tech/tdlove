@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import Head from '@/components/Head'
+import { notifyPartner } from '@/lib/push'
 
 export default function Chat() {
   const { me, space, partner } = useApp()
@@ -30,12 +31,14 @@ export default function Chat() {
   const call = (video: boolean) => window.dispatchEvent(new CustomEvent('tdlove-call', { detail: { video } }))
   const sendLoc = () => navigator.geolocation.getCurrentPosition(async p => {
     const { error } = await sb.from('messages').insert({ space_id: space.id, body: 'Vị trí của mình', lat: p.coords.latitude, lng: p.coords.longitude })
-    if (error) alert('Không gửi được vị trí: ' + error.message)
+    if (error) alert('Không gửi được vị trí: ' + error.message); else notifyPartner('message', 'Đã gửi một vị trí')
   }, () => alert('Không lấy được vị trí. Hãy cho phép truy cập vị trí.'), { enableHighAccuracy: true })
   async function send() {
     const body = t.trim(); if (!body) return
     setT('')
-    await sb.from('messages').insert({ space_id: space.id, body })
+    const { error } = await sb.from('messages').insert({ space_id: space.id, body })
+    if (error) { setT(body); return alert('Không gửi được tin nhắn: ' + error.message) }   // trả lại nội dung để gửi lại
+    notifyPartner('message', body)
   }
   const lastMine = [...msgs].reverse().find(m => m.sender === me.id)
 

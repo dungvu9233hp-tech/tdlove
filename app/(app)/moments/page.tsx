@@ -14,6 +14,7 @@ async function shrink(f: File): Promise<Blob> {
 }
 
 const PAGE = 30
+const MAX_VIDEO = 50 * 1048576   // gói Supabase miễn phí chỉ nhận tối đa 50 MB mỗi file
 
 export default function Moments() {
   const { space } = useApp()
@@ -66,18 +67,28 @@ export default function Moments() {
   }, [more, list.length, page])
 
   async function save() {
-    if (!f.title.trim()) return
+    if (!f.title.trim() || busy) return
     setBusy(true)
-    const paths: string[] = []
-    for (const file of files.slice(0, 20)) {
-      const vid = file.type.startsWith('video/')
-      if (vid && file.size > 200 * 1048576) { alert(`${file.name} lớn hơn 200 MB, đã bỏ qua`); continue }
-      const p = `${space.id}/${crypto.randomUUID()}.${vid ? (file.name.split('.').pop() || 'mp4').toLowerCase() : 'jpg'}`
-      const { error } = await sb.storage.from('media').upload(p, vid ? file : await shrink(file), { contentType: vid ? file.type : 'image/jpeg' })
-      if (error) alert(vid ? 'Không tải được video (gói Supabase miễn phí giới hạn 50 MB mỗi file)' : error.message); else paths.push(p)
-    }
-    await sb.from('moments').insert({ space_id: space.id, title: f.title, description: f.desc, taken_on: f.date, place: f.place, photos: paths })
-    setF({ ...f, title: '', desc: '', place: '' }); setFiles([]); setOpen(false); setBusy(false); load()
+    const paths: string[] = [], failed: string[] = []
+    try {
+      const chosen = files.slice(0, 20)
+      for (const file of chosen) {
+        try {   // nén ảnh có thể ném lỗi (ảnh hỏng, HEIC...), không để làm kẹt nút
+          const vid = file.type.startsWith('video/')
+          if (vid && file.size > MAX_VIDEO) { failed.push(`${file.name}: lớn hơn 50 MB (giới hạn của gói Supabase miễn phí)`); continue }
+          const p = `${space.id}/${crypto.randomUUID()}.${vid ? (file.name.split('.').pop() || 'mp4').toLowerCase() : 'jpg'}`
+          const { error } = await sb.storage.from('media').upload(p, vid ? file : await shrink(file), { contentType: vid ? file.type : 'image/jpeg' })
+          if (error) failed.push(`${file.name}: ${error.message}`); else paths.push(p)
+        } catch (e: any) { failed.push(`${file.name}: ${e?.message ?? 'không xử lý được tệp'}`) }
+      }
+      const undo = () => paths.length ? sb.storage.from('media').remove(paths) : null   // dọn tệp đã tải lên nếu không đăng nữa
+      if (chosen.length && !paths.length) return alert('Không tải được tệp nào lên nên chưa đăng.\n' + failed.join('\n'))
+      if (failed.length && !confirm(`${failed.length} tệp bị lỗi:\n${failed.join('\n')}\n\nVẫn đăng với ${paths.length} tệp còn lại?`)) { await undo(); return }
+      const { error } = await sb.from('moments').insert({ space_id: space.id, title: f.title, description: f.desc, taken_on: f.date, place: f.place, photos: paths })
+      if (error) { await undo(); return alert('Không lưu được khoảnh khắc: ' + error.message) }
+      setF({ ...f, title: '', desc: '', place: '' }); setFiles([]); setOpen(false)
+      await load()
+    } finally { setBusy(false) }   // luôn nhả nút, kể cả khi có lỗi bất ngờ
   }
   const del = async (id: string) => {
     if (!confirm('Xóa khoảnh khắc này? Có thể khôi phục trong 30 ngày.')) return

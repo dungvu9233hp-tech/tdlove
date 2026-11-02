@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import Head from '@/components/Head'
+import { ok } from '@/lib/util'
 
 const d = (s: string) => new Date(s).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })
 const cls: Record<string, string> = { 'Ý tưởng': 'li', 'Đã chốt': 'pk', 'Đã đi': 'pe', 'Hủy': '' }
@@ -16,7 +17,7 @@ export default function Plans() {
   useEffect(() => { load() }, [load])
   async function save() {
     if (!f.name.trim()) return
-    await sb.from('plans').insert({ space_id: space.id, name: f.name, start_date: f.start || null, end_date: f.end || f.start || null, area: f.area })
+    if (!await ok(sb.from('plans').insert({ space_id: space.id, name: f.name, start_date: f.start || null, end_date: f.end || f.start || null, area: f.area }), 'Không tạo được kế hoạch')) return
     setF({ name: '', start: '', end: '', area: '' }); setOpen(false); load()
   }
   return <>

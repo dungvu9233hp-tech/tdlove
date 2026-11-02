@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import Head from '@/components/Head'
+import { daysTogether, ok } from '@/lib/util'
 
 const MS = [100, 200, 300, 365, 400, 500, 600, 700, 730, 800, 900, 1000, 1500, 2000]
 const pd = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d) }
@@ -20,7 +21,7 @@ export default function Special() {
 
   const items: { t: string; d: Date }[] = []
   if (space.start_date) {
-    const start = pd(space.start_date), t = today(), day = Math.round((+t - +start) / 864e5) + 1
+    const start = pd(space.start_date), t = today(), day = daysTogether(space.start_date)
     MS.filter(m => m > day).slice(0, 3).forEach(m => items.push({ t: `Ngày thứ ${m}`, d: new Date(start.getFullYear(), start.getMonth(), start.getDate() + m - 1) }))
     let mo = new Date(t.getFullYear(), t.getMonth(), start.getDate()); if (mo < t) mo = new Date(t.getFullYear(), t.getMonth() + 1, start.getDate())
     const months = (mo.getFullYear() - start.getFullYear()) * 12 + mo.getMonth() - start.getMonth()
@@ -31,7 +32,7 @@ export default function Special() {
 
   async function save() {
     if (!f.name.trim() || !f.date) return
-    await sb.from('special_dates').insert({ space_id: space.id, name: f.name, on_date: f.date, yearly: f.yearly })
+    if (!await ok(sb.from('special_dates').insert({ space_id: space.id, name: f.name, on_date: f.date, yearly: f.yearly }))) return
     setF({ name: '', date: '', yearly: true }); load()
   }
   return <>
@@ -47,7 +48,7 @@ export default function Special() {
         <button className="btn" onClick={save}>Thêm</button>
       </div>
       {list.map(s => <div key={s.id} className="k row"><div><b>{s.name}</b><div className="s">{pd(s.on_date).toLocaleDateString('vi-VN')}{s.yearly ? ', hằng năm' : ''}</div></div>
-        <button className="pill rb" style={{ width: 'auto', height: 'auto', borderRadius: 999 }} onClick={async () => { await sb.from('special_dates').delete().eq('id', s.id); load() }}>Xóa</button></div>)}
+        <button className="pill rb" style={{ width: 'auto', height: 'auto', borderRadius: 999 }} onClick={async () => { await ok(sb.from('special_dates').delete().eq('id', s.id), 'Không xóa được'); load() }}>Xóa</button></div>)}
     </div>
   </>
 }
