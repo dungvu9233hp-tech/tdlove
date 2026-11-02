@@ -35,9 +35,11 @@ export default function Moments() {
     setBusy(true)
     const paths: string[] = []
     for (const file of files.slice(0, 20)) {
-      const p = `${space.id}/${crypto.randomUUID()}.jpg`
-      const { error } = await sb.storage.from('media').upload(p, await shrink(file), { contentType: 'image/jpeg' })
-      if (!error) paths.push(p)
+      const vid = file.type.startsWith('video/')
+      if (vid && file.size > 200 * 1048576) { alert(`${file.name} lớn hơn 200 MB, đã bỏ qua`); continue }
+      const p = `${space.id}/${crypto.randomUUID()}.${vid ? (file.name.split('.').pop() || 'mp4').toLowerCase() : 'jpg'}`
+      const { error } = await sb.storage.from('media').upload(p, vid ? file : await shrink(file), { contentType: vid ? file.type : 'image/jpeg' })
+      if (error) alert(vid ? 'Không tải được video (gói Supabase miễn phí giới hạn 50 MB mỗi file)' : error.message); else paths.push(p)
     }
     await sb.from('moments').insert({ space_id: space.id, title: f.title, description: f.desc, taken_on: f.date, place: f.place, photos: paths })
     setF({ ...f, title: '', desc: '', place: '' }); setFiles([]); setOpen(false); setBusy(false); load()
@@ -53,7 +55,7 @@ export default function Moments() {
         <textarea rows={2} placeholder="Kể một chút về hôm đó…" value={f.desc} onChange={e => setF({ ...f, desc: e.target.value })} />
         <input type="date" value={f.date} onChange={e => setF({ ...f, date: e.target.value })} />
         <input placeholder="Địa điểm" value={f.place} onChange={e => setF({ ...f, place: e.target.value })} />
-        <input type="file" accept="image/*" multiple onChange={e => setFiles(Array.from(e.target.files ?? []))} />
+        <input type="file" accept="image/*,video/*" multiple onChange={e => setFiles(Array.from(e.target.files ?? []))} />
         <div className="s">{files.length ? `Đã chọn ${files.length} ảnh (tối đa 20)` : 'Chọn ảnh để lưu cùng'}</div>
         <button className="btn" onClick={save} disabled={busy}>{busy ? 'Đang đăng…' : 'Đăng khoảnh khắc'}</button>
       </div>}
@@ -61,10 +63,10 @@ export default function Moments() {
       {list.map(m => <div key={m.id}>
         <div className="s">{new Date(m.taken_on).toLocaleDateString('vi-VN')}</div>
         <div className="k">
-          {m.urls.length > 0 && <div className="strip">{m.urls.map((u: string) => <img key={u} src={u} alt={m.title} />)}</div>}
+          {m.urls.length > 0 && <div className="strip">{m.urls.map((u: string) => /\.(mp4|mov|webm|m4v)$/i.test(u.split('?')[0]) ? <video key={u} src={u} controls playsInline preload="metadata" style={{ height: 180, borderRadius: 14, border: '2px solid var(--ink)' }} /> : <img key={u} src={u} alt={m.title} />)}</div>}
           <b>{m.title}</b>
           {m.description && <div>{m.description}</div>}
-          <div className="s">{[m.urls.length ? `${m.urls.length} ảnh` : '', m.place].filter(Boolean).join(', ')}</div>
+          <div className="s">{[m.urls.length ? `${m.urls.length} ảnh/video` : '', m.place].filter(Boolean).join(', ')}</div>
           <button className="pill" onClick={() => del(m.id)}>Xóa</button>
         </div>
       </div>)}

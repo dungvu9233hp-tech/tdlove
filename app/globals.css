@@ -33,3 +33,10 @@ input,textarea{font:inherit;width:100%;border:0;outline:0;background:transparent
 .pin.on{background:var(--pink)}
 select{font:inherit;border:2px solid var(--ink);border-radius:999px;padding:4px 8px;background:#fff;color:inherit;max-width:130px}
 .days{display:flex;gap:6px;overflow-x:auto;flex:none}.days .pill{flex:none}
+.call{position:fixed;inset:0;z-index:2000;background:#FFF0F6;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:calc(28px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom))}
+.call .rv{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;z-index:-1}
+.call .hid{width:1px;height:1px;opacity:0}
+.call .lv{position:absolute;top:calc(16px + env(safe-area-inset-top));right:16px;width:96px;height:128px;object-fit:cover;border:2.5px solid var(--ink);border-radius:16px;background:#000;z-index:2}
+.call .ci{text-align:center;background:rgba(255,240,246,.9);border-radius:18px;padding:8px 18px}
+.call .cc{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;width:100%;max-width:420px}
+.call .cc .btn{flex:1 1 140px}.call .cc .pill{padding:10px 16px}

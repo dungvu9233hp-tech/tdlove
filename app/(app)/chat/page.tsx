@@ -23,6 +23,7 @@ export default function Chat() {
   }, [space.id, me.id])
   useEffect(() => { end.current?.scrollIntoView() }, [msgs])
 
+  const call = (video: boolean) => window.dispatchEvent(new CustomEvent('tdlove-call', { detail: { video } }))
   const sendLoc = () => navigator.geolocation.getCurrentPosition(p => sb.from('messages').insert({ space_id: space.id, body: 'Vị trí của mình', lat: p.coords.latitude, lng: p.coords.longitude }), () => alert('Không lấy được vị trí. Hãy cho phép truy cập vị trí.'), { enableHighAccuracy: true })
   async function send() {
     const body = t.trim(); if (!body) return
@@ -32,7 +33,7 @@ export default function Chat() {
   const lastMine = [...msgs].reverse().find(m => m.sender === me.id)
 
   return <>
-    <Head t={partner?.display_name ?? 'Người ấy'} />
+    <Head t={partner?.display_name ?? 'Người ấy'}><button className="pill" onClick={() => call(false)}>Gọi</button><button className="pill" onClick={() => call(true)}>Video</button></Head>
     <div className="b">
       {!msgs.length && <div className="k pe"><b>Chưa có tin nhắn</b><div className="s">Nhắn lời đầu tiên cho người ấy nhé.</div></div>}
       {msgs.map(m => <div key={m.id} className={`k ${m.sender === me.id ? 'pk me' : 'you'}`}>{m.lat ? <a href={`https://www.google.com/maps?q=${m.lat},${m.lng}`} target="_blank" rel="noreferrer"><b>Vị trí của mình</b><span className="s">Mở trên bản đồ</span></a> : m.body}</div>)}

@@ -17,6 +17,12 @@ export default function Home() {
   useEffect(() => {
     sb.from('plans').select('id,name,start_date').in('status', ['Ý tưởng', 'Đã chốt']).gte('end_date', new Date().toISOString().slice(0, 10)).order('start_date').limit(1).then(r => setPlan(r.data?.[0] ?? null))
   }, [])
+  const [memo, setMemo] = useState<any[]>([])
+  useEffect(() => {
+    const t = new Date(), md = `${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+    Promise.all([sb.from('diary_entries').select('title,entry_date').limit(500), sb.from('moments').select('title,taken_on').is('deleted_at', null).limit(500)]).then(([a, b]) =>
+      setMemo([...(a.data ?? []).map((x: any) => ({ t: x.title || 'Nhật ký', d: x.entry_date })), ...(b.data ?? []).map((x: any) => ({ t: x.title, d: x.taken_on }))].filter(x => x.d?.slice(5) === md && +x.d.slice(0, 4) < t.getFullYear())))
+  }, [])
   const day = space.start_date ? Math.floor((Date.now() - new Date(space.start_date).getTime()) / 864e5) + 1 : null
   const next = day ? MILESTONES.find(m => m > day) : null
   const setDate = async (v: string) => { await sb.from('spaces').update({ start_date: v }).eq('id', space.id); reload() }
@@ -34,6 +40,8 @@ export default function Home() {
       {!space.start_date && <label className="k li"><b>Hai đứa bắt đầu yêu từ ngày nào?</b><input type="date" onChange={e => e.target.value && setDate(e.target.value)} /></label>}
       {next && day && <div className="k pk"><b>Mốc kế tiếp: {next} ngày</b><div className="s">Còn {next - day} ngày nữa</div></div>}
       {plan && <Link href={`/plan/${plan.id}`} className="k pe"><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></Link>}
+      {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map((m, i) => <div key={i} className="s">{m.d.slice(0, 4)}: {m.t}</div>)}</div>}
+      <div className="row"><Link href="/diary" className="k pk"><b>Nhật ký</b><div className="s">Viết cho nhau</div></Link><Link href="/special" className="k pe"><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></Link></div>
       {!partner && <div className="k pe"><b>Mời người ấy vào Space</b><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></div>}
       <div className="row">
         <Link href="/chat" className="k li"><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></Link>
