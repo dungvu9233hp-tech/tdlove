@@ -57,7 +57,13 @@ export default function MapPage() {
     if (!fit.current && pts.length) { fit.current = true; pts.length > 1 ? map.current.fitBounds(pts, { padding: [50, 50] }) : map.current.setView(pts[0], 16) }
   }, [locs, ready, sharing, !!theirs])
 
-  const push = (p: GeolocationPosition, su: string) => sb.from('locations').upsert({ user_id: me.id, space_id: space.id, lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, updated_at: new Date().toISOString(), share_until: su })
+  // Phải await: query của supabase-js chỉ được gửi đi khi có await/.then, không thì không có gì lên server
+  const push = async (p: GeolocationPosition, su: string) => {
+    const row = { user_id: me.id, space_id: space.id, lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, updated_at: new Date().toISOString(), share_until: su }
+    const { error } = await sb.from('locations').upsert(row)
+    if (error) return setErr(`Không lưu được vị trí: ${error.message}`)
+    setLocs(a => ({ ...a, [me.id]: row })) // hiện ngay, không chờ realtime
+  }
   useEffect(() => {
     if (!sharing) return
     let last = 0
@@ -70,7 +76,11 @@ export default function MapPage() {
     setErr('')
     navigator.geolocation.getCurrentPosition(p => push(p, su.toISOString()), () => setErr('Không lấy được vị trí. Hãy cho phép trang web truy cập vị trí trong cài đặt trình duyệt.'), { enableHighAccuracy: true })
   }
-  const stop = () => sb.from('locations').delete().eq('user_id', me.id)
+  const stop = async () => {
+    const { error } = await sb.from('locations').delete().eq('user_id', me.id)
+    if (error) return setErr(`Không tắt được chia sẻ: ${error.message}`)
+    setLocs(a => { const n = { ...a }; delete n[me.id]; return n })
+  }
   const [spots, setSpots] = useState<any[]>([])
   useEffect(() => { sb.from('stops').select('name,lat,lng,plans!inner(status)').not('lat', 'is', null).in('plans.status', ['Ý tưởng', 'Đã chốt']).limit(60).then(r => setSpots(r.data ?? [])) }, [])
   useEffect(() => {
