@@ -17,10 +17,27 @@ export default function Login() {
       if (mode === 'login') {
         const { error } = await sb.auth.signInWithPassword({ email: f.email, password: f.password }); if (error) throw error
       } else {
-        const { data, error } = await sb.auth.signUp({ email: f.email, password: f.password }); if (error) throw error
-        if (!data.session) throw new Error('Hãy tắt "Confirm email" trong Supabase (Auth > Providers > Email) rồi thử lại')
+        const email = f.email.trim()
+        if (mode === 'join' && !f.code.trim()) throw new Error('Hãy nhập mã mời')
+        // Lần trước đăng ký xong mà vào Space lỗi thì tài khoản vẫn còn: dùng lại, không đăng ký lần nữa
+        let { data: { session } } = await sb.auth.getSession()
+        if (session && session.user.email?.toLowerCase() !== email.toLowerCase()) { await sb.auth.signOut(); session = null }
+        if (!session) {
+          const up = await sb.auth.signUp({ email, password: f.password })
+          if (up.error && /already|registered|exists/i.test(up.error.message)) {
+            const inn = await sb.auth.signInWithPassword({ email, password: f.password })
+            if (inn.error) throw new Error('Email này đã có tài khoản. Hãy nhập đúng mật khẩu đã dùng lúc đăng ký để tiếp tục.')
+            session = inn.data.session
+          } else if (up.error) throw up.error
+          else session = up.data.session
+          if (!session) throw new Error('Supabase đang bật xác nhận email. Vào Auth > Providers > Email, tắt "Confirm email" rồi thử lại.')
+        }
+        // Đã ở trong một Space rồi thì vào thẳng, không tạo/đổi Space
+        const { data: pr } = await sb.from('profiles').select('space_id').eq('id', session.user.id).maybeSingle()
+        if (pr?.space_id) { r.push('/'); return }
         const q = mode === 'create' ? sb.rpc('create_space', { p_name: f.name }) : sb.rpc('join_space', { p_code: f.code.trim(), p_name: f.name })
-        const { error: e2 } = await q; if (e2) throw e2
+        const { error: e2 } = await q
+        if (e2) throw new Error(`${e2.message}. Tài khoản đã được tạo, bạn không cần đăng ký lại: ${mode === 'join' ? 'kiểm tra mã mời rồi bấm "Vào Space" lần nữa (nếu mã hết hạn, nhờ người ấy tạo mã mới).' : 'bấm "Tạo Space" lần nữa.'}`)
       }
       r.push('/')
     } catch (e: any) { setErr(e.message ?? 'Có lỗi xảy ra') }

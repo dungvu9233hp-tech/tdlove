@@ -25,6 +25,8 @@ export default function Home() {
   }, [])
   const day = space.start_date ? Math.floor((Date.now() - new Date(space.start_date).getTime()) / 864e5) + 1 : null
   const next = day ? MILESTONES.find(m => m > day) : null
+  const expired = !!space.invite_expires && new Date(space.invite_expires).getTime() < Date.now()
+  const renew = async () => { const { error } = await sb.rpc('renew_invite'); if (error) alert(error.message); else reload() }
   const setDate = async (v: string) => { await sb.from('spaces').update({ start_date: v }).eq('id', space.id); reload() }
 
   return <>
@@ -42,7 +44,7 @@ export default function Home() {
       {plan && <Link href={`/plan/${plan.id}`} className="k pe"><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></Link>}
       {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map((m, i) => <div key={i} className="s">{m.d.slice(0, 4)}: {m.t}</div>)}</div>}
       <div className="row"><Link href="/diary" className="k pk"><b>Nhật ký</b><div className="s">Viết cho nhau</div></Link><Link href="/special" className="k pe"><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></Link></div>
-      {!partner && <div className="k pe"><b>Mời người ấy vào Space</b><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></div>}
+      {!partner && <div className="k pe"><b>Mời người ấy vào Space</b>{expired ? <div className="s">Mã mời đã hết hạn.</div> : <><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></>}<button className="pill" onClick={renew}>Tạo mã mới</button></div>}
       <div className="row">
         <Link href="/chat" className="k li"><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></Link>
         <Link href="/moments" className="k"><b>Khoảnh khắc</b><div className="s">Lưu thêm một kỷ niệm</div></Link>

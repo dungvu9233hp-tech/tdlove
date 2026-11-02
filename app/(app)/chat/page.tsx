@@ -8,7 +8,11 @@ export default function Chat() {
   const { me, space, partner } = useApp()
   const [msgs, set] = useState<any[]>([]); const [t, setT] = useState('')
   const end = useRef<HTMLDivElement>(null)
-  const markSeen = () => sb.from('messages').update({ seen_at: new Date().toISOString() }).neq('sender', me.id).is('seen_at', null)
+  // Phải await: query builder của Supabase chỉ gửi request khi được await/then
+  const markSeen = async () => {
+    const { error } = await sb.from('messages').update({ seen_at: new Date().toISOString() }).neq('sender', me.id).is('seen_at', null)
+    if (error) console.error('markSeen', error.message)
+  }
 
   useEffect(() => {
     sb.from('messages').select('*').order('created_at', { ascending: false }).limit(50)
@@ -24,7 +28,10 @@ export default function Chat() {
   useEffect(() => { end.current?.scrollIntoView() }, [msgs])
 
   const call = (video: boolean) => window.dispatchEvent(new CustomEvent('tdlove-call', { detail: { video } }))
-  const sendLoc = () => navigator.geolocation.getCurrentPosition(p => sb.from('messages').insert({ space_id: space.id, body: 'Vị trí của mình', lat: p.coords.latitude, lng: p.coords.longitude }), () => alert('Không lấy được vị trí. Hãy cho phép truy cập vị trí.'), { enableHighAccuracy: true })
+  const sendLoc = () => navigator.geolocation.getCurrentPosition(async p => {
+    const { error } = await sb.from('messages').insert({ space_id: space.id, body: 'Vị trí của mình', lat: p.coords.latitude, lng: p.coords.longitude })
+    if (error) alert('Không gửi được vị trí: ' + error.message)
+  }, () => alert('Không lấy được vị trí. Hãy cho phép truy cập vị trí.'), { enableHighAccuracy: true })
   async function send() {
     const body = t.trim(); if (!body) return
     setT('')
