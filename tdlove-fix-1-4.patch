@@ -1,0 +1,246 @@
+From 3e77d655c324b3330a07bc3d6f9bee17122883e2 Mon Sep 17 00:00:00 2001
+From: claude <noreply@anthropic.com>
+Date: Mon, 2 Nov 2026 20:12:21 +0000
+Subject: [PATCH] =?UTF-8?q?V=C3=A1=20#1-#4=20b=C3=A1o=20c=C3=A1o=20r=C3=A0?=
+ =?UTF-8?q?=20so=C3=A1t:=20kh=C3=B3a=20space=5Fid,=20s=E1=BB=ADa=20lu?=
+ =?UTF-8?q?=E1=BB=93ng=20=C4=91=C4=83ng=20k=C3=BD=20l=E1=BB=97i=20m=C3=A3?=
+ =?UTF-8?q?=20m=E1=BB=9Di=20+=20t=E1=BA=A1o=20l=E1=BA=A1i=20m=C3=A3,=20awa?=
+ =?UTF-8?q?it=20markSeen/sendLoc,=20t=E1=BA=A3i=20th=C3=AAm=20moments?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ README.md                  |  2 +-
+ app/(app)/chat/page.tsx    | 11 +++++--
+ app/(app)/moments/page.tsx | 60 ++++++++++++++++++++++++++++++++------
+ app/(app)/page.tsx         |  4 ++-
+ app/login/page.tsx         | 23 +++++++++++++--
+ supabase/phase4.sql        | 17 +++++++++++
+ 6 files changed, 101 insertions(+), 16 deletions(-)
+ create mode 100644 supabase/phase4.sql
+
+diff --git a/README.md b/README.md
+index 9900696..a3c0bb9 100644
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,6 @@
+ # tdlove v1 (giai đoạn 1)
+ 
+-1. Tạo project tại supabase.com, chạy `supabase/schema.sql` trong SQL Editor.
++1. Tạo project tại supabase.com, chạy `supabase/schema.sql` trong SQL Editor, rồi lần lượt `phase2.sql`, `phase2b.sql`, `phase3.sql`, `phase4.sql` (phase4 là bản vá bảo mật, bắt buộc).
+ 2. Auth > Providers > Email: tắt "Confirm email" (bản đầu, chỉ hai người dùng).
+ 3. `cp .env.example .env.local`, điền URL và anon key (Project Settings > API).
+ 4. `npm install && npm run dev`, mở http://localhost:3000.
+diff --git a/app/(app)/chat/page.tsx b/app/(app)/chat/page.tsx
+index 53dcf87..492b42d 100644
+--- a/app/(app)/chat/page.tsx
++++ b/app/(app)/chat/page.tsx
+@@ -8,7 +8,11 @@ export default function Chat() {
+   const { me, space, partner } = useApp()
+   const [msgs, set] = useState<any[]>([]); const [t, setT] = useState('')
+   const end = useRef<HTMLDivElement>(null)
+-  const markSeen = () => sb.from('messages').update({ seen_at: new Date().toISOString() }).neq('sender', me.id).is('seen_at', null)
++  // Phải await: query builder của Supabase chỉ gửi request khi được await/then
++  const markSeen = async () => {
++    const { error } = await sb.from('messages').update({ seen_at: new Date().toISOString() }).neq('sender', me.id).is('seen_at', null)
++    if (error) console.error('markSeen', error.message)
++  }
+ 
+   useEffect(() => {
+     sb.from('messages').select('*').order('created_at', { ascending: false }).limit(50)
+@@ -24,7 +28,10 @@ export default function Chat() {
+   useEffect(() => { end.current?.scrollIntoView() }, [msgs])
+ 
+   const call = (video: boolean) => window.dispatchEvent(new CustomEvent('tdlove-call', { detail: { video } }))
+-  const sendLoc = () => navigator.geolocation.getCurrentPosition(p => sb.from('messages').insert({ space_id: space.id, body: 'Vị trí của mình', lat: p.coords.latitude, lng: p.coords.longitude }), () => alert('Không lấy được vị trí. Hãy cho phép truy cập vị trí.'), { enableHighAccuracy: true })
++  const sendLoc = () => navigator.geolocation.getCurrentPosition(async p => {
++    const { error } = await sb.from('messages').insert({ space_id: space.id, body: 'Vị trí của mình', lat: p.coords.latitude, lng: p.coords.longitude })
++    if (error) alert('Không gửi được vị trí: ' + error.message)
++  }, () => alert('Không lấy được vị trí. Hãy cho phép truy cập vị trí.'), { enableHighAccuracy: true })
+   async function send() {
+     const body = t.trim(); if (!body) return
+     setT('')
+diff --git a/app/(app)/moments/page.tsx b/app/(app)/moments/page.tsx
+index bb75657..53adcde 100644
+--- a/app/(app)/moments/page.tsx
++++ b/app/(app)/moments/page.tsx
+@@ -1,5 +1,5 @@
+ 'use client'
+-import { useCallback, useEffect, useState } from 'react'
++import { useCallback, useEffect, useRef, useState } from 'react'
+ import { sb } from '@/lib/supabase'
+ import { useApp } from '@/lib/ctx'
+ import Head from '@/components/Head'
+@@ -13,23 +13,58 @@ async function shrink(f: File): Promise<Blob> {
+   return new Promise(ok => c.toBlob(b => ok(b!), 'image/jpeg', 0.8))
+ }
+ 
++const PAGE = 30
++
+ export default function Moments() {
+   const { space } = useApp()
+   const [list, setList] = useState<any[]>([])
+   const [open, setOpen] = useState(false); const [busy, setBusy] = useState(false)
+   const [f, setF] = useState({ title: '', desc: '', date: new Date().toISOString().slice(0, 10), place: '' })
+   const [files, setFiles] = useState<File[]>([])
++  const [more, setMore] = useState(true); const [loading, setLoading] = useState(false)
++  const lenRef = useRef(0); const lock = useRef(false); const gen = useRef(0)
++  const sentinel = useRef<HTMLDivElement>(null)
+ 
+-  const load = useCallback(async () => {
+-    const { data } = await sb.from('moments').select('*').is('deleted_at', null)
+-      .order('taken_on', { ascending: false }).order('created_at', { ascending: false }).limit(30)
+-    setList(await Promise.all((data ?? []).map(async m => {
+-      const { data: u } = m.photos.length ? await sb.storage.from('media').createSignedUrls(m.photos, 3600) : { data: [] }
+-      return { ...m, urls: (u ?? []).map((x: any) => x.signedUrl) }
+-    })))
++  // Lấy một trang 30 moment bắt đầu từ vị trí `from`; một lần gọi duy nhất để ký link cho cả trang
++  const fetchPage = useCallback(async (from: number) => {
++    const { data, error } = await sb.from('moments').select('*').is('deleted_at', null)
++      .order('taken_on', { ascending: false }).order('created_at', { ascending: false }).order('id')
++      .range(from, from + PAGE - 1)
++    if (error) { console.error('moments', error.message); return null }
++    const rows = data ?? []
++    const paths = rows.flatMap((m: any) => m.photos ?? [])
++    const url: Record<string, string> = {}
++    if (paths.length) {
++      const { data: u } = await sb.storage.from('media').createSignedUrls(paths, 3600)
++      for (const x of u ?? []) if (x.path && x.signedUrl) url[x.path] = x.signedUrl
++    }
++    return rows.map((m: any) => ({ ...m, urls: (m.photos ?? []).map((p: string) => url[p]).filter(Boolean) }))
+   }, [])
++
++  // reset = tải lại từ đầu (lần đầu, sau khi đăng); không reset = tải thêm trang kế tiếp
++  const page = useCallback(async (reset: boolean) => {
++    if (!reset && lock.current) return
++    const g = reset ? ++gen.current : gen.current
++    lock.current = true; setLoading(true)
++    try {
++      const from = reset ? 0 : lenRef.current
++      const rows = await fetchPage(from)
++      if (g !== gen.current || !rows) return
++      lenRef.current = from + rows.length
++      setList(a => reset ? rows : [...a, ...rows.filter((r: any) => !a.some(x => x.id === r.id))])
++      setMore(rows.length === PAGE)
++    } finally { if (g === gen.current) { lock.current = false; setLoading(false) } }
++  }, [fetchPage])
++  const load = useCallback(() => page(true), [page])
+   useEffect(() => { load() }, [load])
+ 
++  // Cuộn gần cuối danh sách thì tự tải thêm
++  useEffect(() => {
++    const el = sentinel.current; if (!el || !more) return
++    const io = new IntersectionObserver(es => { if (es[0].isIntersecting) page(false) }, { rootMargin: '300px' })
++    io.observe(el); return () => io.disconnect()
++  }, [more, list.length, page])
++
+   async function save() {
+     if (!f.title.trim()) return
+     setBusy(true)
+@@ -44,7 +79,13 @@ export default function Moments() {
+     await sb.from('moments').insert({ space_id: space.id, title: f.title, description: f.desc, taken_on: f.date, place: f.place, photos: paths })
+     setF({ ...f, title: '', desc: '', place: '' }); setFiles([]); setOpen(false); setBusy(false); load()
+   }
+-  const del = async (id: string) => { if (confirm('Xóa khoảnh khắc này? Có thể khôi phục trong 30 ngày.')) { await sb.from('moments').update({ deleted_at: new Date().toISOString() }).eq('id', id); load() } }
++  const del = async (id: string) => {
++    if (!confirm('Xóa khoảnh khắc này? Có thể khôi phục trong 30 ngày.')) return
++    const { error } = await sb.from('moments').update({ deleted_at: new Date().toISOString() }).eq('id', id)
++    if (error) return alert('Không xóa được: ' + error.message)
++    lenRef.current = Math.max(0, lenRef.current - 1)   // giữ vị trí trang kế tiếp đúng
++    setList(a => a.filter(x => x.id !== id))
++  }
+ 
+   return <>
+     <Head t="Khoảnh khắc" />
+@@ -70,6 +111,7 @@ export default function Moments() {
+           <button className="pill" onClick={() => del(m.id)}>Xóa</button>
+         </div>
+       </div>)}
++      {list.length > 0 && more && <div ref={sentinel} style={{ textAlign: 'center' }}><button className="pill" onClick={() => page(false)} disabled={loading}>{loading ? 'Đang tải…' : 'Tải thêm'}</button></div>}
+     </div>
+     <button className="rb fab" onClick={() => setOpen(!open)} aria-label="Thêm khoảnh khắc">{open ? '×' : '+'}</button>
+   </>
+diff --git a/app/(app)/page.tsx b/app/(app)/page.tsx
+index 4addcfd..3f02948 100644
+--- a/app/(app)/page.tsx
++++ b/app/(app)/page.tsx
+@@ -25,6 +25,8 @@ export default function Home() {
+   }, [])
+   const day = space.start_date ? Math.floor((Date.now() - new Date(space.start_date).getTime()) / 864e5) + 1 : null
+   const next = day ? MILESTONES.find(m => m > day) : null
++  const expired = !!space.invite_expires && new Date(space.invite_expires).getTime() < Date.now()
++  const renew = async () => { const { error } = await sb.rpc('renew_invite'); if (error) alert(error.message); else reload() }
+   const setDate = async (v: string) => { await sb.from('spaces').update({ start_date: v }).eq('id', space.id); reload() }
+ 
+   return <>
+@@ -42,7 +44,7 @@ export default function Home() {
+       {plan && <Link href={`/plan/${plan.id}`} className="k pe"><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></Link>}
+       {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map((m, i) => <div key={i} className="s">{m.d.slice(0, 4)}: {m.t}</div>)}</div>}
+       <div className="row"><Link href="/diary" className="k pk"><b>Nhật ký</b><div className="s">Viết cho nhau</div></Link><Link href="/special" className="k pe"><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></Link></div>
+-      {!partner && <div className="k pe"><b>Mời người ấy vào Space</b><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></div>}
++      {!partner && <div className="k pe"><b>Mời người ấy vào Space</b>{expired ? <div className="s">Mã mời đã hết hạn.</div> : <><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></>}<button className="pill" onClick={renew}>Tạo mã mới</button></div>}
+       <div className="row">
+         <Link href="/chat" className="k li"><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></Link>
+         <Link href="/moments" className="k"><b>Khoảnh khắc</b><div className="s">Lưu thêm một kỷ niệm</div></Link>
+diff --git a/app/login/page.tsx b/app/login/page.tsx
+index a2c3bbf..bf3e9e3 100644
+--- a/app/login/page.tsx
++++ b/app/login/page.tsx
+@@ -17,10 +17,27 @@ export default function Login() {
+       if (mode === 'login') {
+         const { error } = await sb.auth.signInWithPassword({ email: f.email, password: f.password }); if (error) throw error
+       } else {
+-        const { data, error } = await sb.auth.signUp({ email: f.email, password: f.password }); if (error) throw error
+-        if (!data.session) throw new Error('Hãy tắt "Confirm email" trong Supabase (Auth > Providers > Email) rồi thử lại')
++        const email = f.email.trim()
++        if (mode === 'join' && !f.code.trim()) throw new Error('Hãy nhập mã mời')
++        // Lần trước đăng ký xong mà vào Space lỗi thì tài khoản vẫn còn: dùng lại, không đăng ký lần nữa
++        let { data: { session } } = await sb.auth.getSession()
++        if (session && session.user.email?.toLowerCase() !== email.toLowerCase()) { await sb.auth.signOut(); session = null }
++        if (!session) {
++          const up = await sb.auth.signUp({ email, password: f.password })
++          if (up.error && /already|registered|exists/i.test(up.error.message)) {
++            const inn = await sb.auth.signInWithPassword({ email, password: f.password })
++            if (inn.error) throw new Error('Email này đã có tài khoản. Hãy nhập đúng mật khẩu đã dùng lúc đăng ký để tiếp tục.')
++            session = inn.data.session
++          } else if (up.error) throw up.error
++          else session = up.data.session
++          if (!session) throw new Error('Supabase đang bật xác nhận email. Vào Auth > Providers > Email, tắt "Confirm email" rồi thử lại.')
++        }
++        // Đã ở trong một Space rồi thì vào thẳng, không tạo/đổi Space
++        const { data: pr } = await sb.from('profiles').select('space_id').eq('id', session.user.id).maybeSingle()
++        if (pr?.space_id) { r.push('/'); return }
+         const q = mode === 'create' ? sb.rpc('create_space', { p_name: f.name }) : sb.rpc('join_space', { p_code: f.code.trim(), p_name: f.name })
+-        const { error: e2 } = await q; if (e2) throw e2
++        const { error: e2 } = await q
++        if (e2) throw new Error(`${e2.message}. Tài khoản đã được tạo, bạn không cần đăng ký lại: ${mode === 'join' ? 'kiểm tra mã mời rồi bấm "Vào Space" lần nữa (nếu mã hết hạn, nhờ người ấy tạo mã mới).' : 'bấm "Tạo Space" lần nữa.'}`)
+       }
+       r.push('/')
+     } catch (e: any) { setErr(e.message ?? 'Có lỗi xảy ra') }
+diff --git a/supabase/phase4.sql b/supabase/phase4.sql
+new file mode 100644
+index 0000000..4e9cc75
+--- /dev/null
++++ b/supabase/phase4.sql
+@@ -0,0 +1,17 @@
++-- Giai đoạn 4 (vá lỗi từ báo cáo rà soát 03/11/2026): chạy trong Supabase > SQL Editor, một lần, sau phase3.sql
++
++-- #1: không cho client tự sửa space_id (nếu không, ai biết uuid của Space khác có thể tự nhảy vào).
++-- Chỉ còn sửa được tên và ảnh đại diện; create_space/join_space là security definer nên vẫn gán space_id bình thường.
++revoke update on profiles from authenticated, anon;
++grant update (display_name, avatar_url) on profiles to authenticated;
++
++-- #2: tạo lại mã mời khi mã cũ hết hạn (chỉ khi Space chưa đủ hai người)
++create or replace function renew_invite() returns text language plpgsql security definer set search_path=public as $$
++declare c text; begin
++  if my_space() is null then raise exception 'Bạn chưa ở trong Space nào'; end if;
++  if (select count(*) from profiles where space_id=my_space())>=2 then raise exception 'Space này đã đủ hai người'; end if;
++  update spaces set invite_code=substr(md5(random()::text),1,8), invite_expires=now()+interval '24 hours'
++    where id=my_space() returning invite_code into c;
++  return c; end $$;
++revoke all on function renew_invite() from public, anon;
++grant execute on function renew_invite() to authenticated;
+-- 
+2.43.0
+
