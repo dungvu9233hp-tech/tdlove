@@ -1,6 +1,6 @@
 # tdlove v1 (giai đoạn 1)
 
-1. Tạo project tại supabase.com, chạy `supabase/schema.sql` trong SQL Editor, rồi lần lượt `phase2.sql`, `phase2b.sql`, `phase3.sql`, `phase4.sql` (phase4 là bản vá bảo mật, bắt buộc).
+1. Tạo project tại supabase.com, chạy `supabase/schema.sql` trong SQL Editor, rồi lần lượt `phase2.sql`, `phase2b.sql`, `phase3.sql`, `phase4.sql` (bản vá bảo mật, bắt buộc), `phase5.sql` (hoàn thiện Chat).
 2. Auth > Providers > Email: tắt "Confirm email" (bản đầu, chỉ hai người dùng).
 3. `cp .env.example .env.local`, điền URL và anon key (Project Settings > API).
 4. `npm install && npm run dev`, mở http://localhost:3000.
