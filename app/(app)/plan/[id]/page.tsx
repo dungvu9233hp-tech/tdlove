@@ -80,8 +80,10 @@ export default function PlanPage() {
   async function addStop() {
     if (!f.name.trim()) return
     // Link chỉ nhận http(s): chặn javascript:... đi qua dữ liệu chia sẻ giữa hai người
-    if ((f.link && !safeUrl(f.link)) || (f.review && !safeUrl(f.review))) return alert('Link phải bắt đầu bằng http:// hoặc https://')
-    if (!await ok(sb.from('stops').insert({ plan_id: id, space_id: space.id, day, start_time: f.time || null, type: f.type, name: f.name, address: f.address, est_cost: Number(f.est) || 0, link: safeUrl(f.link) ?? '', hours: f.hours, phone: f.phone, review_url: safeUrl(f.review) ?? '', note: f.note, ...coords(f.link) }), 'Không thêm được điểm dừng')) return
+    const link = safeUrl(f.link), review = safeUrl(f.review)
+    if (f.link.trim() && !link) return alert('Link Google Maps không hợp lệ')
+    if (f.review.trim() && !review) return alert('Link review không hợp lệ')
+    if (!await ok(sb.from('stops').insert({ plan_id: id, space_id: space.id, day, start_time: f.time || null, type: f.type, name: f.name, address: f.address, est_cost: Number(f.est) || 0, link: link ?? '', hours: f.hours, phone: f.phone, review_url: review ?? '', note: f.note, ...coords(link ?? '') }), 'Không thêm được điểm dừng')) return
     setF(empty); setAdd(false); load()
   }
   const fromWish = (wid: string) => { const w = wish.find(x => x.id === wid); if (w) setF({ ...f, name: w.name, address: w.area ?? '', link: w.link ?? '', note: w.dish ?? '', type: 'Ăn' }) }

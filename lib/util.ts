@@ -12,10 +12,19 @@ export const coords = (u: string) => {
   return m ? { lat: +m[1], lng: +m[2] } : {}
 }
 
-// Chỉ nhận link http(s); chặn javascript:, data:... (dữ liệu này do người kia nhập nên không được tin)
 export const safeUrl = (u?: string | null): string | undefined => {
   if (!u) return undefined
-  try { const x = new URL(u.trim()); return x.protocol === 'http:' || x.protocol === 'https:' ? x.href : undefined } catch { return undefined }
+  const s = u.trim()
+  const m = s.match(/https?:\/\/[^\s<>"']+/i)       // lấy link nằm trong đoạn văn bản được chia sẻ
+  let c = m ? m[0] : s
+  if (!m) {                                         // không có scheme: tự thêm https://
+    if (/\s/.test(c) || (/^[a-z][a-z0-9+.-]*:/i.test(c) && !/^[^/]+\.[^/:]+/.test(c))) return undefined
+    c = 'https://' + c.replace(/^\/\//, '')
+  }
+  try {
+    const x = new URL(c)
+    return (x.protocol === 'http:' || x.protocol === 'https:') && x.hostname.includes('.') ? x.href : undefined
+  } catch { return undefined }
 }
 // Chạy một lệnh ghi của Supabase; lỗi thì báo cho người dùng thay vì im lặng, trả về true nếu thành công
 export async function ok(q: PromiseLike<{ error: { message: string } | null }>, what = 'Không lưu được'): Promise<boolean> {
