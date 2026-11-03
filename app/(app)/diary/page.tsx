@@ -123,7 +123,7 @@ export default function Diary() {
       {list.map(e => {
         const mine = e.author === me.id, ms = (e.diary_media ?? []).slice().sort((a: any, b: any) => a.sort - b.sort)
         return <div key={e.id} className={`k ${mine ? 'pk' : 'li'}`}>
-          <div className="s">{new Date(e.entry_date).toLocaleDateString('vi-VN')}, {mine ? 'bạn viết' : `${partner?.display_name ?? 'Người ấy'} viết`} {e.mood}{e.updated_at ? ' · đã sửa' : ''}</div>
+          <div className="s">{new Date(e.entry_date).toLocaleDateString('vi-VN')}, {mine ? 'bạn viết' : `${partner?.display_name ?? 'Người ấy'} viết`} {e.mood}{e.is_private ? ' · 🔒 riêng tư' : ''}{e.updated_at ? ' · đã sửa' : ''}</div>
           {e.title && <b>{e.title}</b>}
           {e.body && <div style={{ whiteSpace: 'pre-wrap' }}>{e.body}</div>}
           {ms.length > 0 && <div className="mgrid" style={{ marginTop: 8 }}>

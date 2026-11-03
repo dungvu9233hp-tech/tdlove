@@ -17,6 +17,7 @@ export default function DiaryForm({ space, entry, moments, plans, onClose, onDon
   const [f, setF] = useState({
     date: entry?.entry_date ?? localDay(new Date().toISOString()), title: entry?.title ?? '', body: entry?.body ?? '',
     mood: entry?.mood ?? '🥰', moment: (entry?.moment_id ?? '') as string, plan: (entry?.plan_id ?? '') as string,
+    priv: !!entry?.is_private,
   })
   const [items, setItems] = useState<Item[]>([])
   const [old, setOld] = useState<any[]>((entry?.diary_media ?? []).slice().sort((a: any, b: any) => a.sort - b.sort))
@@ -75,7 +76,7 @@ export default function DiaryForm({ space, entry, moments, plans, onClose, onDon
     if (!f.body.trim() && !f.title.trim() && total === 0) return alert('Hãy viết gì đó hoặc thêm ảnh nhé')
     setBusy(true)
     try {
-      const body = { entry_date: f.date || today, title: f.title.trim() || null, body: f.body.trim() || null, mood: f.mood, moment_id: f.moment || null, plan_id: f.plan || null }
+      const body = { entry_date: f.date || today, title: f.title.trim() || null, body: f.body.trim() || null, mood: f.mood, moment_id: f.moment || null, plan_id: f.plan || null, is_private: f.priv }
       if (savedId.current) {
         const { error } = await sb.from('diary_entries').update(body).eq('id', savedId.current)
         if (error) return alert('Không lưu được nhật ký: ' + error.message)
@@ -110,6 +111,9 @@ export default function DiaryForm({ space, entry, moments, plans, onClose, onDon
       <label className="s">Ngày<input type="date" max={today} value={f.date} onChange={e => setF({ ...f, date: e.target.value })} /></label>
       <input placeholder="Tiêu đề" value={f.title} maxLength={120} onChange={e => setF({ ...f, title: e.target.value })} aria-label="Tiêu đề" />
       <textarea rows={6} placeholder="Hôm nay có gì vui…" value={f.body} onChange={e => setF({ ...f, body: e.target.value })} aria-label="Nội dung" />
+      <label className="row" style={{ flex: 'none', gap: 8, alignItems: 'center' }}>
+        <input type="checkbox" style={{ flex: 'none', width: 24, height: 24 }} checked={f.priv} onChange={e => setF({ ...f, priv: e.target.checked })} />
+        <span className="s" style={{ flex: 1 }}>🔒 Chỉ mình tôi xem (người ấy không thấy bài và ảnh này)</span></label>
       <div className="row" style={{ flexWrap: 'wrap' }}>{MOOD.map(m => <button key={m} className={`pill ${f.mood === m ? 'on' : ''}`} style={{ fontSize: 22 }} onClick={() => setF({ ...f, mood: m })} aria-label={`Tâm trạng ${m}`} aria-pressed={f.mood === m}>{m}</button>)}</div>
     </div>
 

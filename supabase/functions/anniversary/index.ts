@@ -21,7 +21,8 @@ Deno.serve(async () => {
   const memos = new Map<string, { kind: string; title: string; day: string }[]>()
   const { data: mm, error: mErr } = await admin.rpc('on_this_day', { d: ymd(today) })
   if (mErr) console.error('on_this_day', mErr.message)   // chưa chạy phase7.sql thì chỉ bỏ qua phần kỷ niệm, vẫn nhắc ngày đặc biệt
-  for (const r of mm ?? []) { const a = memos.get(r.space_id) ?? []; a.push(r); memos.set(r.space_id, a) }
+  for (const r of mm ?? []) { if (r.is_private) continue   // DIARY-04: không bao giờ đẩy nội dung bài riêng tư sang máy người kia
+  const a = memos.get(r.space_id) ?? []; a.push(r); memos.set(r.space_id, a) }
 
   const { data: spaces } = await admin.from('spaces').select('id,start_date')
   let sent = 0
