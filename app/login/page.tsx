@@ -1,14 +1,17 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { sb } from '@/lib/supabase'
 import { Heart } from '@/components/Head'
+import { authMsg } from '@/lib/auth'
 
 export default function Login() {
   const r = useRouter()
-  const [mode, setMode] = useState<'login' | 'create' | 'join'>('login')
+  const [mode, setMode] = useState<'login' | 'create' | 'join' | 'forgot'>('login')
   const [f, setF] = useState({ email: '', password: '', name: '', code: '' })
   const [err, setErr] = useState(''); const [busy, setBusy] = useState(false)
+  const [info, setInfo] = useState(''); const [cool, setCool] = useState(0)   // cool: giây chờ trước khi được gửi lại email
+  useEffect(() => { if (cool > 0) { const t = setTimeout(() => setCool(cool - 1), 1000); return () => clearTimeout(t) } }, [cool])
   const up = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value })
 
   async function go() {
@@ -45,20 +48,37 @@ export default function Login() {
     setBusy(false)
   }
 
+  // Quên mật khẩu (AUTH-04): gửi email chứa link về /reset-password
+  async function sendReset() {
+    const email = f.email.trim()
+    if (!email) return setErr('Hãy nhập email đã dùng để đăng ký')
+    setBusy(true); setErr(''); setInfo('')
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` })
+    if (error) setErr(authMsg(error))
+    else { setInfo('Nếu email này đã có tài khoản, mình vừa gửi link đặt lại mật khẩu. Nhớ xem cả thư mục Spam. Link chỉ dùng được một lần và sẽ hết hạn sau ít lâu.'); setCool(60) }
+    setBusy(false)
+  }
+  const goMode = (m: typeof mode) => { setMode(m); setErr(''); setInfo('') }
+
   return (
     <div className="p"><div className="b" style={{ justifyContent: 'center' }}>
       <div style={{ textAlign: 'center' }}><Heart size={96} /><h1 className="num" style={{ fontSize: 44 }}>tdlove</h1><div className="s">Góc nhỏ của hai đứa mình</div></div>
       <label className="k s"><input type="email" placeholder="Email của bạn" value={f.email} onChange={up('email')} autoComplete="email" /></label>
-      <label className="k s"><input type="password" placeholder="Mật khẩu" value={f.password} onChange={up('password')} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></label>
-      {mode !== 'login' && <label className="k s"><input placeholder="Tên hiển thị" value={f.name} onChange={up('name')} /></label>}
+      {mode !== 'forgot' && <label className="k s"><input type="password" placeholder="Mật khẩu" value={f.password} onChange={up('password')} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></label>}
+      {mode === 'login' && <button className="pill" style={{ alignSelf: 'flex-end' }} onClick={() => goMode('forgot')}>Quên mật khẩu?</button>}
+      {mode === 'forgot' && <div className="s">Nhập email đã đăng ký, mình gửi link để bạn đặt mật khẩu mới.</div>}
+      {(mode === 'create' || mode === 'join') && <label className="k s"><input placeholder="Tên hiển thị" value={f.name} onChange={up('name')} /></label>}
       {mode === 'join' && <label className="k s"><input placeholder="Mã mời từ người ấy" value={f.code} onChange={up('code')} autoCapitalize="none" /></label>}
       {err && <div className="k pe s" role="alert">{err}</div>}
-      <button className="btn" onClick={go} disabled={busy}>{mode === 'login' ? 'Đăng nhập' : mode === 'create' ? 'Tạo Space' : 'Vào Space'}</button>
-      <div className="row">
-        <button className={`k pk ${mode === 'create' ? 'on' : ''}`} onClick={() => setMode('create')}>Tạo Space mới</button>
-        <button className={`k pe ${mode === 'join' ? 'on' : ''}`} onClick={() => setMode('join')}>Nhập mã mời</button>
-      </div>
-      {mode !== 'login' && <button className="pill" style={{ alignSelf: 'center' }} onClick={() => setMode('login')}>Đã có tài khoản? Đăng nhập</button>}
+      {info && <div className="k pk s" role="status">{info}</div>}
+      {mode === 'forgot'
+        ? <button className="btn" onClick={sendReset} disabled={busy || cool > 0}>{cool > 0 ? `Gửi lại sau ${cool}s` : info ? 'Gửi lại link' : 'Gửi link đặt lại mật khẩu'}</button>
+        : <button className="btn" onClick={go} disabled={busy}>{mode === 'login' ? 'Đăng nhập' : mode === 'create' ? 'Tạo Space' : 'Vào Space'}</button>}
+      {mode !== 'forgot' && <div className="row">
+        <button className={`k pk ${mode === 'create' ? 'on' : ''}`} onClick={() => goMode('create')}>Tạo Space mới</button>
+        <button className={`k pe ${mode === 'join' ? 'on' : ''}`} onClick={() => goMode('join')}>Nhập mã mời</button>
+      </div>}
+      {mode !== 'login' && <button className="pill" style={{ alignSelf: 'center' }} onClick={() => goMode('login')}>{mode === 'forgot' ? 'Quay lại đăng nhập' : 'Đã có tài khoản? Đăng nhập'}</button>}
       <div className="s" style={{ textAlign: 'center' }}>Mỗi Space chỉ có đúng hai người</div>
     </div></div>
   )

@@ -51,3 +51,13 @@
 - Trong form viết/sửa có công tắc "🔒 Chỉ mình tôi xem". Bài riêng tư và ảnh đính kèm bị ẩn khỏi người kia ngay ở cơ sở dữ liệu (RLS), không chỉ ở giao diện; chỉ tác giả bật/tắt được.
 - Bài riêng tư không bao giờ được đẩy vào thông báo "Ngày này năm trước" của người kia; tác giả vẫn thấy nó ở Trang chủ của mình.
 - Giới hạn: tệp ảnh nằm chung bucket `media` của Space nên về kỹ thuật người kia vẫn liệt kê được tên tệp trong Storage nếu cố tình, nhưng không biết tệp nào thuộc bài nào và không có đường dẫn từ nhật ký. Nếu cần kín hơn, phải tách bucket riêng cho ảnh riêng tư.
+
+## Đăng xuất, đổi mật khẩu, quên mật khẩu (AUTH-04)
+
+- Không có file SQL mới, chỉ cần deploy lại app. **Nhưng phải cấu hình Supabase** (Auth), nếu không "Quên mật khẩu" sẽ không chạy:
+  1. Auth > URL Configuration: đặt **Site URL** là địa chỉ thật (ví dụ `https://tdlove.vercel.app`) và thêm vào **Redirect URLs**: `https://tdlove.vercel.app/reset-password` và `http://localhost:3000/reset-password` (nếu test ở máy). Thiếu bước này link trong email sẽ về trang chủ thay vì trang đặt lại mật khẩu.
+  2. Auth > SMTP Settings: **nên cấu hình SMTP riêng** (Resend, Brevo, Gmail SMTP…). Email mặc định của Supabase chỉ gửi rất ít thư mỗi giờ và có thể chỉ gửi tới email thành viên của dự án, nên người kia có thể không nhận được link.
+  3. Auth > Providers > Email: nên đặt độ dài mật khẩu tối thiểu là 8 cho khớp với app (app đã kiểm tra ≥ 8 ký tự ở phía giao diện khi đổi/đặt lại).
+- Quên mật khẩu: ở màn đăng nhập bấm "Quên mật khẩu?" → nhập email → nhận link → mở `/reset-password` → nhập mật khẩu mới. App luôn báo "nếu email đã có tài khoản thì đã gửi" để người lạ không dò được email nào đã đăng ký. Có đếm ngược 60 giây trước khi gửi lại.
+- Đổi mật khẩu: Cài đặt > "Đổi mật khẩu", phải nhập đúng mật khẩu hiện tại. Sau khi đổi hoặc đặt lại, **các máy khác bị đăng xuất** (máy đang dùng vẫn giữ phiên). Nếu dùng app cài ở Màn hình chính trên iPhone, phiên ở đó tách khỏi Safari nên cần đăng nhập lại.
+- Đăng xuất: chỉ đăng xuất máy đang bấm (`scope: 'local'`). Trước đây dùng mặc định của supabase-js nên đăng xuất ở điện thoại sẽ đăng xuất luôn máy tính.
