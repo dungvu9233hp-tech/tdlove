@@ -20,9 +20,9 @@ export default function Home() {
   }, [])
   const [memo, setMemo] = useState<any[]>([])
   useEffect(() => {
-    const t = new Date(), md = `${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
-    Promise.all([sb.from('diary_entries').select('title,entry_date').limit(500), sb.from('moments').select('title,taken_on').is('deleted_at', null).limit(500)]).then(([a, b]) =>
-      setMemo([...(a.data ?? []).map((x: any) => ({ t: x.title || 'Nhật ký', d: x.entry_date })), ...(b.data ?? []).map((x: any) => ({ t: x.title, d: x.taken_on }))].filter(x => x.d?.slice(5) === md && +x.d.slice(0, 4) < t.getFullYear())))
+    // DIARY-02: nhật ký + Moment của đúng ngày này các năm trước (hàm on_this_day, phase7.sql); ngày theo giờ máy
+    const t = new Date(), today = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+    sb.rpc('on_this_day', { d: today }).then(r => { if (r.error) console.error('on_this_day', r.error.message); else setMemo(r.data ?? []) })
   }, [])
   const day = space.start_date ? daysTogether(space.start_date) : null
   const next = day ? MILESTONES.find(m => m > day) : null
@@ -43,7 +43,7 @@ export default function Home() {
       {!space.start_date && <label className="k li"><b>Hai đứa bắt đầu yêu từ ngày nào?</b><input type="date" onChange={e => e.target.value && setDate(e.target.value)} /></label>}
       {next && day && <div className="k pk"><b>Mốc kế tiếp: {next} ngày</b><div className="s">Còn {next - day} ngày nữa</div></div>}
       {plan && <Link href={`/plan/${plan.id}`} className="k pe"><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></Link>}
-      {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map((m, i) => <div key={i} className="s">{m.d.slice(0, 4)}: {m.t}</div>)}<Link href="/moments?memories=1" className="pill on">▶ Xem lại ảnh</Link></div>}
+      {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map(m => <Link key={m.kind + m.id} href={m.kind === 'diary' ? `/diary?month=${m.day.slice(0, 7)}` : `/moments?open=${m.id}`} className="s" style={{ display: 'block' }}>{m.kind === 'diary' ? '📓' : '📷'} {m.day.slice(0, 4)}: {m.title}</Link>)}{memo.some(m => m.kind === 'moment') && <Link href="/moments?memories=1" className="pill on">▶ Xem lại ảnh</Link>}</div>}
       <div className="row"><Link href="/diary" className="k pk"><b>Nhật ký</b><div className="s">Viết cho nhau</div></Link><Link href="/special" className="k pe"><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></Link></div>
       {!partner && <div className="k pe"><b>Mời người ấy vào Space</b>{expired ? <div className="s">Mã mời đã hết hạn.</div> : <><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></>}<button className="pill" onClick={renew}>Tạo mã mới</button></div>}
       <div className="row">
