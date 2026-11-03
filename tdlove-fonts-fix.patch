@@ -1,0 +1,106 @@
+From c1be32d6898745c88a12c149ffda25a41258bfdf Mon Sep 17 00:00:00 2001
+From: claude <c@x>
+Date: Tue, 3 Nov 2026 06:55:28 +0000
+Subject: [PATCH] =?UTF-8?q?D=C3=B9ng=20@fontsource=20thay=20next/font/goog?=
+ =?UTF-8?q?le=20=C4=91=E1=BB=83=20build=20kh=C3=B4ng=20c=E1=BA=A7n=20m?=
+ =?UTF-8?q?=E1=BA=A1ng?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ app/globals.css   |  2 +-
+ app/layout.tsx    | 13 +++++++++----
+ package-lock.json | 20 ++++++++++++++++++++
+ package.json      |  2 ++
+ 4 files changed, 32 insertions(+), 5 deletions(-)
+
+diff --git a/app/globals.css b/app/globals.css
+index 18856d7..d13a061 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -1,4 +1,4 @@
+-:root{--ink:#5B1F3A;--ink2:#8A3358;--pink:#FF8FB8;--shadow:#FFB3CF}
++:root{--f1:'Baloo 2';--f2:'Quicksand';--ink:#5B1F3A;--ink2:#8A3358;--pink:#FF8FB8;--shadow:#FFB3CF}
+ *{margin:0;padding:0;box-sizing:border-box}
+ body{background:#FFF0F6;font-family:var(--f2),system-ui,sans-serif;font-size:16px;color:var(--ink)}
+ a{color:inherit;text-decoration:none}
+diff --git a/app/layout.tsx b/app/layout.tsx
+index 7761dfa..47e020d 100644
+--- a/app/layout.tsx
++++ b/app/layout.tsx
+@@ -1,11 +1,16 @@
+ import type { Metadata, Viewport } from 'next'
+-import { Baloo_2, Quicksand } from 'next/font/google'
++import '@fontsource/baloo-2/latin-700.css'
++import '@fontsource/baloo-2/latin-800.css'
++import '@fontsource/baloo-2/vietnamese-700.css'
++import '@fontsource/baloo-2/vietnamese-800.css'
++import '@fontsource/quicksand/latin-600.css'
++import '@fontsource/quicksand/latin-700.css'
++import '@fontsource/quicksand/vietnamese-600.css'
++import '@fontsource/quicksand/vietnamese-700.css'
+ import './globals.css'
+ import Sw from '@/components/Sw'
+-const f1 = Baloo_2({ subsets: ['vietnamese', 'latin'], weight: ['700', '800'], variable: '--f1' })
+-const f2 = Quicksand({ subsets: ['vietnamese', 'latin'], weight: ['600', '700'], variable: '--f2' })
+ export const metadata: Metadata = { title: 'tdlove', description: 'Góc nhỏ của hai đứa mình', manifest: '/manifest.webmanifest', robots: { index: false, follow: false }, icons: { icon: '/icons/icon-192.png', apple: '/icons/apple-touch-icon.png' } }
+ export const viewport: Viewport = { themeColor: '#FF8FB8', width: 'device-width', initialScale: 1 }
+ export default function Root({ children }: { children: React.ReactNode }) {
+-  return <html lang="vi" className={`${f1.variable} ${f2.variable}`}><body>{children}<Sw /></body></html>
++  return <html lang="vi" ><body>{children}<Sw /></body></html>
+ }
+diff --git a/package-lock.json b/package-lock.json
+index d37fb74..7851e9d 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -6,6 +6,8 @@
+   "": {
+    "name": "tdlove",
+    "dependencies": {
++    "@fontsource/baloo-2": "^5.3.0",
++    "@fontsource/quicksand": "^5.3.0",
+     "@supabase/supabase-js": "^2.45.0",
+     "exifr": "^7.1.3",
+     "fflate": "^0.8.3",
+@@ -23,6 +25,24 @@
+     "typescript": "^5.5.0"
+    }
+   },
++  "node_modules/@fontsource/baloo-2": {
++   "version": "5.3.0",
++   "resolved": "https://registry.npmjs.org/@fontsource/baloo-2/-/baloo-2-5.3.0.tgz",
++   "integrity": "sha512-CBuxZ27jvMmD5+KaaPkMWv/yjdRNppVAd5/002yAyvyQyLNL3aZCbkx6gbAT/bjxPd1A0VMdDQjfcELI8chccQ==",
++   "license": "OFL-1.1",
++   "funding": {
++    "url": "https://github.com/sponsors/ayuhito"
++   }
++  },
++  "node_modules/@fontsource/quicksand": {
++   "version": "5.3.0",
++   "resolved": "https://registry.npmjs.org/@fontsource/quicksand/-/quicksand-5.3.0.tgz",
++   "integrity": "sha512-epmMUyXI39f88bZSCyKlHTZqUWg4O7DqrTXOKqsqbVKMLshX9RtIYCUIw+G2nOfEwdIHIjYbeWdwHRcEzRXBRQ==",
++   "license": "OFL-1.1",
++   "funding": {
++    "url": "https://github.com/sponsors/ayuhito"
++   }
++  },
+   "node_modules/@next/env": {
+    "version": "14.2.15",
+    "resolved": "https://registry.npmjs.org/@next/env/-/env-14.2.15.tgz",
+diff --git a/package.json b/package.json
+index 599553e..3678c9c 100644
+--- a/package.json
++++ b/package.json
+@@ -7,6 +7,8 @@
+   "start": "next start"
+  },
+  "dependencies": {
++  "@fontsource/baloo-2": "^5.3.0",
++  "@fontsource/quicksand": "^5.3.0",
+   "@supabase/supabase-js": "^2.45.0",
+   "exifr": "^7.1.3",
+   "fflate": "^0.8.3",
+-- 
+2.43.0
+

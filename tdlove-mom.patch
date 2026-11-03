@@ -1,0 +1,1602 @@
+From 1c8395287ddfe0f3d017e41fa01806a980c8ffe7 Mon Sep 17 00:00:00 2001
+From: claude <c@x>
+Date: Tue, 3 Nov 2026 06:43:24 +0000
+Subject: [PATCH] =?UTF-8?q?Kho=E1=BA=A3nh=20kh=E1=BA=AFc=20MOM-01..11:=20m?=
+ =?UTF-8?q?edia,=20EXIF,=20ch=E1=BB=8Dn=20=C4=91=E1=BB=8Ba=20=C4=91i?=
+ =?UTF-8?q?=E1=BB=83m,=20upload=20TUS,=20s=E1=BB=ADa/x=C3=B3a=20m=E1=BB=81?=
+ =?UTF-8?q?m/th=C3=B9ng=20r=C3=A1c,=20album,=20l=E1=BB=8Dc,=20tim/b=C3=ACn?=
+ =?UTF-8?q?h=20lu=E1=BA=ADn,=20ghim=20b=E1=BA=A3n=20=C4=91=E1=BB=93,=20zip?=
+ =?UTF-8?q?,=20slideshow,=20li=C3=AAn=20k=E1=BA=BFt=20Plan?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .env.example                     |   3 +
+ README.md                        |  10 +-
+ app/(app)/map/page.tsx           |  20 ++-
+ app/(app)/moments/page.tsx       | 240 ++++++++++++++++++++-----------
+ app/(app)/moments/trash/page.tsx |  37 +++++
+ app/(app)/page.tsx               |   2 +-
+ app/(app)/plan/[id]/page.tsx     |   5 +-
+ app/globals.css                  |  21 +++
+ components/Lightbox.tsx          |  24 ++++
+ components/MomentForm.tsx        | 217 ++++++++++++++++++++++++++++
+ components/MomentView.tsx        |  85 +++++++++++
+ components/PlacePicker.tsx       |  59 ++++++++
+ components/Slideshow.tsx         |  21 +++
+ lib/media.ts                     | 167 +++++++++++++++++++++
+ lib/trash.ts                     |  17 +++
+ package-lock.json                | 196 +++++++++++++++++++++++--
+ package.json                     |  13 +-
+ supabase/phase6.sql              | 107 ++++++++++++++
+ 18 files changed, 1135 insertions(+), 109 deletions(-)
+ create mode 100644 app/(app)/moments/trash/page.tsx
+ create mode 100644 components/Lightbox.tsx
+ create mode 100644 components/MomentForm.tsx
+ create mode 100644 components/MomentView.tsx
+ create mode 100644 components/PlacePicker.tsx
+ create mode 100644 components/Slideshow.tsx
+ create mode 100644 lib/media.ts
+ create mode 100644 lib/trash.ts
+ create mode 100644 supabase/phase6.sql
+
+diff --git a/.env.example b/.env.example
+index 18dd9d6..4a117d2 100644
+--- a/.env.example
++++ b/.env.example
+@@ -8,3 +8,6 @@ NEXT_PUBLIC_TURN_PASS=
+ 
+ # Web Push (CHAT-04, CALL-05, ANNIV-04): khóa công khai VAPID, xem supabase/functions/README.md
+ NEXT_PUBLIC_VAPID_PUBLIC_KEY=
++
++# Giới hạn dung lượng video (MB). Gói Supabase miễn phí: 50. Gói Pro đã nâng giới hạn tệp: 200 (đúng SRS MOM-03)
++NEXT_PUBLIC_MAX_VIDEO_MB=50
+diff --git a/README.md b/README.md
+index e739dd8..a067407 100644
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,6 @@
+ # tdlove v1 (giai đoạn 1)
+ 
+-1. Tạo project tại supabase.com, chạy `supabase/schema.sql` trong SQL Editor, rồi lần lượt `phase2.sql`, `phase2b.sql`, `phase3.sql`, `phase4.sql` (bản vá bảo mật, bắt buộc), `phase5.sql` (hoàn thiện Chat).
++1. Tạo project tại supabase.com, chạy `supabase/schema.sql` trong SQL Editor, rồi lần lượt `phase2.sql`, `phase2b.sql`, `phase3.sql`, `phase4.sql` (bản vá bảo mật, bắt buộc), `phase5.sql` (hoàn thiện Chat), `phase6.sql` (Khoảnh khắc: media, album, tim, bình luận).
+ 2. Auth > Providers > Email: tắt "Confirm email" (bản đầu, chỉ hai người dùng).
+ 3. `cp .env.example .env.local`, điền URL và anon key (Project Settings > API).
+ 4. `npm install && npm run dev`, mở http://localhost:3000.
+@@ -14,3 +14,11 @@
+ - Cuộc gọi đến chỉ hiện khi app đang mở (gọi khi app đóng là CALL-05, chưa làm).
+ - Bật loa ngoài: Chrome Android chọn được thiết bị âm thanh ra; Safari iOS không cho web chọn loa, hệ điều hành tự quyết định.
+ - Cách test: mở hai máy (một Wi-Fi, một 4G), bấm Gọi/Video ở màn hình Chat.
++
++## Khoảnh khắc (MOM-01..11)
++
++- Chạy `supabase/phase6.sql` (an toàn khi chạy lại; tự chuyển ảnh cũ trong `moments.photos` sang bảng `media`).
++- Ảnh: tối đa 20 tệp/khoảnh khắc, mỗi ảnh gốc ≤ 15 MB, tự resize 1600px + tạo thumbnail 480px. Ngày chụp và GPS lấy từ EXIF (iOS có thể ẩn GPS tùy tùy chọn khi chọn ảnh).
++- Video: ≤ 3 phút, tải bằng giao thức resumable (TUS), có tiến độ, mất mạng thì chờ và tải tiếp. Giới hạn dung lượng mặc định 50 MB vì gói Supabase miễn phí không nhận tệp lớn hơn; sau khi lên gói Pro và nâng giới hạn trong Storage settings, đặt `NEXT_PUBLIC_MAX_VIDEO_MB=200`. Chưa nén video ở máy (trình duyệt di động không làm ổn định được).
++- Thùng rác: `/moments/trash`, giữ 30 ngày, quá hạn tự xóa (cả tệp trong Storage) mỗi lần mở trang Khoảnh khắc hoặc thùng rác.
++- Chọn địa điểm/tìm tên dùng OpenStreetMap Nominatim (miễn phí, chỉ gọi khi bấm Tìm hoặc chọn điểm).
+diff --git a/app/(app)/map/page.tsx b/app/(app)/map/page.tsx
+index 67aef12..e16ff38 100644
+--- a/app/(app)/map/page.tsx
++++ b/app/(app)/map/page.tsx
+@@ -1,6 +1,7 @@
+ 'use client'
+ import 'leaflet/dist/leaflet.css'
+ import { useEffect, useRef, useState } from 'react'
++import { useRouter } from 'next/navigation'
+ import { sb } from '@/lib/supabase'
+ import { useApp } from '@/lib/ctx'
+ import Head from '@/components/Head'
+@@ -11,6 +12,7 @@ const ago = (t: string) => { const s = Math.max(0, Math.round((Date.now() - new
+ 
+ export default function MapPage() {
+   const { me, space, partner } = useApp()
++  const router = useRouter()
+   const el = useRef<HTMLDivElement>(null), map = useRef<any>(null), L = useRef<any>(null), pins = useRef<Record<string, any>>({}), fit = useRef(false)
+   const [locs, setLocs] = useState<Record<string, any>>({})
+   const [err, setErr] = useState(''); const [ready, setReady] = useState(false); const [, tick] = useState(0)
+@@ -89,10 +91,26 @@ export default function MapPage() {
+     spots.forEach(s => L.current.circleMarker([s.lat, s.lng], { radius: 8, color: '#5B1F3A', weight: 2.5, fillColor: '#FFB3CF', fillOpacity: 1 }).bindTooltip(s.name).addTo(g))
+     return () => { g.remove() }
+   }, [ready, spots])
++  // MOM-08: các khoảnh khắc đã gắn vị trí hiện thành ghim trên bản đồ
++  const [moms, setMoms] = useState<any[]>([]); const [showMoms, setShowMoms] = useState(true)
++  useEffect(() => { sb.from('moments').select('id,title,taken_on,place,lat,lng').is('deleted_at', null).not('lat', 'is', null).limit(500).then(r => setMoms(r.data ?? [])) }, [])
++  useEffect(() => {
++    if (!ready || !showMoms) return
++    const g = L.current.layerGroup().addTo(map.current)
++    moms.forEach(m => {
++      const box = document.createElement('div')
++      const t = document.createElement('b'); t.textContent = m.title; box.appendChild(t)
++      const d = document.createElement('div'); d.textContent = new Date(m.taken_on).toLocaleDateString('vi-VN') + (m.place ? ' · ' + m.place : ''); box.appendChild(d)
++      const bt = document.createElement('button'); bt.className = 'pill on'; bt.textContent = 'Xem khoảnh khắc'; bt.onclick = () => router.push('/moments?open=' + m.id); box.appendChild(bt)
++      L.current.circleMarker([m.lat, m.lng], { radius: 10, color: '#5B1F3A', weight: 2.5, fillColor: '#EBDDFF', fillOpacity: 1 }).bindPopup(box).bindTooltip('♥ ' + m.title).addTo(g)
++    })
++    if (!fit.current && moms.length && !Object.keys(pins.current).length) { fit.current = true; map.current.fitBounds(moms.map(m => [m.lat, m.lng]), { padding: [50, 50], maxZoom: 15 }) }
++    return () => { g.remove() }
++  }, [ready, moms, showMoms])
+   const dist = sharing && theirs ? km(mine, theirs) : null
+ 
+   return <>
+-    <Head t="Bản đồ">{sharing && <span className="pill on">Đang chia sẻ</span>}</Head>
++    <Head t="Bản đồ">{sharing && <span className="pill on">Đang chia sẻ</span>}<button className={'pill' + (showMoms ? ' on' : '')} onClick={() => setShowMoms(!showMoms)} aria-pressed={showMoms}>♥ Khoảnh khắc ({moms.length})</button></Head>
+     <div className="b">
+       <div ref={el} className="mapbox" />
+       {err && <div className="k pe s" role="alert">{err}</div>}
+diff --git a/app/(app)/moments/page.tsx b/app/(app)/moments/page.tsx
+index c7601bf..ecb2a79 100644
+--- a/app/(app)/moments/page.tsx
++++ b/app/(app)/moments/page.tsx
+@@ -1,129 +1,197 @@
+ 'use client'
+ import { useCallback, useEffect, useRef, useState } from 'react'
++import Link from 'next/link'
+ import { sb } from '@/lib/supabase'
+ import { useApp } from '@/lib/ctx'
++import { sign, TAG_EMOJI, zipDownload } from '@/lib/media'
++import { ok } from '@/lib/util'
++import { purgeOld } from '@/lib/trash'
+ import Head from '@/components/Head'
+-
+-// Resize về tối đa 1600px, nén JPEG trước khi tải lên
+-async function shrink(f: File): Promise<Blob> {
+-  const bmp = await createImageBitmap(f)
+-  const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height))
+-  const c = document.createElement('canvas'); c.width = bmp.width * k; c.height = bmp.height * k
+-  c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height)
+-  return new Promise(ok => c.toBlob(b => ok(b!), 'image/jpeg', 0.8))
+-}
++import MomentForm from '@/components/MomentForm'
++import MomentView from '@/components/MomentView'
++import Slideshow from '@/components/Slideshow'
+ 
+ const PAGE = 30
+-const MAX_VIDEO = 50 * 1048576   // gói Supabase miễn phí chỉ nhận tối đa 50 MB mỗi file
++const SEL = '*, media(id,kind,path,thumb_path,sort,size,duration), moment_hearts(user_id), moment_comments(count), album_moments(album_id)'
++const dayLabel = (d: string) => new Date(d).toLocaleDateString('vi-VN', { weekday: 'long', day: 'numeric', month: 'numeric', year: 'numeric' })
++const slug = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'tep'
++
++type Filter = { year: string; place: string; tag: string; album: string }
++const NOF: Filter = { year: '', place: '', tag: '', album: '' }
+ 
+ export default function Moments() {
+-  const { space } = useApp()
+-  const [list, setList] = useState<any[]>([])
+-  const [open, setOpen] = useState(false); const [busy, setBusy] = useState(false)
+-  const [f, setF] = useState({ title: '', desc: '', date: new Date().toISOString().slice(0, 10), place: '' })
+-  const [files, setFiles] = useState<File[]>([])
++  const { me, partner, space } = useApp()
++  const [list, setList] = useState<any[]>([]); const [thumbs, setThumbs] = useState<Record<string, string>>({})
+   const [more, setMore] = useState(true); const [loading, setLoading] = useState(false)
+-  const lenRef = useRef(0); const lock = useRef(false); const gen = useRef(0)
++  const [flt, setFlt] = useState<Filter>(NOF); const [showF, setShowF] = useState(false)
++  const [opts, setOpts] = useState<{ years: string[]; places: string[]; tags: string[] }>({ years: [], places: [], tags: [] })
++  const [albums, setAlbums] = useState<any[]>([]); const [plans, setPlans] = useState<any[]>([])
++  const [form, setForm] = useState<null | 'new' | any>(null); const [view, setView] = useState<any>(null)
++  const [memo, setMemo] = useState<any[]>([]); const [show, setShow] = useState(false)
++  const [zip, setZip] = useState<string>(''); const [trashN, setTrashN] = useState(0)
++  const lenRef = useRef(0), lock = useRef(false), gen = useRef(0), fRef = useRef(flt); fRef.current = flt
+   const sentinel = useRef<HTMLDivElement>(null)
+ 
+-  // Lấy một trang 30 moment bắt đầu từ vị trí `from`; một lần gọi duy nhất để ký link cho cả trang
++  const attach = useCallback(async (rows: any[]) => {   // ký link ảnh nhỏ cho cả trang bằng một lần gọi
++    const t = await sign(rows.flatMap(m => (m.media ?? []).slice().sort((a: any, b: any) => a.sort - b.sort).slice(0, 4).map((x: any) => x.thumb_path ?? (x.kind === 'image' ? x.path : null))))
++    setThumbs(a => ({ ...a, ...t }))
++  }, [])
++
+   const fetchPage = useCallback(async (from: number) => {
+-    const { data, error } = await sb.from('moments').select('*').is('deleted_at', null)
+-      .order('taken_on', { ascending: false }).order('created_at', { ascending: false }).order('id')
+-      .range(from, from + PAGE - 1)
++    const f = fRef.current
++    let q: any = sb.from('moments').select(f.album ? SEL.replace('album_moments(album_id)', 'album_moments!inner(album_id)') : SEL).is('deleted_at', null)
++    if (f.year) q = q.gte('taken_on', `${f.year}-01-01`).lte('taken_on', `${f.year}-12-31`)
++    if (f.place) q = q.eq('place', f.place)
++    if (f.tag) q = q.contains('tags', [f.tag])
++    if (f.album) q = q.eq('album_moments.album_id', f.album)
++    const { data, error } = await q.order('taken_on', { ascending: false }).order('created_at', { ascending: false }).order('id').range(from, from + PAGE - 1)
+     if (error) { console.error('moments', error.message); return null }
+-    const rows = data ?? []
+-    const paths = rows.flatMap((m: any) => m.photos ?? [])
+-    const url: Record<string, string> = {}
+-    if (paths.length) {
+-      const { data: u } = await sb.storage.from('media').createSignedUrls(paths, 3600)
+-      for (const x of u ?? []) if (x.path && x.signedUrl) url[x.path] = x.signedUrl
+-    }
+-    return rows.map((m: any) => ({ ...m, urls: (m.photos ?? []).map((p: string) => url[p]).filter(Boolean) }))
+-  }, [])
++    const rows = data ?? []; await attach(rows); return rows
++  }, [attach])
+ 
+-  // reset = tải lại từ đầu (lần đầu, sau khi đăng); không reset = tải thêm trang kế tiếp
+   const page = useCallback(async (reset: boolean) => {
+     if (!reset && lock.current) return
+     const g = reset ? ++gen.current : gen.current
+     lock.current = true; setLoading(true)
+     try {
+-      const from = reset ? 0 : lenRef.current
+-      const rows = await fetchPage(from)
++      const from = reset ? 0 : lenRef.current, rows = await fetchPage(from)
+       if (g !== gen.current || !rows) return
+       lenRef.current = from + rows.length
+-      setList(a => reset ? rows : [...a, ...rows.filter((r: any) => !a.some(x => x.id === r.id))])
+-      setMore(rows.length === PAGE)
++      setList(a => reset ? rows : [...a, ...rows.filter((r: any) => !a.some(x => x.id === r.id))]); setMore(rows.length === PAGE)
+     } finally { if (g === gen.current) { lock.current = false; setLoading(false) } }
+   }, [fetchPage])
+   const load = useCallback(() => page(true), [page])
+-  useEffect(() => { load() }, [load])
++  useEffect(() => { load() }, [load, flt])
+ 
+-  // Cuộn gần cuối danh sách thì tự tải thêm
+   useEffect(() => {
+     const el = sentinel.current; if (!el || !more) return
+     const io = new IntersectionObserver(es => { if (es[0].isIntersecting) page(false) }, { rootMargin: '300px' })
+     io.observe(el); return () => io.disconnect()
+   }, [more, list.length, page])
+ 
+-  async function save() {
+-    if (!f.title.trim() || busy) return
+-    setBusy(true)
+-    const paths: string[] = [], failed: string[] = []
+-    try {
+-      const chosen = files.slice(0, 20)
+-      for (const file of chosen) {
+-        try {   // nén ảnh có thể ném lỗi (ảnh hỏng, HEIC...), không để làm kẹt nút
+-          const vid = file.type.startsWith('video/')
+-          if (vid && file.size > MAX_VIDEO) { failed.push(`${file.name}: lớn hơn 50 MB (giới hạn của gói Supabase miễn phí)`); continue }
+-          const p = `${space.id}/${crypto.randomUUID()}.${vid ? (file.name.split('.').pop() || 'mp4').toLowerCase() : 'jpg'}`
+-          const { error } = await sb.storage.from('media').upload(p, vid ? file : await shrink(file), { contentType: vid ? file.type : 'image/jpeg' })
+-          if (error) failed.push(`${file.name}: ${error.message}`); else paths.push(p)
+-        } catch (e: any) { failed.push(`${file.name}: ${e?.message ?? 'không xử lý được tệp'}`) }
+-      }
+-      const undo = () => paths.length ? sb.storage.from('media').remove(paths) : null   // dọn tệp đã tải lên nếu không đăng nữa
+-      if (chosen.length && !paths.length) return alert('Không tải được tệp nào lên nên chưa đăng.\n' + failed.join('\n'))
+-      if (failed.length && !confirm(`${failed.length} tệp bị lỗi:\n${failed.join('\n')}\n\nVẫn đăng với ${paths.length} tệp còn lại?`)) { await undo(); return }
+-      const { error } = await sb.from('moments').insert({ space_id: space.id, title: f.title, description: f.desc, taken_on: f.date, place: f.place, photos: paths })
+-      if (error) { await undo(); return alert('Không lưu được khoảnh khắc: ' + error.message) }
+-      setF({ ...f, title: '', desc: '', place: '' }); setFiles([]); setOpen(false)
+-      await load()
+-    } finally { setBusy(false) }   // luôn nhả nút, kể cả khi có lỗi bất ngờ
+-  }
+-  const del = async (id: string) => {
++  // lựa chọn cho bộ lọc, album, plan, thùng rác, nhắc lại kỷ niệm
++  const loadMeta = useCallback(async () => {
++    const [a, b, c, d, e] = await Promise.all([
++      sb.from('moments').select('taken_on,place,tags').is('deleted_at', null).limit(3000),
++      sb.from('albums').select('*').order('created_at'),
++      sb.from('plans').select('id,name').order('created_at', { ascending: false }).limit(100),
++      sb.from('moments').select('id', { count: 'exact', head: true }).not('deleted_at', 'is', null),
++      sb.from('moments').select(SEL).is('deleted_at', null).limit(500),
++    ])
++    const rows = a.data ?? [], uniq = (xs: any[]) => Array.from(new Set(xs.filter(Boolean))) as string[]
++    setOpts({ years: uniq(rows.map((r: any) => r.taken_on.slice(0, 4))).sort().reverse(), places: uniq(rows.map((r: any) => r.place)).sort(), tags: uniq(rows.flatMap((r: any) => r.tags ?? [])).sort() })
++    setAlbums(b.data ?? []); setPlans(c.data ?? []); setTrashN(d.count ?? 0)
++    const t = new Date(), md = `${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
++    const mm = ((e.data ?? []) as any[]).filter(r => r.taken_on.slice(5) === md && +r.taken_on.slice(0, 4) < t.getFullYear())
++    setMemo(mm); if (mm.length) attach(mm)
++  }, [attach])
++  useEffect(() => { purgeOld().finally(loadMeta) }, [loadMeta])
++  useEffect(() => { if (new URLSearchParams(location.search).get('memories')) setShow(true) }, [])
++  // mở thẳng một khoảnh khắc từ ghim trên bản đồ: /moments?open=<id>
++  useEffect(() => {
++    const id = new URLSearchParams(location.search).get('open'); if (!id) return
++    sb.from('moments').select(SEL).eq('id', id).is('deleted_at', null).maybeSingle().then(r => { if (r.data) { attach([r.data]); setView(r.data) } })
++  }, [attach])
++
++  // mở form sửa từ liên kết /moments?edit=<id> (sau khi tạo nhanh từ Kế hoạch)
++  useEffect(() => {
++    const id = new URLSearchParams(location.search).get('edit'); if (!id) return
++    sb.from('moments').select(SEL).eq('id', id).is('deleted_at', null).maybeSingle().then(r => { if (r.data) { attach([r.data]); setForm({ ...r.data, albumIds: (r.data.album_moments ?? []).map((x: any) => x.album_id) }) } })
++    history.replaceState(null, '', '/moments')
++  }, [attach])
++
++  const refresh = async () => { await Promise.all([load(), loadMeta()]) }
++  // nếu đang xem chi tiết thì cập nhật số tim/bình luận trong danh sách
++  const changed = async () => { await refresh() }
++
++  const del = async (m: any) => {
+     if (!confirm('Xóa khoảnh khắc này? Có thể khôi phục trong 30 ngày.')) return
+-    const { error } = await sb.from('moments').update({ deleted_at: new Date().toISOString() }).eq('id', id)
+-    if (error) return alert('Không xóa được: ' + error.message)
+-    lenRef.current = Math.max(0, lenRef.current - 1)   // giữ vị trí trang kế tiếp đúng
+-    setList(a => a.filter(x => x.id !== id))
++    if (!await ok(sb.from('moments').update({ deleted_at: new Date().toISOString() }).eq('id', m.id), 'Không xóa được')) return
++    setView(null); lenRef.current = Math.max(0, lenRef.current - 1); setList(a => a.filter(x => x.id !== m.id)); loadMeta()
++  }
++
++  // MOM-09: tải toàn bộ ảnh/video về dạng zip
++  const downloadAll = async () => {
++    if (zip) return
++    setZip('Đang chuẩn bị…')
++    try {
++      const { data, error } = await sb.from('moments').select('title,taken_on,media(path,kind,sort)').is('deleted_at', null).order('taken_on')
++      if (error) throw error
++      const files: { name: string; path: string }[] = []
++      for (const m of data ?? []) (m.media as any[]).sort((a, b) => a.sort - b.sort).forEach((x, i) => files.push({ name: `${m.taken_on}-${slug(m.title)}/${String(i + 1).padStart(2, '0')}.${x.path.split('.').pop()}`, path: x.path }))
++      if (!files.length) { setZip(''); return alert('Chưa có ảnh hay video nào để tải.') }
++      if (files.length > 150 && !confirm(`Có ${files.length} tệp, tải về sẽ mất một lúc và tốn dung lượng điện thoại. Vẫn tải?`)) { setZip(''); return }
++      await zipDownload(files, `tdlove-khoanh-khac-${new Date().toISOString().slice(0, 10)}.zip`, (d, n) => setZip(`Đang nén ${d}/${n}…`))
++    } catch (e: any) { alert('Không tải được: ' + (e?.message ?? e)) } finally { setZip('') }
+   }
+ 
++  // album
++  const renameAlbum = async (a: any) => { const n = prompt('Tên album', a.name)?.trim(); if (n && n !== a.name && await ok(sb.from('albums').update({ name: n }).eq('id', a.id), 'Không đổi được tên')) loadMeta() }
++  const delAlbum = async (a: any) => { if (confirm(`Xóa album "${a.name}"? Các khoảnh khắc trong album vẫn được giữ.`) && await ok(sb.from('albums').delete().eq('id', a.id), 'Không xóa được album')) { if (flt.album === a.id) setFlt({ ...flt, album: '' }); loadMeta() } }
++
++  const nf = [flt.year, flt.place, flt.tag, flt.album].filter(Boolean).length
++  const set = (k: keyof Filter, v: string) => setFlt(f => ({ ...f, [k]: v }))
++  const mkEdit = (m: any) => ({ ...m, albumIds: (m.album_moments ?? []).map((x: any) => x.album_id) })
++  const albumOf = (m: any) => (m.album_moments ?? []).map((x: any) => albums.find(a => a.id === x.album_id)?.name).filter(Boolean)
++  const groups: [string, any[]][] = []
++  for (const m of list) { const g = groups[groups.length - 1]; if (g && g[0] === m.taken_on) g[1].push(m); else groups.push([m.taken_on, [m]]) }
++
+   return <>
+-    <Head t="Khoảnh khắc" />
++    <Head t="Khoảnh khắc"><Link href="/map?layer=moments" className="pill">Bản đồ</Link></Head>
+     <div className="b">
+-      {open && <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+-        <b>Khoảnh khắc mới</b>
+-        <input placeholder="Tiêu đề, ví dụ: Chiều ở Hồ Tây" value={f.title} onChange={e => setF({ ...f, title: e.target.value })} />
+-        <textarea rows={2} placeholder="Kể một chút về hôm đó…" value={f.desc} onChange={e => setF({ ...f, desc: e.target.value })} />
+-        <input type="date" value={f.date} onChange={e => setF({ ...f, date: e.target.value })} />
+-        <input placeholder="Địa điểm" value={f.place} onChange={e => setF({ ...f, place: e.target.value })} />
+-        <input type="file" accept="image/*,video/*" multiple onChange={e => setFiles(Array.from(e.target.files ?? []))} />
+-        <div className="s">{files.length ? `Đã chọn ${files.length} ảnh (tối đa 20)` : 'Chọn ảnh để lưu cùng'}</div>
+-        <button className="btn" onClick={save} disabled={busy}>{busy ? 'Đang đăng…' : 'Đăng khoảnh khắc'}</button>
++      {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map(m => <div key={m.id} className="s">{m.taken_on.slice(0, 4)}: {m.title}</div>)}
++        <button className="pill on" style={{ marginTop: 6 }} onClick={() => setShow(true)}>▶ Xem slideshow</button></div>}
++
++      <div className="row" style={{ flex: 'none' }}>
++        <button className={'pill' + (nf ? ' on' : '')} onClick={() => setShowF(!showF)} aria-expanded={showF}>Lọc{nf ? ` (${nf})` : ''}</button>
++        <button className="pill" onClick={downloadAll} disabled={!!zip}>{zip || 'Tải tất cả (zip)'}</button>
++        <Link className="pill" href="/moments/trash" style={{ textAlign: 'center' }}>Thùng rác{trashN ? ` (${trashN})` : ''}</Link>
++      </div>
++      {showF && <div className="k" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++        <div className="row"><label className="s">Năm<select value={flt.year} onChange={e => set('year', e.target.value)} style={{ maxWidth: '100%', width: '100%' }}><option value="">Tất cả</option>{opts.years.map(y => <option key={y}>{y}</option>)}</select></label>
++          <label className="s">Thẻ<select value={flt.tag} onChange={e => set('tag', e.target.value)} style={{ maxWidth: '100%', width: '100%' }}><option value="">Tất cả</option>{opts.tags.map(t => <option key={t} value={t}>{TAG_EMOJI[t] ?? '🏷️'} {t}</option>)}</select></label></div>
++        <label className="s">Địa điểm<select value={flt.place} onChange={e => set('place', e.target.value)} style={{ maxWidth: '100%', width: '100%' }}><option value="">Tất cả</option>{opts.places.map(p => <option key={p}>{p}</option>)}</select></label>
++        {nf > 0 && <button className="pill" onClick={() => setFlt({ ...NOF, album: flt.album })}>Bỏ lọc</button>}
+       </div>}
+-      {!list.length && !open && <div className="k pe"><b>Chưa có khoảnh khắc nào</b><div className="s">Bấm dấu + để lưu kỷ niệm đầu tiên của hai đứa.</div></div>}
+-      {list.map(m => <div key={m.id}>
+-        <div className="s">{new Date(m.taken_on).toLocaleDateString('vi-VN')}</div>
+-        <div className="k">
+-          {m.urls.length > 0 && <div className="strip">{m.urls.map((u: string) => /\.(mp4|mov|webm|m4v)$/i.test(u.split('?')[0]) ? <video key={u} src={u} controls playsInline preload="metadata" style={{ height: 180, borderRadius: 14, border: '2px solid var(--ink)' }} /> : <img key={u} src={u} alt={m.title} />)}</div>}
+-          <b>{m.title}</b>
+-          {m.description && <div>{m.description}</div>}
+-          <div className="s">{[m.urls.length ? `${m.urls.length} ảnh/video` : '', m.place].filter(Boolean).join(', ')}</div>
+-          <button className="pill" onClick={() => del(m.id)}>Xóa</button>
+-        </div>
++
++      <div className="days" aria-label="Album">
++        <button className={'pill' + (!flt.album ? ' on' : '')} onClick={() => set('album', '')}>Tất cả</button>
++        {albums.map(a => <button key={a.id} className={'pill' + (flt.album === a.id ? ' on' : '')} onClick={() => set('album', a.id)}>📁 {a.name}</button>)}
++      </div>
++      {flt.album && (() => { const a = albums.find(x => x.id === flt.album); return a && <div className="row" style={{ flex: 'none' }}><button className="pill" onClick={() => renameAlbum(a)}>Đổi tên album</button><button className="pill" onClick={() => delAlbum(a)}>Xóa album</button></div> })()}
++
++      {!list.length && !loading && <div className="k pe"><b>{nf || flt.album ? 'Không có khoảnh khắc nào khớp' : 'Chưa có khoảnh khắc nào'}</b><div className="s">{nf || flt.album ? 'Thử bỏ bớt bộ lọc nhé.' : 'Bấm dấu + để lưu kỷ niệm đầu tiên của hai đứa.'}</div></div>}
++
++      {groups.map(([d, ms]) => <div key={d} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++        <div className="s" style={{ position: 'sticky', top: 0, background: '#FFF0F6', padding: '2px 0', zIndex: 1 }}>{dayLabel(d)}</div>
++        {ms.map(m => {
++          const md = (m.media ?? []).slice().sort((a: any, b: any) => a.sort - b.sort), nh = (m.moment_hearts ?? []).length, nc = m.moment_comments?.[0]?.count ?? 0
++          const myHeart = (m.moment_hearts ?? []).some((h: any) => h.user_id === me.id)
++          return <button key={m.id} className="k" style={{ textAlign: 'left', width: '100%', font: 'inherit', color: 'inherit', cursor: 'pointer' }} onClick={() => setView(m)}>
++            {md.length > 0 && <div className="mgrid" style={{ gridTemplateColumns: md.length === 1 ? '1fr' : 'repeat(2,1fr)' }}>
++              {md.slice(0, 4).map((x: any, i: number) => {
++                const t = thumbs[x.thumb_path ?? (x.kind === 'image' ? x.path : '')]
++                return <span key={x.id} className="th" style={md.length === 1 ? { aspectRatio: '16/10' } : undefined}>{t ? <img src={t} alt="" loading="lazy" /> : x.kind === 'video' ? '🎬' : '🖼️'}
++                  {x.kind === 'video' && t && <span style={{ position: 'absolute', fontSize: 30 }}>▶️</span>}
++                  {i === 3 && md.length > 4 && <span className="more">+{md.length - 4}</span>}</span>
++              })}</div>}
++            <b>{m.title}</b>
++            {m.description && <div style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{m.description}</div>}
++            <div className="s">{[md.length ? `${md.length} ảnh/video` : '', m.place && `📍 ${m.place}`, ...(m.tags ?? []).map((t: string) => `${TAG_EMOJI[t] ?? '🏷️'} ${t}`)].filter(Boolean).join(' · ')}</div>
++            {(nh > 0 || nc > 0) && <div className="s">{nh > 0 && `${myHeart ? '💗' : '🤍'} ${nh}`}{nh > 0 && nc > 0 && '  '}{nc > 0 && `💬 ${nc}`}</div>}
++          </button>
++        })}
+       </div>)}
+       {list.length > 0 && more && <div ref={sentinel} style={{ textAlign: 'center' }}><button className="pill" onClick={() => page(false)} disabled={loading}>{loading ? 'Đang tải…' : 'Tải thêm'}</button></div>}
++      {list.length > 0 && !more && <div className="s" style={{ textAlign: 'center' }}>Đã xem hết rồi 💗</div>}
+     </div>
+-    <button className="rb fab" onClick={() => setOpen(!open)} aria-label="Thêm khoảnh khắc">{open ? '×' : '+'}</button>
++
++    <button className="rb fab" onClick={() => setForm('new')} aria-label="Thêm khoảnh khắc">+</button>
++    {view && !form && <MomentView m={view} me={me} partner={partner} albumNames={albumOf(view)} plan={plans.find(p => p.id === view.plan_id)}
++      onClose={() => setView(null)} onEdit={() => setForm(mkEdit(view))} onDelete={() => del(view)} onChanged={changed} />}
++    {form && <MomentForm space={space} moment={form === 'new' ? undefined : form} plans={plans} albums={albums}
++      onClose={() => setForm(null)} onAlbumCreated={a => setAlbums(x => [...x, a])}
++      onDone={async () => { setForm(null); setView(null); await refresh() }} />}
++    {show && <Slideshow moments={memo} onClose={() => setShow(false)} />}
+   </>
+ }
+diff --git a/app/(app)/moments/trash/page.tsx b/app/(app)/moments/trash/page.tsx
+new file mode 100644
+index 0000000..a3b8977
+--- /dev/null
++++ b/app/(app)/moments/trash/page.tsx
+@@ -0,0 +1,37 @@
++'use client'
++import { useCallback, useEffect, useState } from 'react'
++import Link from 'next/link'
++import { sb } from '@/lib/supabase'
++import { sign } from '@/lib/media'
++import { destroy, KEEP_DAYS, purgeOld } from '@/lib/trash'
++import { ok } from '@/lib/util'
++import Head from '@/components/Head'
++
++// Thùng rác: khôi phục trong 30 ngày (MOM-05)
++export default function Trash() {
++  const [list, setList] = useState<any[] | null>(null); const [t, setT] = useState<Record<string, string>>({})
++  const load = useCallback(async () => {
++    await purgeOld()
++    const { data } = await sb.from('moments').select('id,title,taken_on,deleted_at,photos,media(path,thumb_path,kind,sort)').not('deleted_at', 'is', null).order('deleted_at', { ascending: false })
++    const rows = data ?? []; setList(rows)
++    setT(await sign(rows.map(m => { const x = (m.media as any[]).sort((a, b) => a.sort - b.sort)[0]; return x ? x.thumb_path ?? (x.kind === 'image' ? x.path : null) : null })))
++  }, [])
++  useEffect(() => { load() }, [load])
++  const left = (d: string) => Math.max(0, Math.ceil(KEEP_DAYS - (Date.now() - new Date(d).getTime()) / 864e5))
++  const restore = async (m: any) => { if (await ok(sb.from('moments').update({ deleted_at: null }).eq('id', m.id), 'Không khôi phục được')) load() }
++  const kill = async (m: any) => { if (confirm(`Xóa vĩnh viễn "${m.title}"? Không khôi phục được nữa.`)) { if (await destroy([m])) load(); else alert('Không xóa được, thử lại sau nhé.') } }
++
++  return <>
++    <Head t="Thùng rác"><Link href="/moments" className="pill">Quay lại</Link></Head>
++    <div className="b">
++      <div className="s">Khoảnh khắc đã xóa được giữ {KEEP_DAYS} ngày, sau đó tự xóa hẳn.</div>
++      {list && !list.length && <div className="k pe"><b>Thùng rác trống</b></div>}
++      {list?.map(m => { const x = (m.media as any[])[0], u = x && t[x.thumb_path ?? (x.kind === 'image' ? x.path : '')]
++        return <div key={m.id} className="k" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
++          {u ? <img src={u} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 12, border: '2px solid var(--ink)' }} /> : <span style={{ fontSize: 32 }}>🗑️</span>}
++          <div style={{ flex: 1, minWidth: 0 }}><b>{m.title}</b><div className="s">{new Date(m.taken_on).toLocaleDateString('vi-VN')} · còn {left(m.deleted_at)} ngày</div>
++            <div className="row" style={{ marginTop: 6 }}><button className="pill on" onClick={() => restore(m)}>Khôi phục</button><button className="pill" onClick={() => kill(m)}>Xóa hẳn</button></div></div>
++        </div> })}
++    </div>
++  </>
++}
+diff --git a/app/(app)/page.tsx b/app/(app)/page.tsx
+index ea81386..24a2eda 100644
+--- a/app/(app)/page.tsx
++++ b/app/(app)/page.tsx
+@@ -43,7 +43,7 @@ export default function Home() {
+       {!space.start_date && <label className="k li"><b>Hai đứa bắt đầu yêu từ ngày nào?</b><input type="date" onChange={e => e.target.value && setDate(e.target.value)} /></label>}
+       {next && day && <div className="k pk"><b>Mốc kế tiếp: {next} ngày</b><div className="s">Còn {next - day} ngày nữa</div></div>}
+       {plan && <Link href={`/plan/${plan.id}`} className="k pe"><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></Link>}
+-      {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map((m, i) => <div key={i} className="s">{m.d.slice(0, 4)}: {m.t}</div>)}</div>}
++      {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map((m, i) => <div key={i} className="s">{m.d.slice(0, 4)}: {m.t}</div>)}<Link href="/moments?memories=1" className="pill on">▶ Xem lại ảnh</Link></div>}
+       <div className="row"><Link href="/diary" className="k pk"><b>Nhật ký</b><div className="s">Viết cho nhau</div></Link><Link href="/special" className="k pe"><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></Link></div>
+       {!partner && <div className="k pe"><b>Mời người ấy vào Space</b>{expired ? <div className="s">Mã mời đã hết hạn.</div> : <><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></>}<button className="pill" onClick={renew}>Tạo mã mới</button></div>}
+       <div className="row">
+diff --git a/app/(app)/plan/[id]/page.tsx b/app/(app)/plan/[id]/page.tsx
+index 59146d2..169db30 100644
+--- a/app/(app)/plan/[id]/page.tsx
++++ b/app/(app)/plan/[id]/page.tsx
+@@ -94,8 +94,9 @@ export default function PlanPage() {
+   }
+   const addTodo = async () => { if (!todo.trim()) return; if (!await ok(sb.from('checklist_items').insert({ plan_id: id, space_id: space.id, text: todo }))) return; setTodo(''); load() }
+   async function toMoment() {
+-    if (!await ok(sb.from('moments').insert({ space_id: space.id, title: p.name, taken_on: p.end_date ?? p.start_date ?? new Date().toISOString().slice(0, 10), place: p.area }), 'Không tạo được khoảnh khắc')) return
+-    r.push('/moments')
++    const { data, error } = await sb.from('moments').insert({ space_id: space.id, title: p.name, taken_on: p.end_date ?? p.start_date ?? new Date().toISOString().slice(0, 10), place: p.area, plan_id: id }).select('id').single()
++    if (error || !data) return alert('Không tạo được khoảnh khắc: ' + (error?.message ?? ''))
++    r.push('/moments?edit=' + data.id)   // mở sẵn form sửa để thêm ảnh/video
+   }
+   const setShare = async (v: number) => {
+     if (!partner || isNaN(v)) return
+diff --git a/app/globals.css b/app/globals.css
+index 558dd24..18856d7 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -40,3 +40,24 @@ select{font:inherit;border:2px solid var(--ink);border-radius:999px;padding:4px
+ .call .ci{text-align:center;background:rgba(255,240,246,.9);border-radius:18px;padding:8px 18px}
+ .call .cc{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;width:100%;max-width:420px}
+ .call .cc .btn{flex:1 1 140px}.call .cc .pill{padding:10px 16px}
++.sheet{position:fixed;inset:0;z-index:1000;background:#FFF0F6;overflow-y:auto;padding:calc(18px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:12px;max-width:480px;margin:0 auto}
++.chip{display:inline-block;background:#fff;border:2px solid var(--ink);border-radius:999px;padding:4px 12px;font-size:16px;font-weight:700;cursor:pointer;color:var(--ink);font-family:inherit}
++.chip[aria-pressed=true]{background:var(--pink)}
++.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
++.grid .th{position:relative;aspect-ratio:1;border:2px solid var(--ink);border-radius:14px;overflow:hidden;background:#FFD9E8;display:flex;align-items:center;justify-content:center;font-size:28px}
++.grid .th img{width:100%;height:100%;object-fit:cover}
++.grid .th .x{position:absolute;top:3px;right:3px;width:28px;height:28px;border-radius:50%;border:2px solid var(--ink);background:#fff;font-weight:800;line-height:1;cursor:pointer;color:var(--ink)}
++.grid .th .st{position:absolute;left:0;right:0;bottom:0;font-size:13px;font-weight:800;text-align:center;background:rgba(255,255,255,.88);padding:2px}
++.bar{height:10px;border:2px solid var(--ink);border-radius:999px;background:#fff;overflow:hidden}
++.bar>i{display:block;height:100%;background:var(--pink)}
++.mgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px}
++.mgrid .th{position:relative;aspect-ratio:1;border:2px solid var(--ink);border-radius:12px;overflow:hidden;background:#FFD9E8;display:flex;align-items:center;justify-content:center;font-size:26px;padding:0;cursor:pointer}
++.mgrid .th img{width:100%;height:100%;object-fit:cover}
++.mgrid .more{position:absolute;inset:0;background:rgba(91,31,58,.55);color:#fff;display:flex;align-items:center;justify-content:center;font:800 22px var(--f1),sans-serif}
++.lb{position:fixed;inset:0;z-index:3000;background:#000;display:flex;align-items:center;justify-content:center}
++.lb img,.lb video{max-width:100%;max-height:100%;object-fit:contain}
++.lb .c{position:absolute;top:calc(12px + env(safe-area-inset-top));right:12px}
++.lb .n{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:2px solid var(--ink);background:rgba(255,255,255,.9);font-size:22px;cursor:pointer;color:var(--ink)}
++.lb .cap{position:absolute;left:0;right:0;bottom:0;padding:14px 18px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.7));color:#fff;font-weight:700}
++.tabs{display:flex;gap:6px;flex:none}.tabs .pill{flex:1;text-align:center}
++.heartbtn{display:inline-flex;align-items:center;gap:6px}
+diff --git a/components/Lightbox.tsx b/components/Lightbox.tsx
+new file mode 100644
+index 0000000..9ba9ca5
+--- /dev/null
++++ b/components/Lightbox.tsx
+@@ -0,0 +1,24 @@
++'use client'
++import { useEffect, useRef, useState } from 'react'
++
++export type LbItem = { kind: 'image' | 'video'; url: string }
++// Xem toàn màn hình, vuốt hoặc bấm mũi tên để chuyển, phím ← → Esc trên máy tính
++export default function Lightbox({ items, start = 0, caption, onClose }: { items: LbItem[]; start?: number; caption?: string; onClose: () => void }) {
++  const [i, setI] = useState(start); const x0 = useRef<number | null>(null)
++  const go = (d: number) => setI(a => Math.min(items.length - 1, Math.max(0, a + d)))
++  useEffect(() => {
++    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); if (e.key === 'ArrowLeft') go(-1); if (e.key === 'ArrowRight') go(1) }
++    window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h)
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [])
++  const it = items[i]; if (!it) return null
++  return <div className="lb" role="dialog" aria-label="Xem ảnh"
++    onTouchStart={e => { x0.current = e.touches[0].clientX }}
++    onTouchEnd={e => { if (x0.current == null) return; const d = e.changedTouches[0].clientX - x0.current; x0.current = null; if (Math.abs(d) > 60) go(d < 0 ? 1 : -1) }}>
++    {it.kind === 'video' ? <video key={it.url} src={it.url} controls autoPlay playsInline /> : <img key={it.url} src={it.url} alt={caption ?? ''} />}
++    <button className="pill c" onClick={onClose}>Đóng</button>
++    {i > 0 && <button className="n" style={{ left: 8 }} onClick={() => go(-1)} aria-label="Ảnh trước">‹</button>}
++    {i < items.length - 1 && <button className="n" style={{ right: 8 }} onClick={() => go(1)} aria-label="Ảnh sau">›</button>}
++    <div className="cap">{i + 1}/{items.length}{caption ? ` · ${caption}` : ''}</div>
++  </div>
++}
+diff --git a/components/MomentForm.tsx b/components/MomentForm.tsx
+new file mode 100644
+index 0000000..8e7ba32
+--- /dev/null
++++ b/components/MomentForm.tsx
+@@ -0,0 +1,217 @@
++'use client'
++import { useEffect, useMemo, useRef, useState } from 'react'
++import { sb } from '@/lib/supabase'
++import { MAX_FILES, MAX_IMG, MAX_VIDEO, MAX_VIDEO_SEC, MB, TAGS, TAG_EMOJI, localDay, probeVideo, processImage, readExif, reverse, sign, uploadBlob } from '@/lib/media'
++import PlacePicker from '@/components/PlacePicker'
++
++type Item = { id: string; file: File; kind: 'image' | 'video'; url: string; status: 'ready' | 'up' | 'done' | 'err'; p: number; err?: string; meta: any }
++const uid = () => crypto.randomUUID()
++
++// Tạo mới hoặc sửa một Moment (MOM-01, MOM-02, MOM-03, MOM-05, MOM-06, MOM-11)
++export default function MomentForm({ space, moment, plans, albums, onClose, onDone, onAlbumCreated }: {
++  space: any; moment?: any; plans: any[]; albums: any[]; onClose: () => void; onDone: () => void; onAlbumCreated: (a: any) => void
++}) {
++  const edit = !!moment
++  const today = new Date().toISOString().slice(0, 10)
++  const [f, setF] = useState({
++    title: moment?.title ?? '', desc: moment?.description ?? '', date: moment?.taken_on ?? localDay(new Date().toISOString()),
++    place: moment?.place ?? '', lat: moment?.lat ?? null as number | null, lng: moment?.lng ?? null as number | null,
++    tags: (moment?.tags ?? []) as string[], plan: (moment?.plan_id ?? '') as string,
++  })
++  const [albumIds, setAlbumIds] = useState<string[]>(moment?.albumIds ?? [])
++  const [items, setItems] = useState<Item[]>([])
++  const [old, setOld] = useState<any[]>((moment?.media ?? []).slice().sort((a: any, b: any) => a.sort - b.sort))
++  const [oldUrl, setOldUrl] = useState<Record<string, string>>({})
++  const [gone, setGone] = useState<string[]>([])
++  const [notes, setNotes] = useState<string[]>([]); const [busy, setBusy] = useState(false); const [check, setCheck] = useState(false)
++  const [pick, setPick] = useState(false); const [tag, setTag] = useState(''); const [alb, setAlb] = useState('')
++  const savedId = useRef<string | null>(moment?.id ?? null)
++  const synced = useRef<string[]>(moment?.albumIds ?? [])   // album đã ghi vào DB (để thử lại không ghi trùng)
++  const touched = useRef({ date: edit, place: edit })
++  const itemsRef = useRef<Item[]>([]); itemsRef.current = items
++  const total = old.length - gone.length + items.length
++
++  useEffect(() => { sign(old.map((m: any) => m.thumb_path ?? (m.kind === 'image' ? m.path : null))).then(setOldUrl) }, [old])
++  useEffect(() => () => { itemsRef.current.forEach(i => URL.revokeObjectURL(i.url)) }, [])
++  useEffect(() => {   // đang tải lên thì cảnh báo khi người dùng định rời trang
++    if (!busy) return
++    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
++    window.addEventListener('beforeunload', h); return () => window.removeEventListener('beforeunload', h)
++  }, [busy])
++
++  const patch = (id: string, p: Partial<Item>) => setItems(a => a.map(x => x.id === id ? { ...x, ...p } : x))
++
++  async function onFiles(list: FileList | null) {
++    const files = Array.from(list ?? []); if (!files.length) return
++    setCheck(true); const msg: string[] = [], add: Item[] = []
++    let room = MAX_FILES - total
++    for (const file of files) {
++      if (room <= 0) { msg.push(`${file.name}: đã đủ ${MAX_FILES} tệp`); continue }
++      const video = file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm)$/i.test(file.name)
++      if (!video && !file.type.startsWith('image/')) { msg.push(`${file.name}: không phải ảnh hoặc video`); continue }
++      if (!video && file.size > MAX_IMG) { msg.push(`${file.name}: ảnh lớn hơn 15 MB (${MB(file.size)})`); continue }
++      if (video && file.size > MAX_VIDEO) { msg.push(`${file.name}: video lớn hơn ${MB(MAX_VIDEO)} (${MB(file.size)})`); continue }
++      try {
++        let meta: any = {}
++        if (video) {
++          const v = await probeVideo(file)
++          if (v.duration > MAX_VIDEO_SEC) { msg.push(`${file.name}: video dài ${Math.round(v.duration)} giây, tối đa ${MAX_VIDEO_SEC} giây`); continue }
++          meta = v
++          add.push({ id: uid(), file, kind: 'video', url: v.poster ? URL.createObjectURL(v.poster) : '', status: 'ready', p: 0, meta })
++        } else {
++          meta = await readExif(file)
++          add.push({ id: uid(), file, kind: 'image', url: URL.createObjectURL(file), status: 'ready', p: 0, meta })
++        }
++        room--
++      } catch (e: any) { msg.push(`${file.name}: ${e?.message ?? 'không đọc được'}`) }
++    }
++    setItems(a => [...a, ...add]); setNotes(msg); setCheck(false)
++    // MOM-01: lấy ngày và vị trí từ EXIF của ảnh đầu tiên có thông tin, nếu người dùng chưa tự nhập
++    const ex = add.find(i => i.meta.taken_at || i.meta.lat != null)
++    if (ex) {
++      if (!touched.current.date && ex.meta.taken_at) setF(x => ({ ...x, date: localDay(ex.meta.taken_at) }))
++      if (!touched.current.place && f.lat == null && ex.meta.lat != null) {
++        const { lat, lng } = ex.meta; setF(x => ({ ...x, lat, lng }))
++        reverse(lat, lng).then(n => { if (n && !touched.current.place) setF(x => ({ ...x, place: x.place || n })) })
++      }
++    }
++  }
++
++  async function uploadOne(it: Item, sort: number) {
++    patch(it.id, { status: 'up', p: 0, err: undefined })
++    const base = `${space.id}/${uid()}`, made: string[] = []
++    try {
++      let row: any
++      if (it.kind === 'image') {
++        const { full, thumb, width, height } = await processImage(it.file)
++        await uploadBlob(`${base}.jpg`, full, 'image/jpeg', p => patch(it.id, { p: Math.round(p * 0.9) })); made.push(`${base}.jpg`)
++        await uploadBlob(`${base}-t.jpg`, thumb, 'image/jpeg'); made.push(`${base}-t.jpg`)
++        row = { kind: 'image', path: `${base}.jpg`, thumb_path: `${base}-t.jpg`, size: full.size, width, height, taken_at: it.meta.taken_at ?? null, lat: it.meta.lat ?? null, lng: it.meta.lng ?? null }
++      } else {
++        const ext = (it.file.name.split('.').pop() || 'mp4').toLowerCase().replace(/[^a-z0-9]/g, '')
++        const ct = it.file.type || (ext === 'mov' ? 'video/quicktime' : 'video/mp4')
++        let thumb: string | null = null
++        if (it.meta.poster) { await uploadBlob(`${base}-t.jpg`, it.meta.poster, 'image/jpeg'); made.push(`${base}-t.jpg`); thumb = `${base}-t.jpg` }
++        await uploadBlob(`${base}.${ext}`, it.file, ct, p => patch(it.id, { p })); made.push(`${base}.${ext}`)
++        row = { kind: 'video', path: `${base}.${ext}`, thumb_path: thumb, size: it.file.size, width: it.meta.width || null, height: it.meta.height || null, duration: it.meta.duration || null }
++      }
++      const { error } = await sb.from('media').insert({ ...row, moment_id: savedId.current, space_id: space.id, sort })
++      if (error) throw new Error(error.message)
++      patch(it.id, { status: 'done', p: 100 })
++      return true
++    } catch (e: any) {
++      if (made.length) sb.storage.from('media').remove(made)   // dọn tệp đã tải lên nhưng chưa gắn được
++      patch(it.id, { status: 'err', err: e?.message ?? 'Lỗi không rõ' })
++      return false
++    }
++  }
++
++  async function save() {
++    if (busy) return
++    if (!f.title.trim()) return alert('Hãy đặt tiêu đề cho khoảnh khắc nhé')
++    setBusy(true)
++    try {
++      const body = { title: f.title.trim(), description: f.desc.trim() || null, taken_on: f.date || today, place: f.place.trim() || null, lat: f.lat, lng: f.lng, tags: f.tags, plan_id: f.plan || null }
++      if (savedId.current) {
++        const { error } = await sb.from('moments').update(body).eq('id', savedId.current)
++        if (error) return alert('Không lưu được khoảnh khắc: ' + error.message)
++      } else {
++        const { data, error } = await sb.from('moments').insert({ ...body, space_id: space.id }).select('id').single()
++        if (error || !data) return alert('Không lưu được khoảnh khắc: ' + (error?.message ?? ''))
++        savedId.current = data.id
++      }
++      const id = savedId.current!
++      // album
++      const prevSync = synced.current
++      const del = prevSync.filter((a: string) => !albumIds.includes(a)), add = albumIds.filter(a => !prevSync.includes(a))
++      if (del.length) await sb.from('album_moments').delete().eq('moment_id', id).in('album_id', del)
++      if (add.length) await sb.from('album_moments').insert(add.map(a => ({ album_id: a, moment_id: id, space_id: space.id })))
++      synced.current = albumIds
++      // xóa tệp cũ đã bỏ
++      if (gone.length) {
++        const rm = old.filter((m: any) => gone.includes(m.id))
++        const { error } = await sb.from('media').delete().in('id', gone)
++        if (!error) { sb.storage.from('media').remove(rm.flatMap((m: any) => [m.path, m.thumb_path].filter(Boolean))); setOld(o => o.filter((m: any) => !gone.includes(m.id))); setGone([]) }
++      }
++      // tải tệp mới lên, lần lượt từng tệp, tệp nào xong rồi thì bỏ qua (cho phép thử lại tệp lỗi)
++      let sort = Math.max(-1, ...old.map((m: any) => m.sort)) + 1, fail = 0
++      for (const it of itemsRef.current) {
++        if (it.status === 'done') continue
++        if (!await uploadOne(it, sort++)) fail++
++      }
++      if (fail) { setNotes([`${fail} tệp chưa tải lên được. Khoảnh khắc đã được lưu; bấm lại nút bên dưới để thử lại các tệp lỗi.`]); return }
++      onDone()
++    } finally { setBusy(false) }
++  }
++
++  const toggle = (arr: string[], v: string) => arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]
++  const addTag = () => { const t = tag.trim().slice(0, 20); if (t && !f.tags.includes(t) && f.tags.length < 6) setF({ ...f, tags: [...f.tags, t] }); setTag('') }
++  const addAlbum = async () => {
++    const n = alb.trim(); if (!n) return
++    const { data, error } = await sb.from('albums').insert({ name: n, space_id: space.id }).select('*').single()
++    if (error || !data) return alert('Không tạo được album: ' + (error?.message ?? ''))
++    onAlbumCreated(data); setAlbumIds(a => [...a, data.id]); setAlb('')
++  }
++  const allTags = useMemo(() => Array.from(new Set([...TAGS, ...f.tags])), [f.tags])
++  const errCount = items.filter(i => i.status === 'err').length
++  const doneN = items.filter(i => i.status === 'done').length
++
++  return <div className="sheet" role="dialog" aria-label={edit ? 'Sửa khoảnh khắc' : 'Khoảnh khắc mới'}>
++    <div className="row"><b style={{ flex: 1 }}>{edit ? 'Sửa khoảnh khắc' : 'Khoảnh khắc mới'}</b><button className="pill" style={{ flex: 'none' }} onClick={onClose} disabled={busy}>Đóng</button></div>
++    <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++      <input placeholder="Tiêu đề, ví dụ: Chiều ở Hồ Tây" value={f.title} maxLength={120} onChange={e => setF({ ...f, title: e.target.value })} aria-label="Tiêu đề" />
++      <textarea rows={3} placeholder="Kể một chút về hôm đó…" value={f.desc} onChange={e => setF({ ...f, desc: e.target.value })} aria-label="Mô tả" />
++      <label className="s">Ngày<input type="date" max={today} value={f.date} onChange={e => { touched.current.date = true; setF({ ...f, date: e.target.value }) }} /></label>
++    </div>
++
++    <div className="k" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++      <b>Địa điểm</b>
++      <input placeholder="Tên địa điểm" value={f.place} onChange={e => { touched.current.place = true; setF({ ...f, place: e.target.value }) }} aria-label="Tên địa điểm" />
++      <div className="row"><button className="pill" onClick={() => setPick(true)}>{f.lat != null ? 'Đổi trên bản đồ' : 'Chọn trên bản đồ'}</button>
++        {f.lat != null && <button className="pill" onClick={() => setF({ ...f, lat: null, lng: null })}>Bỏ ghim</button>}</div>
++      {f.lat != null && <div className="s">Đã ghim: {f.lat.toFixed(4)}, {f.lng!.toFixed(4)}</div>}
++    </div>
++
++    <div className="k" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++      <b>Cảm xúc</b>
++      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{allTags.map(t => <button key={t} className="chip" aria-pressed={f.tags.includes(t)} onClick={() => setF({ ...f, tags: f.tags.length >= 6 && !f.tags.includes(t) ? f.tags : toggle(f.tags, t) })}>{TAG_EMOJI[t] ?? '🏷️'} {t}</button>)}</div>
++      <div className="row"><input placeholder="Thẻ riêng…" value={tag} maxLength={20} onChange={e => setTag(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTag()} aria-label="Thẻ riêng" /><button className="pill" style={{ flex: 'none' }} onClick={addTag}>Thêm</button></div>
++    </div>
++
++    <div className="k" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++      <b>Ảnh và video ({total}/{MAX_FILES})</b>
++      <div className="s">Ảnh ≤ 15 MB, tự nén. Video ≤ {MB(MAX_VIDEO)} và ≤ 3 phút.</div>
++      <input type="file" accept="image/*,video/*" multiple disabled={busy || check || total >= MAX_FILES} onChange={e => { onFiles(e.target.files); e.target.value = '' }} aria-label="Chọn ảnh hoặc video" />
++      {check && <div className="s">Đang kiểm tra tệp…</div>}
++      {(old.length > 0 || items.length > 0) && <div className="grid">
++        {old.filter((m: any) => !gone.includes(m.id)).map((m: any) => <div key={m.id} className="th">
++          {oldUrl[m.thumb_path ?? m.path] ? <img src={oldUrl[m.thumb_path ?? m.path]} alt="" /> : m.kind === 'video' ? '🎬' : '🖼️'}
++          {m.kind === 'video' && oldUrl[m.thumb_path] && <span className="st">🎬 video</span>}
++          <button className="x" disabled={busy} onClick={() => setGone(g => [...g, m.id])} aria-label="Gỡ tệp này">×</button></div>)}
++        {items.map(i => <div key={i.id} className="th">
++          {i.url ? <img src={i.url} alt="" /> : '🎬'}
++          {i.status === 'up' && <span className="st">{i.p}%</span>}
++          {i.status === 'done' && <span className="st">Xong ✓</span>}
++          {i.status === 'err' && <span className="st" style={{ color: '#B00020' }}>Lỗi</span>}
++          {i.status !== 'done' && <button className="x" disabled={busy} onClick={() => { URL.revokeObjectURL(i.url); setItems(a => a.filter(x => x.id !== i.id)) }} aria-label="Gỡ tệp này">×</button>}</div>)}
++      </div>}
++      {items.filter(i => i.status === 'err').map(i => <div key={i.id} className="s" role="alert">{i.file.name}: {i.err}</div>)}
++      {notes.map((n, k) => <div key={k} className="s" role="alert">{n}</div>)}
++      {busy && items.length > 0 && <><div className="bar" aria-hidden><i style={{ width: `${Math.round(items.reduce((s, i) => s + (i.status === 'done' ? 100 : i.p), 0) / items.length)}%` }} /></div><div className="s">Đã xong {doneN}/{items.length} tệp. Mất mạng thì app tự chờ rồi tải tiếp.</div></>}
++    </div>
++
++    {plans.length > 0 && <label className="k li s" style={{ display: 'block' }}>Đã đi cùng kế hoạch nào?
++      <select style={{ maxWidth: '100%', width: '100%', marginTop: 6 }} value={f.plan} onChange={e => setF({ ...f, plan: e.target.value })}>
++        <option value="">Không gắn kế hoạch</option>{plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
++
++    <div className="k" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++      <b>Album</b>
++      {albums.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{albums.map(a => <button key={a.id} className="chip" aria-pressed={albumIds.includes(a.id)} onClick={() => setAlbumIds(toggle(albumIds, a.id))}>📁 {a.name}</button>)}</div>}
++      <div className="row"><input placeholder="Album mới…" value={alb} maxLength={80} onChange={e => setAlb(e.target.value)} onKeyDown={e => e.key === 'Enter' && addAlbum()} aria-label="Tên album mới" /><button className="pill" style={{ flex: 'none' }} onClick={addAlbum}>Tạo</button></div>
++    </div>
++
++    <button className="btn" onClick={save} disabled={busy || check}>{busy ? 'Đang lưu…' : errCount ? `Thử lại ${errCount} tệp lỗi` : edit ? 'Lưu thay đổi' : 'Đăng khoảnh khắc'}</button>
++    {errCount > 0 && !busy && <button className="pill" onClick={onDone}>Để vậy, đóng lại</button>}
++    {pick && <PlacePicker value={f.lat != null ? { lat: f.lat, lng: f.lng! } : null} onClose={() => setPick(false)} onPick={p => { touched.current.place = true; setF({ ...f, lat: p.lat, lng: p.lng, place: p.name || f.place }); setPick(false) }} />}
++  </div>
++}
+diff --git a/components/MomentView.tsx b/components/MomentView.tsx
+new file mode 100644
+index 0000000..e53a234
+--- /dev/null
++++ b/components/MomentView.tsx
+@@ -0,0 +1,85 @@
++'use client'
++import { useCallback, useEffect, useState } from 'react'
++import Link from 'next/link'
++import { sb } from '@/lib/supabase'
++import { sign, TAG_EMOJI } from '@/lib/media'
++import { ok } from '@/lib/util'
++import Lightbox from '@/components/Lightbox'
++
++const fmt = (d: string) => new Date(d).toLocaleDateString('vi-VN', { weekday: 'long', day: 'numeric', month: 'numeric', year: 'numeric' })
++
++// Chi tiết một Moment: ảnh/video, thả tim, bình luận, sửa, xóa (MOM-05, MOM-07)
++export default function MomentView({ m, me, partner, plan, albumNames, onClose, onEdit, onDelete, onChanged }: {
++  m: any; me: any; partner: any; plan?: any; albumNames: string[]; onClose: () => void; onEdit: () => void; onDelete: () => void; onChanged: () => void
++}) {
++  const media = (m.media ?? []).slice().sort((a: any, b: any) => a.sort - b.sort)
++  const [url, setUrl] = useState<Record<string, string>>({}); const [lb, setLb] = useState<number | null>(null)
++  const [hearts, setHearts] = useState<string[]>([]); const [cm, setCm] = useState<any[]>([]); const [text, setText] = useState(''); const [sending, setSending] = useState(false)
++  const name = (id: string) => id === me.id ? 'Mình' : partner?.display_name ?? 'Người ấy'
++
++  useEffect(() => { sign(media.flatMap((x: any) => [x.path, x.thumb_path])).then(setUrl) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [m.id])
++  const load = useCallback(async () => {
++    const [h, c] = await Promise.all([
++      sb.from('moment_hearts').select('user_id').eq('moment_id', m.id),
++      sb.from('moment_comments').select('*').eq('moment_id', m.id).order('created_at'),
++    ])
++    setHearts((h.data ?? []).map((x: any) => x.user_id)); setCm(c.data ?? [])
++  }, [m.id])
++  useEffect(() => {
++    load()
++    const ch = sb.channel('mom-' + m.id)
++      .on('postgres_changes', { event: '*', schema: 'public', table: 'moment_hearts', filter: `moment_id=eq.${m.id}` }, load)
++      .on('postgres_changes', { event: '*', schema: 'public', table: 'moment_comments', filter: `moment_id=eq.${m.id}` }, load).subscribe()
++    return () => { sb.removeChannel(ch) }
++  }, [m.id, load])
++
++  const mine = hearts.includes(me.id)
++  const heart = async () => {
++    setHearts(a => mine ? a.filter(x => x !== me.id) : [...a, me.id])   // hiện ngay, lỗi thì tải lại
++    const q = mine ? sb.from('moment_hearts').delete().eq('moment_id', m.id).eq('user_id', me.id) : sb.from('moment_hearts').insert({ moment_id: m.id, space_id: m.space_id })
++    if (!await ok(q, 'Không thả tim được')) load(); else onChanged()
++  }
++  const send = async () => {
++    const body = text.trim(); if (!body || sending) return
++    setSending(true)
++    if (await ok(sb.from('moment_comments').insert({ moment_id: m.id, space_id: m.space_id, body }), 'Không gửi được bình luận')) { setText(''); await load(); onChanged() }
++    setSending(false)
++  }
++  const delCm = async (id: string) => { if (await ok(sb.from('moment_comments').delete().eq('id', id), 'Không xóa được bình luận')) { await load(); onChanged() } }
++
++  const lbItems = media.map((x: any) => ({ kind: x.kind, url: url[x.path] })).filter((x: any) => x.url)
++  return <div className="sheet" role="dialog" aria-label={m.title}>
++    <div className="row"><b style={{ flex: 1 }}>{m.title}</b><button className="pill" style={{ flex: 'none' }} onClick={onClose}>Đóng</button></div>
++    <div className="s">{fmt(m.taken_on)}</div>
++    {media.length > 0 && <div className="mgrid" style={{ gridTemplateColumns: media.length === 1 ? '1fr' : 'repeat(3,1fr)' }}>
++      {media.map((x: any, i: number) => {
++        const t = url[x.thumb_path ?? (x.kind === 'image' ? x.path : '')]
++        return <button key={x.id} className="th" onClick={() => url[x.path] && setLb(lbItems.findIndex((l: any) => l.url === url[x.path]))} aria-label={`Xem ${x.kind === 'video' ? 'video' : 'ảnh'} ${i + 1}`} style={media.length === 1 ? { aspectRatio: '4/3' } : undefined}>
++          {t ? <img src={t} alt="" /> : x.kind === 'video' ? '🎬' : '🖼️'}
++          {x.kind === 'video' && t && <span style={{ position: 'absolute', fontSize: 34 }}>▶️</span>}
++        </button>
++      })}
++    </div>}
++    <div className="k">
++      {m.description && <div style={{ whiteSpace: 'pre-wrap', marginBottom: 6 }}>{m.description}</div>}
++      {(m.tags ?? []).length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>{m.tags.map((t: string) => <span key={t} className="pill on">{TAG_EMOJI[t] ?? '🏷️'} {t}</span>)}</div>}
++      {m.place && <div className="s">📍 {m.place}</div>}
++      {m.lat != null && <a className="pill" style={{ marginTop: 6 }} href={`https://www.google.com/maps/search/?api=1&query=${m.lat},${m.lng}`} target="_blank" rel="noreferrer">Mở bản đồ</a>}
++      {plan && <div style={{ marginTop: 6 }}><Link className="pill" href={`/plan/${plan.id}`}>🗓️ Kế hoạch: {plan.name}</Link></div>}
++      {albumNames.length > 0 && <div className="s" style={{ marginTop: 6 }}>📁 {albumNames.join(', ')}</div>}
++    </div>
++    <div className="row"><button className={'pill heartbtn' + (mine ? ' on' : '')} style={{ flex: 'none' }} onClick={heart} aria-pressed={mine}>{mine ? '💗' : '🤍'} {hearts.length || ''} Thả tim</button>
++      {hearts.length > 0 && <div className="s">{hearts.map(name).join(' và ')} đã thả tim</div>}</div>
++    <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++      <b>Bình luận ({cm.length})</b>
++      {cm.map(c => <div key={c.id}><span className="s">{name(c.author)} · {new Date(c.created_at).toLocaleString('vi-VN', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
++        <div style={{ whiteSpace: 'pre-wrap' }}>{c.body}</div>
++        {c.author === me.id && <button className="pill" style={{ padding: '0 10px' }} onClick={() => delCm(c.id)}>Xóa</button>}</div>)}
++      <div className="row k" style={{ padding: '6px 14px', background: '#fff' }}>
++        <input placeholder="Viết bình luận…" maxLength={1000} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} aria-label="Bình luận" />
++        <button className="pill on" style={{ flex: 'none' }} onClick={send} disabled={sending}>Gửi</button></div>
++    </div>
++    <div className="row"><button className="btn" onClick={onEdit}>Sửa</button><button className="pill" onClick={onDelete}>Xóa</button></div>
++    {lb != null && lbItems.length > 0 && <Lightbox items={lbItems} start={Math.max(0, lb)} caption={m.title} onClose={() => setLb(null)} />}
++  </div>
++}
+diff --git a/components/PlacePicker.tsx b/components/PlacePicker.tsx
+new file mode 100644
+index 0000000..3077366
+--- /dev/null
++++ b/components/PlacePicker.tsx
+@@ -0,0 +1,59 @@
++'use client'
++import 'leaflet/dist/leaflet.css'
++import { useEffect, useRef, useState } from 'react'
++import { geocode, reverse, type Place } from '@/lib/media'
++
++// Chọn địa điểm trên bản đồ: chạm bản đồ, tìm theo tên, hoặc lấy vị trí hiện tại (MOM-01)
++export default function PlacePicker({ value, onClose, onPick }: { value?: { lat: number; lng: number } | null; onClose: () => void; onPick: (p: Place) => void }) {
++  const el = useRef<HTMLDivElement>(null), map = useRef<any>(null), L = useRef<any>(null), mk = useRef<any>(null)
++  const [pt, setPt] = useState<{ lat: number; lng: number } | null>(value ?? null)
++  const [name, setName] = useState(''); const [q, setQ] = useState(''); const [res, setRes] = useState<Place[]>([])
++  const [msg, setMsg] = useState(''); const [busy, setBusy] = useState(false)
++
++  const icon = () => { const d = document.createElement('div'); d.className = 'pin on'; d.textContent = '♥'; return L.current.divIcon({ className: '', html: d, iconSize: [44, 44] }) }
++  const put = async (lat: number, lng: number, nm?: string, fly = false) => {
++    setPt({ lat, lng }); setRes([])
++    if (mk.current) mk.current.setLatLng([lat, lng]); else if (L.current) mk.current = L.current.marker([lat, lng], { icon: icon() }).addTo(map.current)
++    if (fly) map.current?.setView([lat, lng], 16)
++    setName(nm ?? ''); if (nm == null) setName(await reverse(lat, lng))
++  }
++  useEffect(() => {
++    let dead = false
++    ;(async () => {
++      const lf = (await import('leaflet')).default
++      if (dead || !el.current || map.current) return
++      L.current = lf
++      map.current = lf.map(el.current, { zoomControl: false }).setView(value ? [value.lat, value.lng] : [21.0285, 105.8542], value ? 16 : 13)
++      lf.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map.current)
++      if (value) mk.current = lf.marker([value.lat, value.lng], { icon: icon() }).addTo(map.current)
++      map.current.on('click', (e: any) => put(e.latlng.lat, e.latlng.lng))
++    })()
++    return () => { dead = true; map.current?.remove(); map.current = null; mk.current = null }
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [])
++
++  const search = async () => {
++    if (!q.trim() || busy) return
++    setBusy(true); setMsg('')
++    try { const r = await geocode(q.trim()); setRes(r); if (!r.length) setMsg('Không tìm thấy, thử gõ tên khác hoặc chạm thẳng lên bản đồ.') }
++    catch (e: any) { setMsg(e.message) } finally { setBusy(false) }
++  }
++  const here = () => {
++    setMsg(''); navigator.geolocation.getCurrentPosition(p => put(p.coords.latitude, p.coords.longitude, undefined, true),
++      () => setMsg('Không lấy được vị trí. Hãy cho phép trang web truy cập vị trí.'), { enableHighAccuracy: true, timeout: 15000 })
++  }
++
++  return <div className="call" style={{ zIndex: 1500, justifyContent: 'flex-start', gap: 10, alignItems: 'stretch' }} role="dialog" aria-label="Chọn địa điểm">
++    <div className="row"><b style={{ flex: 1 }}>Chọn địa điểm</b><button className="pill" style={{ flex: 'none' }} onClick={onClose}>Đóng</button></div>
++    <div className="row k" style={{ padding: '6px 14px' }}>
++      <input placeholder="Tìm: Hồ Tây, quán cà phê…" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()} />
++      <button className="pill on" style={{ flex: 'none' }} onClick={search} disabled={busy}>{busy ? '…' : 'Tìm'}</button>
++    </div>
++    {res.length > 0 && <div className="k" style={{ padding: 6, maxHeight: 150, overflowY: 'auto' }}>{res.map((r, i) => <button key={i} className="pill" style={{ display: 'block', width: '100%', textAlign: 'left', border: 0, borderRadius: 12 }} onClick={() => put(r.lat, r.lng, r.name, true)}>{r.name}</button>)}</div>}
++    {msg && <div className="s" role="alert">{msg}</div>}
++    <div ref={el} className="mapbox" style={{ flex: 1, height: 'auto', minHeight: 220, width: '100%' }} />
++    <button className="pill" onClick={here}>Dùng vị trí hiện tại của mình</button>
++    {pt && <input className="k" style={{ padding: '8px 14px' }} aria-label="Tên địa điểm" placeholder="Tên địa điểm" value={name} onChange={e => setName(e.target.value)} />}
++    <button className="btn" disabled={!pt} onClick={() => pt && onPick({ ...pt, name: name.trim() })}>{pt ? 'Chọn chỗ này' : 'Chạm lên bản đồ để chọn'}</button>
++  </div>
++}
+diff --git a/components/Slideshow.tsx b/components/Slideshow.tsx
+new file mode 100644
+index 0000000..4fb7142
+--- /dev/null
++++ b/components/Slideshow.tsx
+@@ -0,0 +1,21 @@
++'use client'
++import { useEffect, useState } from 'react'
++import { sign } from '@/lib/media'
++
++// Slideshow tự chạy cho "Ngày này năm trước" (MOM-10): mỗi ảnh 4 giây, chạm để dừng/tiếp
++export default function Slideshow({ moments, onClose }: { moments: any[]; onClose: () => void }) {
++  const slides = moments.flatMap(m => (m.media ?? []).filter((x: any) => x.kind === 'image').slice(0, 6).map((x: any) => ({ path: x.path, title: m.title, date: m.taken_on, year: m.taken_on.slice(0, 4) })))
++  const [url, setUrl] = useState<Record<string, string>>({}); const [i, setI] = useState(0); const [play, setPlay] = useState(true)
++  useEffect(() => { sign(slides.map(s => s.path)).then(setUrl) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [])
++  useEffect(() => {
++    if (!play || slides.length < 2) return
++    const t = setInterval(() => setI(a => (a + 1) % slides.length), 4000); return () => clearInterval(t)
++  }, [play, slides.length])
++  useEffect(() => { const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose(); window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h) }, [onClose])
++  const s = slides[i]
++  return <div className="lb" role="dialog" aria-label="Slideshow kỷ niệm" onClick={() => setPlay(p => !p)}>
++    {s && url[s.path] ? <img src={url[s.path]} alt={s.title} /> : <div style={{ color: '#fff' }}>{s ? 'Đang tải…' : 'Chưa có ảnh để chiếu'}</div>}
++    <button className="pill c" onClick={e => { e.stopPropagation(); onClose() }}>Đóng</button>
++    {s && <div className="cap"><div style={{ fontSize: 22 }}>{new Date().getFullYear() - +s.year} năm trước · {new Date(s.date).toLocaleDateString('vi-VN')}</div>{s.title}{!play && ' · đã dừng, chạm để chạy tiếp'}</div>}
++  </div>
++}
+diff --git a/lib/media.ts b/lib/media.ts
+new file mode 100644
+index 0000000..3e70073
+--- /dev/null
++++ b/lib/media.ts
+@@ -0,0 +1,167 @@
++import * as tus from 'tus-js-client'
++import { Zip, ZipPassThrough } from 'fflate'
++import { sb } from '@/lib/supabase'
++
++export const MAX_FILES = 20                         // MOM-02: tối đa 20 tệp mỗi khoảnh khắc
++export const MAX_IMG = 15 * 1048576                 // MOM-02: mỗi ảnh gốc ≤ 15 MB
++export const MAX_VIDEO_SEC = 180                    // MOM-03: ≤ 3 phút
++// MOM-03: SRS ghi ≤ 200 MB, nhưng gói Supabase miễn phí chỉ nhận ≤ 50 MB mỗi tệp.
++// Lên gói Pro rồi nâng giới hạn tệp trong Storage settings thì đặt NEXT_PUBLIC_MAX_VIDEO_MB=200.
++export const MAX_VIDEO = (Number(process.env.NEXT_PUBLIC_MAX_VIDEO_MB) || 50) * 1048576
++export const MB = (n: number) => (n / 1048576).toFixed(n < 10485760 ? 1 : 0).replace('.', ',') + ' MB'
++
++export const isVideoPath = (p: string) => /\.(mp4|mov|webm|m4v)$/i.test(p.split('?')[0])
++const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
++const online = () => new Promise<void>(ok => { if (navigator.onLine) return ok(); const f = () => { window.removeEventListener('online', f); ok() }; window.addEventListener('online', f) })
++
++// ---------- Ảnh: nén, resize, thumbnail ----------
++async function decode(f: Blob): Promise<{ src: CanvasImageSource; w: number; h: number; done: () => void }> {
++  try {
++    const b = await createImageBitmap(f)
++    return { src: b, w: b.width, h: b.height, done: () => b.close?.() }
++  } catch {   // trình duyệt cũ: giải mã bằng thẻ <img>
++    const u = URL.createObjectURL(f), img = new Image()
++    await new Promise((ok, no) => { img.onload = ok; img.onerror = () => no(new Error('Không đọc được ảnh (ảnh hỏng hoặc định dạng không hỗ trợ)')); img.src = u })
++    return { src: img, w: img.naturalWidth, h: img.naturalHeight, done: () => URL.revokeObjectURL(u) }
++  }
++}
++function scaled(d: { src: CanvasImageSource; w: number; h: number }, max: number, q: number): Promise<Blob> {
++  const k = Math.min(1, max / Math.max(d.w, d.h)), c = document.createElement('canvas')
++  c.width = Math.max(1, Math.round(d.w * k)); c.height = Math.max(1, Math.round(d.h * k))
++  c.getContext('2d')!.drawImage(d.src, 0, 0, c.width, c.height)
++  return new Promise((ok, no) => c.toBlob(b => b ? ok(b) : no(new Error('Không nén được ảnh')), 'image/jpeg', q))
++}
++export async function processImage(f: Blob) {
++  const d = await decode(f)
++  try {
++    const full = await scaled(d, 1600, 0.8), thumb = await scaled(d, 480, 0.72)
++    const k = Math.min(1, 1600 / Math.max(d.w, d.h))
++    return { full, thumb, width: Math.round(d.w * k), height: Math.round(d.h * k) }
++  } finally { d.done() }
++}
++
++// ---------- EXIF: ngày chụp + GPS (MOM-01) ----------
++export async function readExif(f: File): Promise<{ taken_at?: string; lat?: number; lng?: number }> {
++  try {
++    const ex = await import('exifr')
++    const r: any = await ex.parse(f, { gps: true, pick: ['DateTimeOriginal', 'CreateDate', 'latitude', 'longitude'] })
++    if (!r) return {}
++    const d: Date | undefined = r.DateTimeOriginal ?? r.CreateDate
++    return {
++      taken_at: d instanceof Date && !isNaN(+d) ? d.toISOString() : undefined,
++      lat: typeof r.latitude === 'number' ? r.latitude : undefined, lng: typeof r.longitude === 'number' ? r.longitude : undefined,
++    }
++  } catch { return {} }
++}
++// ngày dạng yyyy-mm-dd theo giờ máy (để điền vào ô ngày)
++export const localDay = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
++
++// ---------- Video: thời lượng + ảnh bìa (MOM-03) ----------
++export async function probeVideo(f: File): Promise<{ duration: number; width: number; height: number; poster: Blob | null }> {
++  const u = URL.createObjectURL(f), v = document.createElement('video')
++  v.muted = true; v.playsInline = true; v.preload = 'metadata'; v.src = u
++  const wait = (ev: string, ms: number) => new Promise<boolean>(ok => { const t = setTimeout(() => ok(false), ms); v.addEventListener(ev, () => { clearTimeout(t); ok(true) }, { once: true }) })
++  try {
++    if (!await wait('loadedmetadata', 10000)) throw new Error('Không đọc được video (định dạng không hỗ trợ?)')
++    const duration = v.duration, width = v.videoWidth, height = v.videoHeight
++    let poster: Blob | null = null
++    try {   // iOS đôi khi không cho vẽ khung hình khi chưa có thao tác; lỗi thì bỏ qua, video vẫn đăng được
++      v.currentTime = Math.min(1, duration / 2)
++      if (await wait('seeked', 6000) && width) {
++        const k = Math.min(1, 480 / Math.max(width, height)), c = document.createElement('canvas')
++        c.width = Math.round(width * k); c.height = Math.round(height * k)
++        c.getContext('2d')!.drawImage(v, 0, 0, c.width, c.height)
++        poster = await new Promise<Blob | null>(ok => c.toBlob(ok, 'image/jpeg', 0.72))
++      }
++    } catch { }
++    return { duration, width, height, poster }
++  } finally { v.removeAttribute('src'); v.load(); URL.revokeObjectURL(u) }
++}
++
++// ---------- Tải lên có tiến độ và tự thử lại (MOM-03) ----------
++const URLB = process.env.NEXT_PUBLIC_SUPABASE_URL!, KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
++async function token() { const { data } = await sb.auth.getSession(); return data.session?.access_token ?? KEY }
++
++// Tệp nhỏ: tải thường, thử lại 4 lần (mất mạng thì chờ có mạng lại rồi tiếp)
++async function plainUpload(path: string, b: Blob, type: string, onP: (p: number) => void) {
++  let last = ''
++  for (let i = 0; i < 4; i++) {
++    await online()
++    const { error } = await sb.storage.from('media').upload(path, b, { contentType: type, upsert: true })
++    if (!error) { onP(100); return }
++    last = error.message; await sleep(1500 * 2 ** i)
++  }
++  throw new Error(last || 'Tải lên thất bại')
++}
++// Tệp lớn: giao thức TUS (Supabase resumable), chia khúc 6 MB, mất mạng thì chờ rồi tải tiếp
++function tusUpload(path: string, f: Blob, type: string, onP: (p: number) => void) {
++  return new Promise<void>((ok, no) => {
++    let restarts = 0
++    const up: tus.Upload = new tus.Upload(f, {
++      endpoint: `${URLB}/storage/v1/upload/resumable`,
++      retryDelays: [0, 2000, 5000, 10000, 20000],
++      headers: { apikey: KEY, 'x-upsert': 'true' },
++      uploadDataDuringCreation: true, removeFingerprintOnSuccess: true, storeFingerprintForResuming: false,
++      chunkSize: 6 * 1048576,
++      metadata: { bucketName: 'media', objectName: path, contentType: type, cacheControl: '3600' },
++      onBeforeRequest: async req => { req.setHeader('Authorization', `Bearer ${await token()}`) },
++      onProgress: (a, b) => onP(Math.min(99, Math.round(a / b * 100))),
++      onSuccess: () => { onP(100); ok() },
++      onError: async err => {
++        if (!navigator.onLine && restarts++ < 20) { await online(); await sleep(1000); up.start(); return }   // mất mạng: chờ có mạng rồi tải tiếp
++        no(new Error(String((err as any)?.message ?? err).slice(0, 200)))
++      },
++    })
++    up.start()
++  })
++}
++export const uploadBlob = (path: string, b: Blob, type: string, onP: (p: number) => void = () => { }) =>
++  b.size > 5 * 1048576 ? tusUpload(path, b, type, onP) : plainUpload(path, b, type, onP)
++
++// ---------- Link ký có thời hạn, có nhớ tạm (NFR-02) ----------
++const cache = new Map<string, { u: string; exp: number }>()
++export async function sign(paths: (string | null | undefined)[], ttl = 3600): Promise<Record<string, string>> {
++  const want = Array.from(new Set(paths.filter(Boolean) as string[])), out: Record<string, string> = {}, now = Date.now(), miss: string[] = []
++  for (const p of want) { const c = cache.get(p); if (c && c.exp > now + 60000) out[p] = c.u; else miss.push(p) }
++  if (miss.length) {
++    const { data } = await sb.storage.from('media').createSignedUrls(miss, ttl)
++    for (const x of data ?? []) if (x.path && x.signedUrl) { out[x.path] = x.signedUrl; cache.set(x.path, { u: x.signedUrl, exp: now + ttl * 1000 }) }
++  }
++  return out
++}
++
++// ---------- Nén zip để tải về (MOM-09) ----------
++export async function zipDownload(files: { name: string; path: string }[], zipName: string, onP: (done: number, total: number) => void) {
++  const urls = await sign(files.map(f => f.path), 3600 * 2), chunks: BlobPart[] = []
++  let fail: Error | null = null
++  const zip = new Zip((err, chunk) => { if (err) fail = err; else chunks.push(chunk) })
++  let n = 0
++  for (const f of files) {
++    const u = urls[f.path]; if (!u) { n++; continue }
++    const r = await fetch(u); if (!r.ok) throw new Error(`Không tải được ${f.name}`)
++    const e = new ZipPassThrough(f.name); zip.add(e); e.push(new Uint8Array(await r.arrayBuffer()), true)   // ảnh/video đã nén sẵn, không nén lại
++    onP(++n, files.length)
++  }
++  zip.end()
++  if (fail) throw fail
++  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type: 'application/zip' })); a.download = zipName
++  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000)
++}
++
++// ---------- Tìm địa điểm bằng OpenStreetMap Nominatim (MOM-01) ----------
++export type Place = { lat: number; lng: number; name: string }
++export async function geocode(q: string): Promise<Place[]> {
++  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=vi&q=${encodeURIComponent(q)}`)
++  if (!r.ok) throw new Error('Không tìm được địa điểm')
++  return (await r.json()).map((x: any) => ({ lat: +x.lat, lng: +x.lon, name: String(x.display_name).split(',').slice(0, 3).join(',').trim() }))
++}
++export async function reverse(lat: number, lng: number): Promise<string> {
++  try {
++    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&accept-language=vi&lat=${lat}&lon=${lng}`)
++    if (!r.ok) return ''
++    const j = await r.json(); return String(j.name || j.display_name || '').split(',').slice(0, 3).join(',').trim()
++  } catch { return '' }
++}
++
++export const TAGS = ['Vui vẻ', 'Ngọt ngào', 'Háo hức', 'Bình yên', 'Nhớ mãi', 'Cười xỉu', 'Xúc động', 'Hơi mệt']
++export const TAG_EMOJI: Record<string, string> = { 'Vui vẻ': '😆', 'Ngọt ngào': '🥰', 'Háo hức': '🤩', 'Bình yên': '😌', 'Nhớ mãi': '🥹', 'Cười xỉu': '🤣', 'Xúc động': '😭', 'Hơi mệt': '😴' }
+diff --git a/lib/trash.ts b/lib/trash.ts
+new file mode 100644
+index 0000000..fa1635a
+--- /dev/null
++++ b/lib/trash.ts
+@@ -0,0 +1,17 @@
++import { sb } from '@/lib/supabase'
++
++export const KEEP_DAYS = 30
++const mediaPaths = (m: any): string[] => Array.from(new Set([...(m.photos ?? []), ...(m.media ?? []).flatMap((x: any) => [x.path, x.thumb_path])].filter(Boolean)))
++
++// Xóa vĩnh viễn các khoảnh khắc đã nằm trong thùng rác quá 30 ngày (xóa tệp trước, xóa dòng sau để không mồ côi tệp)
++export async function purgeOld(): Promise<number> {
++  const { data } = await sb.from('moments').select('id,photos,media(path,thumb_path)').lt('deleted_at', new Date(Date.now() - KEEP_DAYS * 864e5).toISOString()).limit(50)
++  if (!data?.length) return 0
++  return (await destroy(data)) ? data.length : 0
++}
++export async function destroy(rows: any[]): Promise<boolean> {
++  const paths = rows.flatMap(mediaPaths)
++  if (paths.length) { const { error } = await sb.storage.from('media').remove(paths); if (error) return false }
++  const { error } = await sb.from('moments').delete().in('id', rows.map(r => r.id))
++  return !error
++}
+diff --git a/package-lock.json b/package-lock.json
+index b5850f6..d37fb74 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -7,10 +7,13 @@
+    "name": "tdlove",
+    "dependencies": {
+     "@supabase/supabase-js": "^2.45.0",
++    "exifr": "^7.1.3",
++    "fflate": "^0.8.3",
+     "leaflet": "^1.9.4",
+     "next": "14.2.15",
+     "react": "18.3.1",
+-    "react-dom": "18.3.1"
++    "react-dom": "18.3.1",
++    "tus-js-client": "^4.3.1"
+    },
+    "devDependencies": {
+     "@types/leaflet": "^1.9.12",
+@@ -65,9 +68,6 @@
+    "cpu": [
+     "arm64"
+    ],
+-   "libc": [
+-    "glibc"
+-   ],
+    "license": "MIT",
+    "optional": true,
+    "os": [
+@@ -84,9 +84,6 @@
+    "cpu": [
+     "arm64"
+    ],
+-   "libc": [
+-    "musl"
+-   ],
+    "license": "MIT",
+    "optional": true,
+    "os": [
+@@ -103,9 +100,6 @@
+    "cpu": [
+     "x64"
+    ],
+-   "libc": [
+-    "glibc"
+-   ],
+    "license": "MIT",
+    "optional": true,
+    "os": [
+@@ -122,9 +116,6 @@
+    "cpu": [
+     "x64"
+    ],
+-   "libc": [
+-    "musl"
+-   ],
+    "license": "MIT",
+    "optional": true,
+    "os": [
+@@ -345,6 +336,12 @@
+     "@types/react": "^18.0.0"
+    }
+   },
++  "node_modules/buffer-from": {
++   "version": "1.1.2",
++   "resolved": "https://registry.npmjs.org/buffer-from/-/buffer-from-1.1.2.tgz",
++   "integrity": "sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ==",
++   "license": "MIT"
++  },
+   "node_modules/busboy": {
+    "version": "1.6.0",
+    "resolved": "https://registry.npmjs.org/busboy/-/busboy-1.6.0.tgz",
+@@ -382,6 +379,15 @@
+    "integrity": "sha512-IV3Ou0jSMzZrd3pZ48nLkT9DA7Ag1pnPzaiQhpW7c3RbcqqzvzzVu+L8gfqMp/8IM2MQtSiqaCxrrcfu8I8rMA==",
+    "license": "MIT"
+   },
++  "node_modules/combine-errors": {
++   "version": "3.0.4",
++   "resolved": "https://registry.npmjs.org/combine-errors/-/combine-errors-3.0.4.tgz",
++   "integrity": "sha512-o2AO3DWIBbDrJ16unhIe8+9RwqHKh/DbaIMKrNlXjEc1Od0psMLv+Cn3xocQlipmyZ92Eth4TjJFJQWN3VDFBQ==",
++   "dependencies": {
++    "custom-error-instance": "2.1.1",
++    "lodash.uniqby": "4.5.0"
++   }
++  },
+   "node_modules/csstype": {
+    "version": "3.2.3",
+    "resolved": "https://registry.npmjs.org/csstype/-/csstype-3.2.3.tgz",
+@@ -389,6 +395,24 @@
+    "dev": true,
+    "license": "MIT"
+   },
++  "node_modules/custom-error-instance": {
++   "version": "2.1.1",
++   "resolved": "https://registry.npmjs.org/custom-error-instance/-/custom-error-instance-2.1.1.tgz",
++   "integrity": "sha512-p6JFxJc3M4OTD2li2qaHkDCw9SfMw82Ldr6OC9Je1aXiGfhx2W8p3GaoeaGrPJTUN9NirTM/KTxHWMUdR1rsUg==",
++   "license": "ISC"
++  },
++  "node_modules/exifr": {
++   "version": "7.1.3",
++   "resolved": "https://registry.npmjs.org/exifr/-/exifr-7.1.3.tgz",
++   "integrity": "sha512-g/aje2noHivrRSLbAUtBPWFbxKdKhgj/xr1vATDdUXPOFYJlQ62Ft0oy+72V6XLIpDJfHs6gXLbBLAolqOXYRw==",
++   "license": "MIT"
++  },
++  "node_modules/fflate": {
++   "version": "0.8.3",
++   "resolved": "https://registry.npmjs.org/fflate/-/fflate-0.8.3.tgz",
++   "integrity": "sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==",
++   "license": "MIT"
++  },
+   "node_modules/graceful-fs": {
+    "version": "4.2.11",
+    "resolved": "https://registry.npmjs.org/graceful-fs/-/graceful-fs-4.2.11.tgz",
+@@ -404,6 +428,24 @@
+     "node": ">=20.0.0"
+    }
+   },
++  "node_modules/is-stream": {
++   "version": "2.0.1",
++   "resolved": "https://registry.npmjs.org/is-stream/-/is-stream-2.0.1.tgz",
++   "integrity": "sha512-hFoiJiTl63nn+kstHGBtewWSKnQLpyb155KHheA1l39uvtO9nWIop1p3udqPcUd/xbF1VLMO4n7OI6p7RbngDg==",
++   "license": "MIT",
++   "engines": {
++    "node": ">=8"
++   },
++   "funding": {
++    "url": "https://github.com/sponsors/sindresorhus"
++   }
++  },
++  "node_modules/js-base64": {
++   "version": "3.9.6",
++   "resolved": "https://registry.npmjs.org/js-base64/-/js-base64-3.9.6.tgz",
++   "integrity": "sha512-LjkzbLtU6Lx6fjXMYGEACEB7rdtqZtxkBe9aS1ZpDNUyWgUivw3yBEIhQ37OVygJYRt+C+9e9fVT8PpFzH2Hww==",
++   "license": "BSD-3-Clause"
++  },
+   "node_modules/js-tokens": {
+    "version": "4.0.0",
+    "resolved": "https://registry.npmjs.org/js-tokens/-/js-tokens-4.0.0.tgz",
+@@ -416,6 +458,68 @@
+    "integrity": "sha512-nxS1ynzJOmOlHp+iL3FyWqK89GtNL8U8rvlMOsQdTTssxZwCXh8N2NB3GDQOL+YR3XnWyZAxwQixURb+FA74PA==",
+    "license": "BSD-2-Clause"
+   },
++  "node_modules/lodash._baseiteratee": {
++   "version": "4.7.0",
++   "resolved": "https://registry.npmjs.org/lodash._baseiteratee/-/lodash._baseiteratee-4.7.0.tgz",
++   "integrity": "sha512-nqB9M+wITz0BX/Q2xg6fQ8mLkyfF7MU7eE+MNBNjTHFKeKaZAPEzEg+E8LWxKWf1DQVflNEn9N49yAuqKh2mWQ==",
++   "license": "MIT",
++   "dependencies": {
++    "lodash._stringtopath": "~4.8.0"
++   }
++  },
++  "node_modules/lodash._basetostring": {
++   "version": "4.12.0",
++   "resolved": "https://registry.npmjs.org/lodash._basetostring/-/lodash._basetostring-4.12.0.tgz",
++   "integrity": "sha512-SwcRIbyxnN6CFEEK4K1y+zuApvWdpQdBHM/swxP962s8HIxPO3alBH5t3m/dl+f4CMUug6sJb7Pww8d13/9WSw==",
++   "license": "MIT"
++  },
++  "node_modules/lodash._baseuniq": {
++   "version": "4.6.0",
++   "resolved": "https://registry.npmjs.org/lodash._baseuniq/-/lodash._baseuniq-4.6.0.tgz",
++   "integrity": "sha512-Ja1YevpHZctlI5beLA7oc5KNDhGcPixFhcqSiORHNsp/1QTv7amAXzw+gu4YOvErqVlMVyIJGgtzeepCnnur0A==",
++   "license": "MIT",
++   "dependencies": {
++    "lodash._createset": "~4.0.0",
++    "lodash._root": "~3.0.0"
++   }
++  },
++  "node_modules/lodash._createset": {
++   "version": "4.0.3",
++   "resolved": "https://registry.npmjs.org/lodash._createset/-/lodash._createset-4.0.3.tgz",
++   "integrity": "sha512-GTkC6YMprrJZCYU3zcqZj+jkXkrXzq3IPBcF/fIPpNEAB4hZEtXU8zp/RwKOvZl43NUmwDbyRk3+ZTbeRdEBXA==",
++   "license": "MIT"
++  },
++  "node_modules/lodash._root": {
++   "version": "3.0.1",
++   "resolved": "https://registry.npmjs.org/lodash._root/-/lodash._root-3.0.1.tgz",
++   "integrity": "sha512-O0pWuFSK6x4EXhM1dhZ8gchNtG7JMqBtrHdoUFUWXD7dJnNSUze1GuyQr5sOs0aCvgGeI3o/OJW8f4ca7FDxmQ==",
++   "license": "MIT"
++  },
++  "node_modules/lodash._stringtopath": {
++   "version": "4.8.0",
++   "resolved": "https://registry.npmjs.org/lodash._stringtopath/-/lodash._stringtopath-4.8.0.tgz",
++   "integrity": "sha512-SXL66C731p0xPDC5LZg4wI5H+dJo/EO4KTqOMwLYCH3+FmmfAKJEZCm6ohGpI+T1xwsDsJCfL4OnhorllvlTPQ==",
++   "license": "MIT",
++   "dependencies": {
++    "lodash._basetostring": "~4.12.0"
++   }
++  },
++  "node_modules/lodash.throttle": {
++   "version": "4.1.1",
++   "resolved": "https://registry.npmjs.org/lodash.throttle/-/lodash.throttle-4.1.1.tgz",
++   "integrity": "sha512-wIkUCfVKpVsWo3JSZlc+8MB5it+2AN5W8J7YVMST30UrvcQNZ1Okbj+rbVniijTWE6FGYy4XJq/rHkas8qJMLQ==",
++   "license": "MIT"
++  },
++  "node_modules/lodash.uniqby": {
++   "version": "4.5.0",
++   "resolved": "https://registry.npmjs.org/lodash.uniqby/-/lodash.uniqby-4.5.0.tgz",
++   "integrity": "sha512-IRt7cfTtHy6f1aRVA5n7kT8rgN3N1nH6MOWLcHfpWG2SH19E3JksLK38MktLxZDhlAjCP9jpIXkOnRXlu6oByQ==",
++   "license": "MIT",
++   "dependencies": {
++    "lodash._baseiteratee": "~4.7.0",
++    "lodash._baseuniq": "~4.6.0"
++   }
++  },
+   "node_modules/loose-envify": {
+    "version": "1.4.0",
+    "resolved": "https://registry.npmjs.org/loose-envify/-/loose-envify-1.4.0.tgz",
+@@ -531,6 +635,23 @@
+     "node": "^10 || ^12 || >=14"
+    }
+   },
++  "node_modules/proper-lockfile": {
++   "version": "4.1.2",
++   "resolved": "https://registry.npmjs.org/proper-lockfile/-/proper-lockfile-4.1.2.tgz",
++   "integrity": "sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA==",
++   "license": "MIT",
++   "dependencies": {
++    "graceful-fs": "^4.2.4",
++    "retry": "^0.12.0",
++    "signal-exit": "^3.0.2"
++   }
++  },
++  "node_modules/querystringify": {
++   "version": "2.2.0",
++   "resolved": "https://registry.npmjs.org/querystringify/-/querystringify-2.2.0.tgz",
++   "integrity": "sha512-FIqgj2EUvTa7R50u0rGsyTftzjYmv/a3hO345bZNrqabNqjtgiDMgmo4mkUjd+nzU5oF3dClKqFIPUKybUyqoQ==",
++   "license": "MIT"
++  },
+   "node_modules/react": {
+    "version": "18.3.1",
+    "resolved": "https://registry.npmjs.org/react/-/react-18.3.1.tgz",
+@@ -556,6 +677,21 @@
+     "react": "^18.3.1"
+    }
+   },
++  "node_modules/requires-port": {
++   "version": "1.0.0",
++   "resolved": "https://registry.npmjs.org/requires-port/-/requires-port-1.0.0.tgz",
++   "integrity": "sha512-KigOCHcocU3XODJxsu8i/j8T9tzT4adHiecwORRQ0ZZFcp7ahwXuRU1m+yuO90C5ZUyGeGfocHDI14M3L3yDAQ==",
++   "license": "MIT"
++  },
++  "node_modules/retry": {
++   "version": "0.12.0",
++   "resolved": "https://registry.npmjs.org/retry/-/retry-0.12.0.tgz",
++   "integrity": "sha512-9LkiTwjUh6rT555DtE9rTX+BKByPfrMzEAtnlEtdEwr3Nkffwiihqe2bWADg+OQRjt9gl6ICdmB/ZFDCGAtSow==",
++   "license": "MIT",
++   "engines": {
++    "node": ">= 4"
++   }
++  },
+   "node_modules/scheduler": {
+    "version": "0.23.2",
+    "resolved": "https://registry.npmjs.org/scheduler/-/scheduler-0.23.2.tgz",
+@@ -565,6 +701,12 @@
+     "loose-envify": "^1.1.0"
+    }
+   },
++  "node_modules/signal-exit": {
++   "version": "3.0.7",
++   "resolved": "https://registry.npmjs.org/signal-exit/-/signal-exit-3.0.7.tgz",
++   "integrity": "sha512-wnD2ZE+l+SPC/uoS0vXeE9L1+0wuaMqKlfz9AMUo38JsyLSBWSFcHR1Rri62LZc12vLr1gb3jl7iwQhgwpAbGQ==",
++   "license": "ISC"
++  },
+   "node_modules/source-map-js": {
+    "version": "1.2.2",
+    "resolved": "https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.2.tgz",
+@@ -611,6 +753,24 @@
+    "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==",
+    "license": "0BSD"
+   },
++  "node_modules/tus-js-client": {
++   "version": "4.3.1",
++   "resolved": "https://registry.npmjs.org/tus-js-client/-/tus-js-client-4.3.1.tgz",
++   "integrity": "sha512-ZLeYmjrkaU1fUsKbIi8JML52uAocjEZtBx4DKjRrqzrZa0O4MYwT6db+oqePlspV+FxXJAyFBc/L5gwUi2OFsg==",
++   "license": "MIT",
++   "dependencies": {
++    "buffer-from": "^1.1.2",
++    "combine-errors": "^3.0.3",
++    "is-stream": "^2.0.0",
++    "js-base64": "^3.7.2",
++    "lodash.throttle": "^4.1.1",
++    "proper-lockfile": "^4.1.2",
++    "url-parse": "^1.5.7"
++   },
++   "engines": {
++    "node": ">=18"
++   }
++  },
+   "node_modules/typescript": {
+    "version": "5.9.3",
+    "resolved": "https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz",
+@@ -631,6 +791,16 @@
+    "integrity": "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==",
+    "dev": true,
+    "license": "MIT"
++  },
++  "node_modules/url-parse": {
++   "version": "1.5.10",
++   "resolved": "https://registry.npmjs.org/url-parse/-/url-parse-1.5.10.tgz",
++   "integrity": "sha512-WypcfiRhfeUP9vvF0j6rw0J3hrWrw6iZv3+22h6iRMJ/8z1Tj6XfLP4DsUix5MhMPnXpiHDoKyoZ/bdCkwBCiQ==",
++   "license": "MIT",
++   "dependencies": {
++    "querystringify": "^2.1.1",
++    "requires-port": "^1.0.0"
++   }
+   }
+  }
+ }
+diff --git a/package.json b/package.json
+index 250e978..599553e 100644
+--- a/package.json
++++ b/package.json
+@@ -7,17 +7,20 @@
+   "start": "next start"
+  },
+  "dependencies": {
++  "@supabase/supabase-js": "^2.45.0",
++  "exifr": "^7.1.3",
++  "fflate": "^0.8.3",
++  "leaflet": "^1.9.4",
+   "next": "14.2.15",
+   "react": "18.3.1",
+   "react-dom": "18.3.1",
+-  "@supabase/supabase-js": "^2.45.0",
+-  "leaflet": "^1.9.4"
++  "tus-js-client": "^4.3.1"
+  },
+  "devDependencies": {
+-  "typescript": "^5.5.0",
++  "@types/leaflet": "^1.9.12",
+   "@types/node": "^20",
+   "@types/react": "^18",
+   "@types/react-dom": "^18",
+-  "@types/leaflet": "^1.9.12"
++  "typescript": "^5.5.0"
+  }
+-}
+\ No newline at end of file
++}
+diff --git a/supabase/phase6.sql b/supabase/phase6.sql
+new file mode 100644
+index 0000000..3a72d36
+--- /dev/null
++++ b/supabase/phase6.sql
+@@ -0,0 +1,107 @@
++-- Giai đoạn 6: hoàn thiện Khoảnh khắc (MOM-01..11)
++-- Chạy trong Supabase > SQL Editor, một lần, SAU phase5.sql. Chạy lại nhiều lần vẫn an toàn.
++
++-- MOM-01: tọa độ, thẻ cảm xúc, liên kết Plan (MOM-11); MOM-05: ai sửa gần nhất
++alter table moments
++  add column if not exists lat double precision,
++  add column if not exists lng double precision,
++  add column if not exists tags text[] not null default '{}',
++  add column if not exists plan_id uuid references plans(id) on delete set null,
++  add column if not exists updated_at timestamptz default now();
++create index if not exists moments_timeline_idx on moments(space_id, taken_on desc, created_at desc) where deleted_at is null;
++create index if not exists moments_tags_idx on moments using gin(tags);
++
++-- plan_id phải là Plan của chính Space (RLS của moments chỉ kiểm tra space_id)
++create or replace function moments_check() returns trigger language plpgsql as $$
++begin
++  if new.plan_id is not null and not exists(select 1 from plans where id=new.plan_id and space_id=new.space_id) then
++    raise exception 'Kế hoạch không thuộc Space này'; end if;
++  new.updated_at := now();
++  return new; end $$;
++drop trigger if exists moments_check_t on moments;
++create trigger moments_check_t before insert or update on moments for each row execute function moments_check();
++
++-- MOM-02/03: bảng media (ảnh/video), mỗi tệp một dòng, có ảnh thu nhỏ
++create table if not exists media(
++  id uuid primary key default gen_random_uuid(),
++  moment_id uuid not null references moments(id) on delete cascade,
++  space_id uuid not null,
++  kind text not null check (kind in ('image','video')),
++  path text not null,
++  thumb_path text,
++  size bigint,
++  taken_at timestamptz,
++  lat double precision, lng double precision,
++  width int, height int, duration real,
++  sort int not null default 0,
++  created_at timestamptz default now());
++create index if not exists media_moment_idx on media(moment_id, sort);
++create index if not exists media_space_idx on media(space_id);
++alter table media enable row level security;
++drop policy if exists md_all on media;
++create policy md_all on media for all
++  using (space_id=my_space())
++  with check (space_id=my_space()
++    and path like my_space()::text||'/%'
++    and (thumb_path is null or thumb_path like my_space()::text||'/%')
++    and exists(select 1 from moments m where m.id=moment_id and m.space_id=my_space()));
++
++-- chuyển dữ liệu cũ (moments.photos) sang bảng media, chỉ làm cho moment chưa có media
++insert into media(moment_id, space_id, kind, path, sort)
++select m.id, m.space_id,
++       case when lower(p.path) ~ '\.(mp4|mov|webm|m4v)$' then 'video' else 'image' end,
++       p.path, (p.ord-1)::int
++from moments m, unnest(m.photos) with ordinality as p(path, ord)
++where not exists(select 1 from media x where x.moment_id=m.id);
++
++-- MOM-07: thả tim và bình luận
++create table if not exists moment_hearts(
++  moment_id uuid not null references moments(id) on delete cascade,
++  user_id uuid not null default auth.uid() references auth.users on delete cascade,
++  space_id uuid not null,
++  created_at timestamptz default now(),
++  primary key(moment_id, user_id));
++create table if not exists moment_comments(
++  id uuid primary key default gen_random_uuid(),
++  moment_id uuid not null references moments(id) on delete cascade,
++  space_id uuid not null,
++  author uuid not null default auth.uid() references auth.users on delete cascade,
++  body text not null check (char_length(body) between 1 and 1000),
++  created_at timestamptz default now());
++create index if not exists moment_comments_idx on moment_comments(moment_id, created_at);
++alter table moment_hearts enable row level security;
++alter table moment_comments enable row level security;
++drop policy if exists mh_r on moment_hearts; drop policy if exists mh_i on moment_hearts; drop policy if exists mh_d on moment_hearts;
++create policy mh_r on moment_hearts for select using (space_id=my_space());
++create policy mh_i on moment_hearts for insert with check (space_id=my_space() and user_id=auth.uid()
++  and exists(select 1 from moments m where m.id=moment_id and m.space_id=my_space()));
++create policy mh_d on moment_hearts for delete using (user_id=auth.uid());
++drop policy if exists mc_r on moment_comments; drop policy if exists mc_i on moment_comments; drop policy if exists mc_d on moment_comments;
++create policy mc_r on moment_comments for select using (space_id=my_space());
++create policy mc_i on moment_comments for insert with check (space_id=my_space() and author=auth.uid()
++  and exists(select 1 from moments m where m.id=moment_id and m.space_id=my_space()));
++create policy mc_d on moment_comments for delete using (author=auth.uid());
++
++-- MOM-06: album / bộ sưu tập
++create table if not exists albums(
++  id uuid primary key default gen_random_uuid(), space_id uuid not null,
++  name text not null check (char_length(name) between 1 and 80),
++  created_at timestamptz default now());
++create table if not exists album_moments(
++  album_id uuid not null references albums(id) on delete cascade,
++  moment_id uuid not null references moments(id) on delete cascade,
++  space_id uuid not null,
++  primary key(album_id, moment_id));
++alter table albums enable row level security;
++alter table album_moments enable row level security;
++drop policy if exists al_all on albums; drop policy if exists am_all on album_moments;
++create policy al_all on albums for all using (space_id=my_space()) with check (space_id=my_space());
++create policy am_all on album_moments for all using (space_id=my_space())
++  with check (space_id=my_space()
++    and exists(select 1 from albums a where a.id=album_id and a.space_id=my_space())
++    and exists(select 1 from moments m where m.id=moment_id and m.space_id=my_space()));
++
++do $$ begin
++  begin alter publication supabase_realtime add table moment_hearts; exception when duplicate_object then null; end;
++  begin alter publication supabase_realtime add table moment_comments; exception when duplicate_object then null; end;
++end $$;
+-- 
+2.43.0
+
