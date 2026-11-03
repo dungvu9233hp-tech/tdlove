@@ -1,6 +1,7 @@
 'use client'
 import 'leaflet/dist/leaflet.css'
 import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import Head from '@/components/Head'
@@ -11,6 +12,7 @@ const ago = (t: string) => { const s = Math.max(0, Math.round((Date.now() - new 
 
 export default function MapPage() {
   const { me, space, partner } = useApp()
+  const router = useRouter()
   const el = useRef<HTMLDivElement>(null), map = useRef<any>(null), L = useRef<any>(null), pins = useRef<Record<string, any>>({}), fit = useRef(false)
   const [locs, setLocs] = useState<Record<string, any>>({})
   const [err, setErr] = useState(''); const [ready, setReady] = useState(false); const [, tick] = useState(0)
@@ -89,10 +91,26 @@ export default function MapPage() {
     spots.forEach(s => L.current.circleMarker([s.lat, s.lng], { radius: 8, color: '#5B1F3A', weight: 2.5, fillColor: '#FFB3CF', fillOpacity: 1 }).bindTooltip(s.name).addTo(g))
     return () => { g.remove() }
   }, [ready, spots])
+  // MOM-08: các khoảnh khắc đã gắn vị trí hiện thành ghim trên bản đồ
+  const [moms, setMoms] = useState<any[]>([]); const [showMoms, setShowMoms] = useState(true)
+  useEffect(() => { sb.from('moments').select('id,title,taken_on,place,lat,lng').is('deleted_at', null).not('lat', 'is', null).limit(500).then(r => setMoms(r.data ?? [])) }, [])
+  useEffect(() => {
+    if (!ready || !showMoms) return
+    const g = L.current.layerGroup().addTo(map.current)
+    moms.forEach(m => {
+      const box = document.createElement('div')
+      const t = document.createElement('b'); t.textContent = m.title; box.appendChild(t)
+      const d = document.createElement('div'); d.textContent = new Date(m.taken_on).toLocaleDateString('vi-VN') + (m.place ? ' · ' + m.place : ''); box.appendChild(d)
+      const bt = document.createElement('button'); bt.className = 'pill on'; bt.textContent = 'Xem khoảnh khắc'; bt.onclick = () => router.push('/moments?open=' + m.id); box.appendChild(bt)
+      L.current.circleMarker([m.lat, m.lng], { radius: 10, color: '#5B1F3A', weight: 2.5, fillColor: '#EBDDFF', fillOpacity: 1 }).bindPopup(box).bindTooltip('♥ ' + m.title).addTo(g)
+    })
+    if (!fit.current && moms.length && !Object.keys(pins.current).length) { fit.current = true; map.current.fitBounds(moms.map(m => [m.lat, m.lng]), { padding: [50, 50], maxZoom: 15 }) }
+    return () => { g.remove() }
+  }, [ready, moms, showMoms])
   const dist = sharing && theirs ? km(mine, theirs) : null
 
   return <>
-    <Head t="Bản đồ">{sharing && <span className="pill on">Đang chia sẻ</span>}</Head>
+    <Head t="Bản đồ">{sharing && <span className="pill on">Đang chia sẻ</span>}<button className={'pill' + (showMoms ? ' on' : '')} onClick={() => setShowMoms(!showMoms)} aria-pressed={showMoms}>♥ Khoảnh khắc ({moms.length})</button></Head>
     <div className="b">
       <div ref={el} className="mapbox" />
       {err && <div className="k pe s" role="alert">{err}</div>}

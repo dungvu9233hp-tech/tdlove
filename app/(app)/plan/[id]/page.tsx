@@ -94,8 +94,9 @@ export default function PlanPage() {
   }
   const addTodo = async () => { if (!todo.trim()) return; if (!await ok(sb.from('checklist_items').insert({ plan_id: id, space_id: space.id, text: todo }))) return; setTodo(''); load() }
   async function toMoment() {
-    if (!await ok(sb.from('moments').insert({ space_id: space.id, title: p.name, taken_on: p.end_date ?? p.start_date ?? new Date().toISOString().slice(0, 10), place: p.area }), 'Không tạo được khoảnh khắc')) return
-    r.push('/moments')
+    const { data, error } = await sb.from('moments').insert({ space_id: space.id, title: p.name, taken_on: p.end_date ?? p.start_date ?? new Date().toISOString().slice(0, 10), place: p.area, plan_id: id }).select('id').single()
+    if (error || !data) return alert('Không tạo được khoảnh khắc: ' + (error?.message ?? ''))
+    r.push('/moments?edit=' + data.id)   // mở sẵn form sửa để thêm ảnh/video
   }
   const setShare = async (v: number) => {
     if (!partner || isNaN(v)) return

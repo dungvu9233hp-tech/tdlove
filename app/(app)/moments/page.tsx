@@ -1,129 +1,197 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
+import { sign, TAG_EMOJI, zipDownload } from '@/lib/media'
+import { ok } from '@/lib/util'
+import { purgeOld } from '@/lib/trash'
 import Head from '@/components/Head'
-
-// Resize về tối đa 1600px, nén JPEG trước khi tải lên
-async function shrink(f: File): Promise<Blob> {
-  const bmp = await createImageBitmap(f)
-  const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height))
-  const c = document.createElement('canvas'); c.width = bmp.width * k; c.height = bmp.height * k
-  c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height)
-  return new Promise(ok => c.toBlob(b => ok(b!), 'image/jpeg', 0.8))
-}
+import MomentForm from '@/components/MomentForm'
+import MomentView from '@/components/MomentView'
+import Slideshow from '@/components/Slideshow'
 
 const PAGE = 30
-const MAX_VIDEO = 50 * 1048576   // gói Supabase miễn phí chỉ nhận tối đa 50 MB mỗi file
+const SEL = '*, media(id,kind,path,thumb_path,sort,size,duration), moment_hearts(user_id), moment_comments(count), album_moments(album_id)'
+const dayLabel = (d: string) => new Date(d).toLocaleDateString('vi-VN', { weekday: 'long', day: 'numeric', month: 'numeric', year: 'numeric' })
+const slug = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'tep'
+
+type Filter = { year: string; place: string; tag: string; album: string }
+const NOF: Filter = { year: '', place: '', tag: '', album: '' }
 
 export default function Moments() {
-  const { space } = useApp()
-  const [list, setList] = useState<any[]>([])
-  const [open, setOpen] = useState(false); const [busy, setBusy] = useState(false)
-  const [f, setF] = useState({ title: '', desc: '', date: new Date().toISOString().slice(0, 10), place: '' })
-  const [files, setFiles] = useState<File[]>([])
+  const { me, partner, space } = useApp()
+  const [list, setList] = useState<any[]>([]); const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const [more, setMore] = useState(true); const [loading, setLoading] = useState(false)
-  const lenRef = useRef(0); const lock = useRef(false); const gen = useRef(0)
+  const [flt, setFlt] = useState<Filter>(NOF); const [showF, setShowF] = useState(false)
+  const [opts, setOpts] = useState<{ years: string[]; places: string[]; tags: string[] }>({ years: [], places: [], tags: [] })
+  const [albums, setAlbums] = useState<any[]>([]); const [plans, setPlans] = useState<any[]>([])
+  const [form, setForm] = useState<null | 'new' | any>(null); const [view, setView] = useState<any>(null)
+  const [memo, setMemo] = useState<any[]>([]); const [show, setShow] = useState(false)
+  const [zip, setZip] = useState<string>(''); const [trashN, setTrashN] = useState(0)
+  const lenRef = useRef(0), lock = useRef(false), gen = useRef(0), fRef = useRef(flt); fRef.current = flt
   const sentinel = useRef<HTMLDivElement>(null)
 
-  // Lấy một trang 30 moment bắt đầu từ vị trí `from`; một lần gọi duy nhất để ký link cho cả trang
-  const fetchPage = useCallback(async (from: number) => {
-    const { data, error } = await sb.from('moments').select('*').is('deleted_at', null)
-      .order('taken_on', { ascending: false }).order('created_at', { ascending: false }).order('id')
-      .range(from, from + PAGE - 1)
-    if (error) { console.error('moments', error.message); return null }
-    const rows = data ?? []
-    const paths = rows.flatMap((m: any) => m.photos ?? [])
-    const url: Record<string, string> = {}
-    if (paths.length) {
-      const { data: u } = await sb.storage.from('media').createSignedUrls(paths, 3600)
-      for (const x of u ?? []) if (x.path && x.signedUrl) url[x.path] = x.signedUrl
-    }
-    return rows.map((m: any) => ({ ...m, urls: (m.photos ?? []).map((p: string) => url[p]).filter(Boolean) }))
+  const attach = useCallback(async (rows: any[]) => {   // ký link ảnh nhỏ cho cả trang bằng một lần gọi
+    const t = await sign(rows.flatMap(m => (m.media ?? []).slice().sort((a: any, b: any) => a.sort - b.sort).slice(0, 4).map((x: any) => x.thumb_path ?? (x.kind === 'image' ? x.path : null))))
+    setThumbs(a => ({ ...a, ...t }))
   }, [])
 
-  // reset = tải lại từ đầu (lần đầu, sau khi đăng); không reset = tải thêm trang kế tiếp
+  const fetchPage = useCallback(async (from: number) => {
+    const f = fRef.current
+    let q: any = sb.from('moments').select(f.album ? SEL.replace('album_moments(album_id)', 'album_moments!inner(album_id)') : SEL).is('deleted_at', null)
+    if (f.year) q = q.gte('taken_on', `${f.year}-01-01`).lte('taken_on', `${f.year}-12-31`)
+    if (f.place) q = q.eq('place', f.place)
+    if (f.tag) q = q.contains('tags', [f.tag])
+    if (f.album) q = q.eq('album_moments.album_id', f.album)
+    const { data, error } = await q.order('taken_on', { ascending: false }).order('created_at', { ascending: false }).order('id').range(from, from + PAGE - 1)
+    if (error) { console.error('moments', error.message); return null }
+    const rows = data ?? []; await attach(rows); return rows
+  }, [attach])
+
   const page = useCallback(async (reset: boolean) => {
     if (!reset && lock.current) return
     const g = reset ? ++gen.current : gen.current
     lock.current = true; setLoading(true)
     try {
-      const from = reset ? 0 : lenRef.current
-      const rows = await fetchPage(from)
+      const from = reset ? 0 : lenRef.current, rows = await fetchPage(from)
       if (g !== gen.current || !rows) return
       lenRef.current = from + rows.length
-      setList(a => reset ? rows : [...a, ...rows.filter((r: any) => !a.some(x => x.id === r.id))])
-      setMore(rows.length === PAGE)
+      setList(a => reset ? rows : [...a, ...rows.filter((r: any) => !a.some(x => x.id === r.id))]); setMore(rows.length === PAGE)
     } finally { if (g === gen.current) { lock.current = false; setLoading(false) } }
   }, [fetchPage])
   const load = useCallback(() => page(true), [page])
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load() }, [load, flt])
 
-  // Cuộn gần cuối danh sách thì tự tải thêm
   useEffect(() => {
     const el = sentinel.current; if (!el || !more) return
     const io = new IntersectionObserver(es => { if (es[0].isIntersecting) page(false) }, { rootMargin: '300px' })
     io.observe(el); return () => io.disconnect()
   }, [more, list.length, page])
 
-  async function save() {
-    if (!f.title.trim() || busy) return
-    setBusy(true)
-    const paths: string[] = [], failed: string[] = []
-    try {
-      const chosen = files.slice(0, 20)
-      for (const file of chosen) {
-        try {   // nén ảnh có thể ném lỗi (ảnh hỏng, HEIC...), không để làm kẹt nút
-          const vid = file.type.startsWith('video/')
-          if (vid && file.size > MAX_VIDEO) { failed.push(`${file.name}: lớn hơn 50 MB (giới hạn của gói Supabase miễn phí)`); continue }
-          const p = `${space.id}/${crypto.randomUUID()}.${vid ? (file.name.split('.').pop() || 'mp4').toLowerCase() : 'jpg'}`
-          const { error } = await sb.storage.from('media').upload(p, vid ? file : await shrink(file), { contentType: vid ? file.type : 'image/jpeg' })
-          if (error) failed.push(`${file.name}: ${error.message}`); else paths.push(p)
-        } catch (e: any) { failed.push(`${file.name}: ${e?.message ?? 'không xử lý được tệp'}`) }
-      }
-      const undo = () => paths.length ? sb.storage.from('media').remove(paths) : null   // dọn tệp đã tải lên nếu không đăng nữa
-      if (chosen.length && !paths.length) return alert('Không tải được tệp nào lên nên chưa đăng.\n' + failed.join('\n'))
-      if (failed.length && !confirm(`${failed.length} tệp bị lỗi:\n${failed.join('\n')}\n\nVẫn đăng với ${paths.length} tệp còn lại?`)) { await undo(); return }
-      const { error } = await sb.from('moments').insert({ space_id: space.id, title: f.title, description: f.desc, taken_on: f.date, place: f.place, photos: paths })
-      if (error) { await undo(); return alert('Không lưu được khoảnh khắc: ' + error.message) }
-      setF({ ...f, title: '', desc: '', place: '' }); setFiles([]); setOpen(false)
-      await load()
-    } finally { setBusy(false) }   // luôn nhả nút, kể cả khi có lỗi bất ngờ
-  }
-  const del = async (id: string) => {
+  // lựa chọn cho bộ lọc, album, plan, thùng rác, nhắc lại kỷ niệm
+  const loadMeta = useCallback(async () => {
+    const [a, b, c, d, e] = await Promise.all([
+      sb.from('moments').select('taken_on,place,tags').is('deleted_at', null).limit(3000),
+      sb.from('albums').select('*').order('created_at'),
+      sb.from('plans').select('id,name').order('created_at', { ascending: false }).limit(100),
+      sb.from('moments').select('id', { count: 'exact', head: true }).not('deleted_at', 'is', null),
+      sb.from('moments').select(SEL).is('deleted_at', null).limit(500),
+    ])
+    const rows = a.data ?? [], uniq = (xs: any[]) => Array.from(new Set(xs.filter(Boolean))) as string[]
+    setOpts({ years: uniq(rows.map((r: any) => r.taken_on.slice(0, 4))).sort().reverse(), places: uniq(rows.map((r: any) => r.place)).sort(), tags: uniq(rows.flatMap((r: any) => r.tags ?? [])).sort() })
+    setAlbums(b.data ?? []); setPlans(c.data ?? []); setTrashN(d.count ?? 0)
+    const t = new Date(), md = `${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+    const mm = ((e.data ?? []) as any[]).filter(r => r.taken_on.slice(5) === md && +r.taken_on.slice(0, 4) < t.getFullYear())
+    setMemo(mm); if (mm.length) attach(mm)
+  }, [attach])
+  useEffect(() => { purgeOld().finally(loadMeta) }, [loadMeta])
+  useEffect(() => { if (new URLSearchParams(location.search).get('memories')) setShow(true) }, [])
+  // mở thẳng một khoảnh khắc từ ghim trên bản đồ: /moments?open=<id>
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get('open'); if (!id) return
+    sb.from('moments').select(SEL).eq('id', id).is('deleted_at', null).maybeSingle().then(r => { if (r.data) { attach([r.data]); setView(r.data) } })
+  }, [attach])
+
+  // mở form sửa từ liên kết /moments?edit=<id> (sau khi tạo nhanh từ Kế hoạch)
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get('edit'); if (!id) return
+    sb.from('moments').select(SEL).eq('id', id).is('deleted_at', null).maybeSingle().then(r => { if (r.data) { attach([r.data]); setForm({ ...r.data, albumIds: (r.data.album_moments ?? []).map((x: any) => x.album_id) }) } })
+    history.replaceState(null, '', '/moments')
+  }, [attach])
+
+  const refresh = async () => { await Promise.all([load(), loadMeta()]) }
+  // nếu đang xem chi tiết thì cập nhật số tim/bình luận trong danh sách
+  const changed = async () => { await refresh() }
+
+  const del = async (m: any) => {
     if (!confirm('Xóa khoảnh khắc này? Có thể khôi phục trong 30 ngày.')) return
-    const { error } = await sb.from('moments').update({ deleted_at: new Date().toISOString() }).eq('id', id)
-    if (error) return alert('Không xóa được: ' + error.message)
-    lenRef.current = Math.max(0, lenRef.current - 1)   // giữ vị trí trang kế tiếp đúng
-    setList(a => a.filter(x => x.id !== id))
+    if (!await ok(sb.from('moments').update({ deleted_at: new Date().toISOString() }).eq('id', m.id), 'Không xóa được')) return
+    setView(null); lenRef.current = Math.max(0, lenRef.current - 1); setList(a => a.filter(x => x.id !== m.id)); loadMeta()
   }
 
+  // MOM-09: tải toàn bộ ảnh/video về dạng zip
+  const downloadAll = async () => {
+    if (zip) return
+    setZip('Đang chuẩn bị…')
+    try {
+      const { data, error } = await sb.from('moments').select('title,taken_on,media(path,kind,sort)').is('deleted_at', null).order('taken_on')
+      if (error) throw error
+      const files: { name: string; path: string }[] = []
+      for (const m of data ?? []) (m.media as any[]).sort((a, b) => a.sort - b.sort).forEach((x, i) => files.push({ name: `${m.taken_on}-${slug(m.title)}/${String(i + 1).padStart(2, '0')}.${x.path.split('.').pop()}`, path: x.path }))
+      if (!files.length) { setZip(''); return alert('Chưa có ảnh hay video nào để tải.') }
+      if (files.length > 150 && !confirm(`Có ${files.length} tệp, tải về sẽ mất một lúc và tốn dung lượng điện thoại. Vẫn tải?`)) { setZip(''); return }
+      await zipDownload(files, `tdlove-khoanh-khac-${new Date().toISOString().slice(0, 10)}.zip`, (d, n) => setZip(`Đang nén ${d}/${n}…`))
+    } catch (e: any) { alert('Không tải được: ' + (e?.message ?? e)) } finally { setZip('') }
+  }
+
+  // album
+  const renameAlbum = async (a: any) => { const n = prompt('Tên album', a.name)?.trim(); if (n && n !== a.name && await ok(sb.from('albums').update({ name: n }).eq('id', a.id), 'Không đổi được tên')) loadMeta() }
+  const delAlbum = async (a: any) => { if (confirm(`Xóa album "${a.name}"? Các khoảnh khắc trong album vẫn được giữ.`) && await ok(sb.from('albums').delete().eq('id', a.id), 'Không xóa được album')) { if (flt.album === a.id) setFlt({ ...flt, album: '' }); loadMeta() } }
+
+  const nf = [flt.year, flt.place, flt.tag, flt.album].filter(Boolean).length
+  const set = (k: keyof Filter, v: string) => setFlt(f => ({ ...f, [k]: v }))
+  const mkEdit = (m: any) => ({ ...m, albumIds: (m.album_moments ?? []).map((x: any) => x.album_id) })
+  const albumOf = (m: any) => (m.album_moments ?? []).map((x: any) => albums.find(a => a.id === x.album_id)?.name).filter(Boolean)
+  const groups: [string, any[]][] = []
+  for (const m of list) { const g = groups[groups.length - 1]; if (g && g[0] === m.taken_on) g[1].push(m); else groups.push([m.taken_on, [m]]) }
+
   return <>
-    <Head t="Khoảnh khắc" />
+    <Head t="Khoảnh khắc"><Link href="/map?layer=moments" className="pill">Bản đồ</Link></Head>
     <div className="b">
-      {open && <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <b>Khoảnh khắc mới</b>
-        <input placeholder="Tiêu đề, ví dụ: Chiều ở Hồ Tây" value={f.title} onChange={e => setF({ ...f, title: e.target.value })} />
-        <textarea rows={2} placeholder="Kể một chút về hôm đó…" value={f.desc} onChange={e => setF({ ...f, desc: e.target.value })} />
-        <input type="date" value={f.date} onChange={e => setF({ ...f, date: e.target.value })} />
-        <input placeholder="Địa điểm" value={f.place} onChange={e => setF({ ...f, place: e.target.value })} />
-        <input type="file" accept="image/*,video/*" multiple onChange={e => setFiles(Array.from(e.target.files ?? []))} />
-        <div className="s">{files.length ? `Đã chọn ${files.length} ảnh (tối đa 20)` : 'Chọn ảnh để lưu cùng'}</div>
-        <button className="btn" onClick={save} disabled={busy}>{busy ? 'Đang đăng…' : 'Đăng khoảnh khắc'}</button>
+      {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map(m => <div key={m.id} className="s">{m.taken_on.slice(0, 4)}: {m.title}</div>)}
+        <button className="pill on" style={{ marginTop: 6 }} onClick={() => setShow(true)}>▶ Xem slideshow</button></div>}
+
+      <div className="row" style={{ flex: 'none' }}>
+        <button className={'pill' + (nf ? ' on' : '')} onClick={() => setShowF(!showF)} aria-expanded={showF}>Lọc{nf ? ` (${nf})` : ''}</button>
+        <button className="pill" onClick={downloadAll} disabled={!!zip}>{zip || 'Tải tất cả (zip)'}</button>
+        <Link className="pill" href="/moments/trash" style={{ textAlign: 'center' }}>Thùng rác{trashN ? ` (${trashN})` : ''}</Link>
+      </div>
+      {showF && <div className="k" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="row"><label className="s">Năm<select value={flt.year} onChange={e => set('year', e.target.value)} style={{ maxWidth: '100%', width: '100%' }}><option value="">Tất cả</option>{opts.years.map(y => <option key={y}>{y}</option>)}</select></label>
+          <label className="s">Thẻ<select value={flt.tag} onChange={e => set('tag', e.target.value)} style={{ maxWidth: '100%', width: '100%' }}><option value="">Tất cả</option>{opts.tags.map(t => <option key={t} value={t}>{TAG_EMOJI[t] ?? '🏷️'} {t}</option>)}</select></label></div>
+        <label className="s">Địa điểm<select value={flt.place} onChange={e => set('place', e.target.value)} style={{ maxWidth: '100%', width: '100%' }}><option value="">Tất cả</option>{opts.places.map(p => <option key={p}>{p}</option>)}</select></label>
+        {nf > 0 && <button className="pill" onClick={() => setFlt({ ...NOF, album: flt.album })}>Bỏ lọc</button>}
       </div>}
-      {!list.length && !open && <div className="k pe"><b>Chưa có khoảnh khắc nào</b><div className="s">Bấm dấu + để lưu kỷ niệm đầu tiên của hai đứa.</div></div>}
-      {list.map(m => <div key={m.id}>
-        <div className="s">{new Date(m.taken_on).toLocaleDateString('vi-VN')}</div>
-        <div className="k">
-          {m.urls.length > 0 && <div className="strip">{m.urls.map((u: string) => /\.(mp4|mov|webm|m4v)$/i.test(u.split('?')[0]) ? <video key={u} src={u} controls playsInline preload="metadata" style={{ height: 180, borderRadius: 14, border: '2px solid var(--ink)' }} /> : <img key={u} src={u} alt={m.title} />)}</div>}
-          <b>{m.title}</b>
-          {m.description && <div>{m.description}</div>}
-          <div className="s">{[m.urls.length ? `${m.urls.length} ảnh/video` : '', m.place].filter(Boolean).join(', ')}</div>
-          <button className="pill" onClick={() => del(m.id)}>Xóa</button>
-        </div>
+
+      <div className="days" aria-label="Album">
+        <button className={'pill' + (!flt.album ? ' on' : '')} onClick={() => set('album', '')}>Tất cả</button>
+        {albums.map(a => <button key={a.id} className={'pill' + (flt.album === a.id ? ' on' : '')} onClick={() => set('album', a.id)}>📁 {a.name}</button>)}
+      </div>
+      {flt.album && (() => { const a = albums.find(x => x.id === flt.album); return a && <div className="row" style={{ flex: 'none' }}><button className="pill" onClick={() => renameAlbum(a)}>Đổi tên album</button><button className="pill" onClick={() => delAlbum(a)}>Xóa album</button></div> })()}
+
+      {!list.length && !loading && <div className="k pe"><b>{nf || flt.album ? 'Không có khoảnh khắc nào khớp' : 'Chưa có khoảnh khắc nào'}</b><div className="s">{nf || flt.album ? 'Thử bỏ bớt bộ lọc nhé.' : 'Bấm dấu + để lưu kỷ niệm đầu tiên của hai đứa.'}</div></div>}
+
+      {groups.map(([d, ms]) => <div key={d} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="s" style={{ position: 'sticky', top: 0, background: '#FFF0F6', padding: '2px 0', zIndex: 1 }}>{dayLabel(d)}</div>
+        {ms.map(m => {
+          const md = (m.media ?? []).slice().sort((a: any, b: any) => a.sort - b.sort), nh = (m.moment_hearts ?? []).length, nc = m.moment_comments?.[0]?.count ?? 0
+          const myHeart = (m.moment_hearts ?? []).some((h: any) => h.user_id === me.id)
+          return <button key={m.id} className="k" style={{ textAlign: 'left', width: '100%', font: 'inherit', color: 'inherit', cursor: 'pointer' }} onClick={() => setView(m)}>
+            {md.length > 0 && <div className="mgrid" style={{ gridTemplateColumns: md.length === 1 ? '1fr' : 'repeat(2,1fr)' }}>
+              {md.slice(0, 4).map((x: any, i: number) => {
+                const t = thumbs[x.thumb_path ?? (x.kind === 'image' ? x.path : '')]
+                return <span key={x.id} className="th" style={md.length === 1 ? { aspectRatio: '16/10' } : undefined}>{t ? <img src={t} alt="" loading="lazy" /> : x.kind === 'video' ? '🎬' : '🖼️'}
+                  {x.kind === 'video' && t && <span style={{ position: 'absolute', fontSize: 30 }}>▶️</span>}
+                  {i === 3 && md.length > 4 && <span className="more">+{md.length - 4}</span>}</span>
+              })}</div>}
+            <b>{m.title}</b>
+            {m.description && <div style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{m.description}</div>}
+            <div className="s">{[md.length ? `${md.length} ảnh/video` : '', m.place && `📍 ${m.place}`, ...(m.tags ?? []).map((t: string) => `${TAG_EMOJI[t] ?? '🏷️'} ${t}`)].filter(Boolean).join(' · ')}</div>
+            {(nh > 0 || nc > 0) && <div className="s">{nh > 0 && `${myHeart ? '💗' : '🤍'} ${nh}`}{nh > 0 && nc > 0 && '  '}{nc > 0 && `💬 ${nc}`}</div>}
+          </button>
+        })}
       </div>)}
       {list.length > 0 && more && <div ref={sentinel} style={{ textAlign: 'center' }}><button className="pill" onClick={() => page(false)} disabled={loading}>{loading ? 'Đang tải…' : 'Tải thêm'}</button></div>}
+      {list.length > 0 && !more && <div className="s" style={{ textAlign: 'center' }}>Đã xem hết rồi 💗</div>}
     </div>
-    <button className="rb fab" onClick={() => setOpen(!open)} aria-label="Thêm khoảnh khắc">{open ? '×' : '+'}</button>
+
+    <button className="rb fab" onClick={() => setForm('new')} aria-label="Thêm khoảnh khắc">+</button>
+    {view && !form && <MomentView m={view} me={me} partner={partner} albumNames={albumOf(view)} plan={plans.find(p => p.id === view.plan_id)}
+      onClose={() => setView(null)} onEdit={() => setForm(mkEdit(view))} onDelete={() => del(view)} onChanged={changed} />}
+    {form && <MomentForm space={space} moment={form === 'new' ? undefined : form} plans={plans} albums={albums}
+      onClose={() => setForm(null)} onAlbumCreated={a => setAlbums(x => [...x, a])}
+      onDone={async () => { setForm(null); setView(null); await refresh() }} />}
+    {show && <Slideshow moments={memo} onClose={() => setShow(false)} />}
   </>
 }
