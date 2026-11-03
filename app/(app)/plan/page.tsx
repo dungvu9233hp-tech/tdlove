@@ -21,7 +21,7 @@ export default function Plans() {
     setF({ name: '', start: '', end: '', area: '' }); setOpen(false); load()
   }
   return <>
-    <Head t="Kế hoạch"><Link href="/plan/wishlist" className="pill">Quán muốn thử</Link></Head>
+    <Head t="Kế hoạch"><Link href="/plan/wheel" className="pill">Quay món</Link><Link href="/plan/wishlist" className="pill">Quán muốn thử</Link></Head>
     <div className="b">
       {open && <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <b>Kế hoạch mới</b>

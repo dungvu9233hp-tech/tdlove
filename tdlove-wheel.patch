@@ -1,0 +1,261 @@
+diff --git a/README.md b/README.md
+index c03a3f5..c32a192 100644
+--- a/README.md
++++ b/README.md
+@@ -38,6 +38,13 @@
+ - Ảnh: tối đa 10 ảnh mỗi quán, mỗi ảnh gốc ≤ 15 MB, tự resize 1600px + thumbnail 480px, dùng chung bucket `media` với Khoảnh khắc và Nhật ký. Bấm ảnh để xem toàn màn hình.
+ - Danh sách quán là chung của hai người nên cả hai đều viết/sửa đánh giá và thêm/gỡ ảnh được. Xóa quán thì ảnh của quán cũng bị xóa khỏi Storage.
+ 
++## Vòng quay chọn món (WHEEL-01..02)
++
++- Chạy `supabase/phase10.sql` (SAU `phase9.sql`, chạy lại vẫn an toàn) **trước khi** đưa bản app mới lên Vercel. Thêm bảng `food_options` (món trong vòng) và `food_spins` (lịch sử quay), cả hai bật realtime.
++- Vào Kế hoạch → "Quay món" (hoặc từ trang Quán muốn thử). Hai người cùng thêm/xóa món, 2–12 món, không trùng tên. Món "nên thử" của các quán chưa đến hiện sẵn dưới dạng gợi ý bấm để thêm.
++- Bấm "Quay!": app chọn món trúng ngẫu nhiên (bộ sinh số của trình duyệt, mỗi món xác suất bằng nhau) rồi quay vòng dừng đúng ô đó. Kết quả lưu vào "Các lần quay gần đây" nên người kia thấy ngay; hiệu ứng quay chỉ chạy trên máy người bấm.
++- Đang quay thì các ô được giữ nguyên, kể cả khi người kia thêm/xóa món cùng lúc. Máy bật "giảm chuyển động" thì kết quả hiện ngay, không quay.
++
+ ## Nhật ký riêng tư (DIARY-04)
+ 
+ - Chạy `supabase/phase8.sql` (SAU `phase7.sql`, chạy lại vẫn an toàn) **trước khi** đưa bản app mới lên Vercel, rồi `supabase functions deploy anniversary`.
+diff --git a/app/(app)/plan/page.tsx b/app/(app)/plan/page.tsx
+index 8326aa1..13b967b 100644
+--- a/app/(app)/plan/page.tsx
++++ b/app/(app)/plan/page.tsx
+@@ -21,7 +21,7 @@ export default function Plans() {
+     setF({ name: '', start: '', end: '', area: '' }); setOpen(false); load()
+   }
+   return <>
+-    <Head t="Kế hoạch"><Link href="/plan/wishlist" className="pill">Quán muốn thử</Link></Head>
++    <Head t="Kế hoạch"><Link href="/plan/wheel" className="pill">Quay món</Link><Link href="/plan/wishlist" className="pill">Quán muốn thử</Link></Head>
+     <div className="b">
+       {open && <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+         <b>Kế hoạch mới</b>
+diff --git a/app/(app)/plan/wheel/page.tsx b/app/(app)/plan/wheel/page.tsx
+new file mode 100644
+index 0000000..da3dcae
+--- /dev/null
++++ b/app/(app)/plan/wheel/page.tsx
+@@ -0,0 +1,123 @@
++'use client'
++import { useCallback, useEffect, useRef, useState } from 'react'
++import Link from 'next/link'
++import { sb } from '@/lib/supabase'
++import { useApp } from '@/lib/ctx'
++import Head from '@/components/Head'
++import Wheel from '@/components/Wheel'
++import { ok } from '@/lib/util'
++
++const MAX = 12, MIN = 2, SPIN_MS = 4500   // khớp trigger food_options_limit trong phase10.sql
++
++// số nguyên ngẫu nhiên đều trong [0, n), dùng bộ sinh số của trình duyệt (loại bỏ lệch modulo)
++function rnd(n: number) {
++  const lim = Math.floor(0x100000000 / n) * n, b = new Uint32Array(1)
++  do { crypto.getRandomValues(b) } while (b[0] >= lim)
++  return b[0] % n
++}
++const when = (s: string) => new Date(s).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
++
++export default function WheelPage() {
++  const { space, me, partner } = useApp()
++  const [opts, setOpts] = useState<any[]>([]); const [spins, setSpins] = useState<any[]>([]); const [dishes, setDishes] = useState<string[]>([])
++  const [name, setName] = useState(''); const [rot, setRot] = useState(0); const [ms, setMs] = useState(0)
++  const [frozen, setFrozen] = useState<string[] | null>(null)   // đang quay thì giữ nguyên các ô, kể cả khi người kia thêm/xóa món
++  const [spinning, setSpinning] = useState(false); const [result, setResult] = useState<string | null>(null)
++  const timer = useRef<ReturnType<typeof setTimeout>>()
++
++  const load = useCallback(async () => {
++    const [a, b, c] = await Promise.all([
++      sb.from('food_options').select('*').order('created_at'),
++      sb.from('food_spins').select('*').order('created_at', { ascending: false }).limit(6),
++      sb.from('wishlist_places').select('dish').eq('visited', false)])
++    setOpts(a.data ?? []); setSpins(b.data ?? [])
++    setDishes(Array.from(new Set((c.data ?? []).map((x: any) => String(x.dish ?? '').trim()).filter((d: string) => d && d.length <= 40))))
++  }, [])
++  useEffect(() => { load() }, [load])
++  // Hai người cùng thêm món, thấy kết quả quay của nhau ngay
++  useEffect(() => {
++    const ch = sb.channel('wheel-' + space.id)
++    ;['food_options', 'food_spins'].forEach(t => ch.on('postgres_changes', { event: '*', schema: 'public', table: t, filter: `space_id=eq.${space.id}` }, () => load()))
++    ch.subscribe()
++    return () => { sb.removeChannel(ch) }
++  }, [space.id, load])
++  useEffect(() => () => clearTimeout(timer.current), [])
++
++  const names = opts.map(o => o.name as string)
++  const shown = frozen ?? names
++  const has = (s: string) => names.some(x => x.toLowerCase() === s.toLowerCase())
++
++  async function add(raw: string) {
++    const s = raw.trim().replace(/\s+/g, ' ')
++    if (!s || spinning) return
++    if (s.length > 40) return alert('Tên món tối đa 40 ký tự')
++    if (names.length >= MAX) return alert(`Vòng quay tối đa ${MAX} món. Xóa bớt món rồi thêm nhé.`)
++    if (has(s)) return alert('Món này đã có trong vòng quay rồi')
++    if (!await ok(sb.from('food_options').insert({ space_id: space.id, name: s }), 'Không thêm được món')) return
++    setName(''); setResult(null); load()
++  }
++  async function remove(o: any) {
++    if (spinning) return
++    if (!await ok(sb.from('food_options').delete().eq('id', o.id), 'Không xóa được món')) return
++    setResult(null); load()
++  }
++
++  function spin() {
++    if (spinning || names.length < MIN) return
++    const list = names.slice(), n = list.length, a = 360 / n
++    const idx = rnd(n)                                              // chọn món trúng TRƯỚC, rồi mới tính góc quay để kim dừng đúng ô đó
++    const mid = (idx + .5) * a + (rnd(1000) / 1000 - .5) * a * .7   // lệch nhẹ trong ô cho tự nhiên, không chạm vạch chia
++    const delta = (((-mid - rot) % 360) + 360) % 360
++    const dur = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : SPIN_MS
++    setFrozen(list); setResult(null); setSpinning(true); setMs(dur); setRot(rot + 360 * 5 + delta)
++    timer.current = setTimeout(async () => {
++      const win = list[idx]
++      setResult(win); setSpinning(false); setFrozen(null)
++      await ok(sb.from('food_spins').insert({ space_id: space.id, name: win }), 'Không lưu được kết quả quay')
++      load()
++    }, dur + 150)
++  }
++
++  const sug = dishes.filter(d => !has(d)).slice(0, 6)
++  const pn = partner?.display_name ?? 'Người ấy'
++  return <>
++    <Head t="Quay món"><Link href="/plan" className="pill">Quay lại</Link></Head>
++    <div className="b">
++      <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingTop: 18 }}>
++        {shown.length >= MIN
++          ? <Wheel names={shown} rot={rot} ms={ms} />
++          : <div className="s" style={{ textAlign: 'center', padding: '28px 0' }}>Thêm ít nhất {MIN} món để bắt đầu quay.</div>}
++        <button className="btn" onClick={spin} disabled={spinning || names.length < MIN}>{spinning ? 'Đang quay…' : 'Quay!'}</button>
++        <div aria-live="polite">{result && !spinning && <div style={{ textAlign: 'center' }}>
++          <div className="s">Hôm nay hai đứa ăn</div>
++          <b style={{ fontSize: 26, margin: '2px 0 8px' }}>🎉 {result}</b>
++          <a className="pill" href={`https://www.google.com/maps/search/${encodeURIComponent(result)}`} target="_blank" rel="noopener noreferrer">Tìm quán gần đây</a>
++        </div>}</div>
++      </div>
++
++      <div className="k" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++        <b>Món trong vòng ({names.length}/{MAX})</b>
++        <form className="row" onSubmit={e => { e.preventDefault(); add(name) }}>
++          <input placeholder="Thêm món, ví dụ: bún chả" value={name} maxLength={40} disabled={spinning} onChange={e => setName(e.target.value)} aria-label="Tên món" />
++          <button className="pill on" style={{ flex: 'none' }} type="submit" disabled={spinning || !name.trim()}>Thêm</button>
++        </form>
++        {opts.length > 0 && <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
++          {opts.map(o => <span key={o.id} className="pill" style={{ flex: 'none' }}>{o.name}{' '}
++            <button style={{ border: 0, background: 'none', font: 'inherit', fontWeight: 800, cursor: 'pointer', color: 'inherit' }} disabled={spinning} onClick={() => remove(o)} aria-label={`Xóa ${o.name}`}>×</button></span>)}
++        </div>}
++        {sug.length > 0 && names.length < MAX && <>
++          <div className="s">Từ "Quán muốn thử" (bấm để thêm):</div>
++          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
++            {sug.map(d => <button key={d} className="chip" style={{ flex: 'none' }} disabled={spinning} onClick={() => add(d)}>+ {d}</button>)}
++          </div>
++        </>}
++      </div>
++
++      {spins.length > 0 && <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
++        <b>Các lần quay gần đây</b>
++        {spins.map(s => <div key={s.id} className="s">{s.name} · {s.spun_by === me.id ? 'Bạn' : pn} · {when(s.created_at)}</div>)}
++        <button className="pill" style={{ alignSelf: 'flex-start' }} onClick={async () => { if (confirm('Xóa lịch sử quay?') && await ok(sb.from('food_spins').delete().eq('space_id', space.id), 'Không xóa được')) load() }}>Xóa lịch sử</button>
++      </div>}
++    </div>
++  </>
++}
+diff --git a/app/(app)/plan/wishlist/page.tsx b/app/(app)/plan/wishlist/page.tsx
+index 7479ddb..c921917 100644
+--- a/app/(app)/plan/wishlist/page.tsx
++++ b/app/(app)/plan/wishlist/page.tsx
+@@ -39,7 +39,7 @@ export default function Wishlist() {
+     }
+   }
+   return <>
+-    <Head t="Quán muốn thử"><Link href="/plan" className="pill">Quay lại</Link></Head>
++    <Head t="Quán muốn thử"><Link href="/plan/wheel" className="pill">Quay món</Link><Link href="/plan" className="pill">Quay lại</Link></Head>
+     <div className="b">
+       <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+         <input placeholder="Tên quán hoặc địa điểm" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
+diff --git a/components/Wheel.tsx b/components/Wheel.tsx
+new file mode 100644
+index 0000000..5610dc8
+--- /dev/null
++++ b/components/Wheel.tsx
+@@ -0,0 +1,29 @@
++'use client'
++// Vòng quay SVG: kim chỉ ở đỉnh, các ô chia đều, quay theo chiều kim đồng hồ.
++const COLORS = ['#FFD9E8', '#EBDDFF', '#FFE6D6', '#FFB3CF', '#DDEBFF', '#FFF3C9']
++const R = 96, C = 100
++const pt = (deg: number, r = R) => { const a = deg * Math.PI / 180; return [C + r * Math.sin(a), C - r * Math.cos(a)] as const }
++const cut = (s: string, n: number) => { const a = Array.from(s); return a.length > n ? a.slice(0, n - 1).join('') + '…' : s }
++
++export default function Wheel({ names, rot, ms }: { names: string[]; rot: number; ms: number }) {
++  const n = names.length, a = 360 / n
++  return <div style={{ position: 'relative', width: '100%', maxWidth: 320, margin: '0 auto', aspectRatio: '1' }}>
++    <svg viewBox="0 0 200 200" width="100%" height="100%" role="img" aria-label={`Vòng quay gồm ${n} món: ${names.join(', ')}`}
++      style={{ transform: `rotate(${rot}deg)`, transition: `transform ${ms}ms cubic-bezier(.12,.6,.1,1)`, overflow: 'visible' }}>
++      <circle cx={C} cy={C} r={R + 3} fill="#fff" stroke="#5B1F3A" strokeWidth="3" />
++      {names.map((name, i) => {
++        const [x1, y1] = pt(i * a), [x2, y2] = pt((i + 1) * a), c = (i + .5) * a
++        return <g key={name}>
++          <path d={`M${C},${C} L${x1},${y1} A${R},${R} 0 ${a > 180 ? 1 : 0} 1 ${x2},${y2} Z`} fill={COLORS[i % COLORS.length]} stroke="#5B1F3A" strokeWidth="1.5" strokeLinejoin="round" />
++          <text transform={`rotate(${c - 90} ${C} ${C})`} x={C + R - 8} y={C} textAnchor="end" dominantBaseline="central"
++            fontSize={n > 8 ? 9 : 11} fontWeight="800" fill="#5B1F3A" style={{ fontFamily: 'inherit' }}>{cut(name, n > 8 ? 9 : 12)}</text>
++        </g>
++      })}
++      <circle cx={C} cy={C} r="9" fill="#FF8FB8" stroke="#5B1F3A" strokeWidth="2.5" />
++    </svg>
++    {/* kim chỉ cố định ở đỉnh, không quay theo vòng */}
++    <svg viewBox="0 0 24 24" width="9%" style={{ position: 'absolute', left: '50%', top: '-3%', transform: 'translateX(-50%)' }} aria-hidden="true">
++      <path d="M12 22 2 3h20z" fill="#FF8FB8" stroke="#5B1F3A" strokeWidth="2" strokeLinejoin="round" />
++    </svg>
++  </div>
++}
+diff --git a/supabase/phase10.sql b/supabase/phase10.sql
+new file mode 100644
+index 0000000..07d13c1
+--- /dev/null
++++ b/supabase/phase10.sql
+@@ -0,0 +1,47 @@
++-- Giai đoạn 10: Vòng quay chọn món (WHEEL-01..02)
++-- Chạy trong Supabase > SQL Editor, một lần, SAU phase9.sql. Chạy lại nhiều lần vẫn an toàn.
++-- Luồng: hai người thêm món vào vòng -> bấm quay -> kết quả lưu vào lịch sử, người kia thấy ngay.
++
++-- Các món trong vòng quay (chung của hai người)
++create table if not exists food_options(
++  id uuid primary key default gen_random_uuid(),
++  space_id uuid not null,
++  name text not null check (char_length(btrim(name)) between 1 and 40),
++  added_by uuid default auth.uid(),
++  created_at timestamptz default now());
++-- không trùng tên món trong cùng Space (không phân biệt hoa thường)
++create unique index if not exists food_options_uniq on food_options(space_id, lower(btrim(name)));
++alter table food_options enable row level security;
++drop policy if exists fo_all on food_options;
++create policy fo_all on food_options for all using (space_id=my_space()) with check (space_id=my_space());
++
++-- tối đa 12 món để vòng quay còn đọc được
++create or replace function food_options_limit() returns trigger language plpgsql as $$
++begin
++  if (select count(*) from food_options where space_id=new.space_id) >= 12 then
++    raise exception 'Vòng quay tối đa 12 món'; end if;
++  return new; end $$;
++drop trigger if exists food_options_limit_t on food_options;
++create trigger food_options_limit_t before insert on food_options for each row execute function food_options_limit();
++
++-- Lịch sử các lần quay
++create table if not exists food_spins(
++  id uuid primary key default gen_random_uuid(),
++  space_id uuid not null,
++  name text not null,
++  spun_by uuid default auth.uid(),
++  created_at timestamptz default now());
++create index if not exists food_spins_idx on food_spins(space_id, created_at desc);
++alter table food_spins enable row level security;
++drop policy if exists fs_r on food_spins; drop policy if exists fs_i on food_spins; drop policy if exists fs_d on food_spins;
++create policy fs_r on food_spins for select using (space_id=my_space());
++create policy fs_i on food_spins for insert with check (space_id=my_space() and spun_by=auth.uid());
++create policy fs_d on food_spins for delete using (space_id=my_space());
++
++-- hai người thấy thay đổi ngay (bỏ qua nếu bảng đã nằm trong publication)
++do $$ begin
++  if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and tablename='food_options') then
++    alter publication supabase_realtime add table food_options; end if;
++  if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and tablename='food_spins') then
++    alter publication supabase_realtime add table food_spins; end if;
++end $$;

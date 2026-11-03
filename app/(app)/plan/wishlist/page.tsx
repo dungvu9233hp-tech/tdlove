@@ -39,7 +39,7 @@ export default function Wishlist() {
     }
   }
   return <>
-    <Head t="Quán muốn thử"><Link href="/plan" className="pill">Quay lại</Link></Head>
+    <Head t="Quán muốn thử"><Link href="/plan/wheel" className="pill">Quay món</Link><Link href="/plan" className="pill">Quay lại</Link></Head>
     <div className="b">
       <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <input placeholder="Tên quán hoặc địa điểm" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
