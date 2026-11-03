@@ -1,4 +1,4 @@
-:root{--ink:#5B1F3A;--ink2:#8A3358;--pink:#FF8FB8;--shadow:#FFB3CF}
+:root{--f1:'Baloo 2';--f2:'Quicksand';--ink:#5B1F3A;--ink2:#8A3358;--pink:#FF8FB8;--shadow:#FFB3CF}
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#FFF0F6;font-family:var(--f2),system-ui,sans-serif;font-size:16px;color:var(--ink)}
 a{color:inherit;text-decoration:none}
