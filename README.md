@@ -69,3 +69,12 @@
 - Cài đặt > Ngày bắt đầu yêu: sửa được bất cứ lúc nào (không chọn ngày tương lai). Ngày này dùng chung cho cả Space nên người ấy cũng thấy ngày mới; Trang chủ, mốc kỷ niệm và thông báo nhắc đều tính lại từ ngày mới.
 - Ảnh đại diện hiện ở Cài đặt, Trang chủ, đầu màn hình Chat và ghim trên Bản đồ; chưa có ảnh thì hiện chữ cái đầu của tên.
 - Đăng ký (tạo/vào Space) cũng kiểm tra tên trước khi tạo tài khoản.
+
+## Khóa app bằng PIN / sinh trắc học (AUTH-06)
+
+- Không cần chạy thêm SQL. Cấu hình khóa lưu ở **máy này** (localStorage), không lên Supabase: mỗi điện thoại tự đặt PIN riêng.
+- Bật ở Cài đặt > Khóa app: PIN 4–6 số (từ chối 0000, 1234…), chọn tự khóa lại sau khi thoát app: ngay lập tức / 1 / 5 / 15 phút, nút "Khóa ngay". Khi app khóa, các trang vẫn nằm yên phía sau (giữ tin đang soạn); cuộc gọi đến vẫn hiện để không lỡ.
+- PIN chỉ lưu dạng băm PBKDF2 kèm salt. Nhập sai 5, 7, 9 lần thì phải chờ 30 giây, 2 phút, 10 phút; sai 10 lần thì app đăng xuất khỏi máy này (phải đăng nhập lại bằng mật khẩu, PIN bị xóa). "Quên PIN?" trên màn hình khóa làm đúng như vậy.
+- Sinh trắc học (Face ID / vân tay / khóa màn hình của máy) dùng WebAuthn, chỉ hiện nút khi máy hỗ trợ; phải đặt PIN trước và PIN luôn dùng được thay thế. Trên iPhone, mở app từ Màn hình chính (HTTPS). Safari iOS chỉ cho gọi sinh trắc học sau một lần bấm nút nên không tự hiện như Android.
+- Đây là khóa màn hình để người khác cầm máy đang mở app không xem được, **không phải mã hóa dữ liệu**: phiên đăng nhập vẫn nằm trong trình duyệt của máy. Vừa đăng nhập bằng mật khẩu (hoặc đặt lại mật khẩu qua email) thì không bị hỏi PIN.
+- Tắt sinh trắc học chỉ quên khóa trong app; khóa (passkey) đã tạo vẫn nằm trong danh sách mật khẩu/passkey của máy, xóa trong cài đặt của máy nếu muốn.

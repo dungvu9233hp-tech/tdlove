@@ -5,6 +5,7 @@ import { sb } from '@/lib/supabase'
 import { Heart } from '@/components/Head'
 import PwInput from '@/components/PwInput'
 import { authMsg, pwError } from '@/lib/auth'
+import { markFreshLogin } from '@/lib/applock'
 
 // Đọc phần # của link TRƯỚC khi supabase-js kịp xử lý và xóa nó khỏi thanh địa chỉ
 const BOOT = typeof window === 'undefined' ? '' : window.location.hash
@@ -32,6 +33,7 @@ export default function ResetPassword() {
     const { error } = await sb.auth.updateUser({ password: pw })
     if (error) { setErr(authMsg(error)); setBusy(false); return }
     await sb.auth.signOut({ scope: 'others' }).catch(() => { })   // mật khẩu cũ có thể đã lộ: đăng xuất các máy khác
+    const { data: { session } } = await sb.auth.getSession(); if (session) markFreshLogin(session.user.id)   // AUTH-06: vừa xác minh qua email nên không hỏi PIN
     setSt('done'); setBusy(false)
   }
 

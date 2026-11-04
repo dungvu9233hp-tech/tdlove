@@ -10,6 +10,7 @@ import { VAPID, b64ToBytes } from '@/lib/push'
 import Head from '@/components/Head'
 import PwInput from '@/components/PwInput'
 import Avatar from '@/components/Avatar'
+import LockSettings from '@/components/LockSettings'
 import { authMsg, pwError } from '@/lib/auth'
 
 export default function Settings() {
@@ -140,6 +141,7 @@ export default function Settings() {
         {push === 'off' && <button className="pill" onClick={enablePush}>Bật thông báo</button>}
         {push === 'on' && <button className="pill" onClick={disablePush}>Tắt thông báo</button>}
         {pushMsg && <div className="s" role="alert">{pushMsg}</div>}</div>
+      <LockSettings uid={me.id} name={me.display_name ?? ''} />
       <form className="k" style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={e => { e.preventDefault(); changePw() }}>
         <b>Đổi mật khẩu</b>
         <input type="text" value={email} autoComplete="username" readOnly tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', left: -9999, width: 1, height: 1, opacity: 0 }} />

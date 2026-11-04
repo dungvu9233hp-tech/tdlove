@@ -64,3 +64,13 @@ select{font:inherit;border:2px solid var(--ink);border-radius:999px;padding:4px 
 .av{border:2.5px solid var(--ink);border-radius:50%;object-fit:cover;background:#EBDDFF;flex:none;display:flex;align-items:center;justify-content:center;font:800 20px var(--f1),sans-serif;color:var(--ink);overflow:hidden}
 .av.on{background:var(--pink)}
 .pin{overflow:hidden}.pin img{width:100%;height:100%;object-fit:cover;display:block}
+.call{visibility:visible}
+.dots{display:flex;gap:14px;justify-content:center;margin:6px 0}
+.dots i{width:18px;height:18px;border:2.5px solid var(--ink);border-radius:50%;background:#fff}
+.dots i.f{background:var(--pink)}
+.pad{display:grid;grid-template-columns:repeat(3,84px);gap:12px;justify-content:center;margin:6px 0 10px}
+.pad button{height:68px;border:2.5px solid var(--ink);border-radius:999px;background:#fff;font:800 26px var(--f1),sans-serif;color:var(--ink);cursor:pointer;box-shadow:3px 3px 0 var(--shadow)}
+.pad button.sm{font-size:16px;line-height:1.15;padding:0 4px;background:#FFD9E8}
+.pad button:disabled{opacity:.5}
+.pad button:focus-visible{outline:3px solid var(--ink2);outline-offset:2px}
+@media (prefers-reduced-motion:no-preference){.pad button:active:not(:disabled){transform:translate(2px,2px)}}

@@ -5,6 +5,7 @@ import { sb } from '@/lib/supabase'
 import { Heart } from '@/components/Head'
 import { authMsg } from '@/lib/auth'
 import { cleanName, nameError } from '@/lib/profile'
+import { markFreshLogin } from '@/lib/applock'
 
 export default function Login() {
   const r = useRouter()
@@ -17,6 +18,7 @@ export default function Login() {
 
   async function go() {
     setBusy(true); setErr('')
+    const fresh = async () => { const { data: { session } } = await sb.auth.getSession(); if (session) markFreshLogin(session.user.id) }   // AUTH-06: vừa nhập mật khẩu thì không hỏi PIN nữa
     try {
       if (mode === 'login') {
         const { error } = await sb.auth.signInWithPassword({ email: f.email, password: f.password }); if (error) throw error
@@ -39,13 +41,13 @@ export default function Login() {
         }
         // Đã ở trong một Space rồi thì vào thẳng, không tạo/đổi Space
         const { data: pr } = await sb.from('profiles').select('space_id').eq('id', session.user.id).maybeSingle()
-        if (pr?.space_id) { r.push('/'); return }
+        if (pr?.space_id) { await fresh(); r.push('/'); return }
         const q = mode === 'create' ? sb.rpc('create_space', { p_name: cleanName(f.name) }) : sb.rpc('join_space', { p_code: f.code.trim(), p_name: cleanName(f.name) })
         const { data: res, error: e2 } = await q
         const why = e2?.message ?? (mode === 'join' && res !== 'ok' ? String(res) : '')   // join_space trả 'ok' hoặc câu báo lỗi
         if (why) throw new Error(`${why.replace(/\.$/, '')}. Tài khoản đã được tạo, bạn không cần đăng ký lại: ${mode === 'join' ? 'kiểm tra mã mời rồi bấm "Vào Space" lần nữa (nếu mã hết hạn, nhờ người ấy tạo mã mới).' : 'bấm "Tạo Space" lần nữa.'}`)
       }
-      r.push('/')
+      await fresh(); r.push('/')
     } catch (e: any) { setErr(e.message ?? 'Có lỗi xảy ra') }
     setBusy(false)
   }

@@ -5,6 +5,7 @@ import { sb } from '@/lib/supabase'
 import { C } from '@/lib/ctx'
 import Nav from '@/components/Nav'
 import Call from '@/components/Call'
+import LockGate from '@/components/LockGate'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const r = useRouter()
@@ -22,5 +23,5 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [r])
   useEffect(() => { load() }, [load])
   if (!s) return <div className="p"><div className="b s">Đang mở góc nhỏ của hai đứa…</div></div>
-  return <C.Provider value={{ ...s, reload: load }}><div className="p">{children}<Nav /><Call /></div></C.Provider>
+  return <C.Provider value={{ ...s, reload: load }}><div className="p"><LockGate uid={s.me.id}>{children}<Nav /><Call /></LockGate></div></C.Provider>
 }
