@@ -6,6 +6,7 @@ import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import Head from '@/components/Head'
 import { sign } from '@/lib/media'
+import TripPanel, { type Route } from '@/components/TripPanel'
 
 const km = (a: any, b: any) => { const r = (x: number) => x * Math.PI / 180, d = r(b.lat - a.lat), e = r(b.lng - a.lng); return 12742 * Math.asin(Math.sqrt(Math.sin(d / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(e / 2) ** 2)) }
 const live = (l: any) => !!l && new Date(l.share_until) > new Date()
@@ -113,6 +114,18 @@ export default function MapPage() {
     if (!fit.current && moms.length && !Object.keys(pins.current).length) { fit.current = true; map.current.fitBounds(moms.map(m => [m.lat, m.lng]), { padding: [50, 50], maxZoom: 15 }) }
     return () => { g.remove() }
   }, [ready, moms, showMoms])
+  // MAP-07: vẽ đường đi của một hành trình đã ghi
+  const [route, setRoute] = useState<Route | null>(null)
+  useEffect(() => {
+    if (!ready || !route) return
+    const g = L.current.layerGroup().addTo(map.current), ll = route.points
+    L.current.polyline(ll, { color: '#5B1F3A', weight: 8, opacity: 0.9, lineJoin: 'round' }).addTo(g)   // viền đậm
+    L.current.polyline(ll, { color: route.mine ? '#FF8FB8' : '#B58CF0', weight: 4, lineJoin: 'round' }).addTo(g)
+    L.current.circleMarker(ll[0], { radius: 9, color: '#5B1F3A', weight: 2.5, fillColor: '#fff', fillOpacity: 1 }).bindTooltip('Điểm đầu · ' + route.name).addTo(g)
+    L.current.circleMarker(ll[ll.length - 1], { radius: 9, color: '#5B1F3A', weight: 2.5, fillColor: '#FF8FB8', fillOpacity: 1 }).bindTooltip('Điểm cuối').addTo(g)
+    fit.current = true; map.current.fitBounds(ll, { padding: [40, 40] })
+    return () => { g.remove() }
+  }, [ready, route])
   const dist = sharing && theirs ? km(mine, theirs) : null
 
   return <>
@@ -136,6 +149,7 @@ export default function MapPage() {
         <div className="s">Cập nhật {ago(theirs.updated_at)}, sai số ±{Math.round(theirs.accuracy ?? 0)} m</div>
       </div> : <div className="k"><div className="s">Người ấy chưa chia sẻ vị trí.</div></div>}
       {theirs && <a className="btn" href={`https://www.google.com/maps/dir/?api=1&destination=${theirs.lat},${theirs.lng}`} target="_blank" rel="noreferrer">Chỉ đường đến người ấy</a>}
+      <TripPanel onShow={setRoute} />
     </div>
   </>
 }

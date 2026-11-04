@@ -78,3 +78,12 @@
 - Sinh trắc học (Face ID / vân tay / khóa màn hình của máy) dùng WebAuthn, chỉ hiện nút khi máy hỗ trợ; phải đặt PIN trước và PIN luôn dùng được thay thế. Trên iPhone, mở app từ Màn hình chính (HTTPS). Safari iOS chỉ cho gọi sinh trắc học sau một lần bấm nút nên không tự hiện như Android.
 - Đây là khóa màn hình để người khác cầm máy đang mở app không xem được, **không phải mã hóa dữ liệu**: phiên đăng nhập vẫn nằm trong trình duyệt của máy. Vừa đăng nhập bằng mật khẩu (hoặc đặt lại mật khẩu qua email) thì không bị hỏi PIN.
 - Tắt sinh trắc học chỉ quên khóa trong app; khóa (passkey) đã tạo vẫn nằm trong danh sách mật khẩu/passkey của máy, xóa trong cài đặt của máy nếu muốn.
+
+## Lịch sử hành trình (MAP-07)
+
+- Chạy `supabase/phase11.sql` (SAU `phase10.sql`, chạy lại vẫn an toàn) **trước khi** đưa bản app mới lên Vercel. Thêm bảng `trips` (mỗi lần ghi là một hành trình) và `location_history` (các điểm), có RLS.
+- Mặc định **không lưu gì**. Chỉ khi vào Bản đồ > Ghi lại hành trình > Bắt đầu ghi mới có dữ liệu (NFR-03). Có thể gắn với một Kế hoạch, đặt tên tùy ý.
+- Mỗi người chỉ ghi một hành trình tại một thời điểm. Thanh "Đang ghi hành trình" luôn hiện ở đầu mọi màn hình khi đang ghi, bấm Dừng ở đâu cũng được; chuyển sang tab Chat/Khoảnh khắc không làm mất điểm.
+- Chỉ ghi khi app đang mở (giới hạn của trình duyệt). Mặc định giữ màn hình sáng khi ghi (Wake Lock; có ô để tắt cho đỡ tốn pin). App đóng quá 2 giờ thì hành trình tự dừng, đủ 6000 điểm cũng tự dừng. Điểm được lọc (bỏ sai số trên 80 m, bỏ lúc đứng yên, bỏ nhiễu nhảy vọt) và gửi lên mỗi ~20 giây; mất mạng thì giữ trong máy và gửi sau.
+- Hành trình chỉ chủ của nó xem được. Bấm "Cho người ấy xem" thì người ấy xem được đường đi (tắt lại bất cứ lúc nào). Xóa từng hành trình hoặc xóa tất cả hành trình đã ghi; xóa là xóa hết các điểm. Xóa Kế hoạch thì hành trình vẫn còn, chỉ gỡ liên kết.
+- Bảng dữ liệu khác so với mô hình khái niệm trong SRS: `plan_id` nằm ở `trips` (một hành trình gồm nhiều điểm), không lặp lại ở từng điểm.
