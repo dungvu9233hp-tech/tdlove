@@ -25,6 +25,15 @@ export default function Home() {
     const t = new Date(), today = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
     sb.rpc('on_this_day', { d: today }).then(r => { if (r.error) console.error('on_this_day', r.error.message); else setMemo((r.data ?? []).filter((m: any) => !m.is_private || m.author === me.id)) })
   }, [me.id])
+  const [cap, setCap] = useState({ ready: 0, wait: 0 })
+  useEffect(() => {
+    // CAPSULE-03: số hộp thời gian người ấy gửi mà đã mở được (chưa mở) và số hộp còn đang chờ (phase12.sql)
+    sb.from('capsules').select('author,unlock_at,opened_at').then(r => {
+      if (r.error) return
+      const t = Date.now(), rows = r.data ?? []
+      setCap({ ready: rows.filter(c => c.author !== me.id && !c.opened_at && +new Date(c.unlock_at) <= t).length, wait: rows.filter(c => +new Date(c.unlock_at) > t).length })
+    })
+  }, [me.id])
   const day = space.start_date ? daysTogether(space.start_date) : null
   const next = day ? MILESTONES.find(m => m > day) : null
   const expired = !!space.invite_expires && new Date(space.invite_expires).getTime() < Date.now()
@@ -49,6 +58,7 @@ export default function Home() {
       {plan && <Link href={`/plan/${plan.id}`} className="k pe"><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></Link>}
       {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map(m => <Link key={m.kind + m.id} href={m.kind === 'diary' ? `/diary?month=${m.day.slice(0, 7)}` : `/moments?open=${m.id}`} className="s" style={{ display: 'block' }}>{m.kind === 'diary' ? (m.is_private ? '🔒' : '📓') : '📷'} {m.day.slice(0, 4)}: {m.title}</Link>)}{memo.some(m => m.kind === 'moment') && <Link href="/moments?memories=1" className="pill on">▶ Xem lại ảnh</Link>}</div>}
       <div className="row"><Link href="/diary" className="k pk"><b>Nhật ký</b><div className="s">Viết cho nhau</div></Link><Link href="/special" className="k pe"><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></Link></div>
+      <Link href="/capsule" className={`k ${cap.ready ? 'pk' : 'li'}`}><b>Hộp thời gian</b><div className="s">{cap.ready ? `${cap.ready} hộp mở được rồi, vào xem nhé!` : cap.wait ? `${cap.wait} hộp đang chờ ngày mở` : 'Viết thư, hẹn ngày mở'}</div></Link>
       {!partner && <div className="k pe"><b>Mời người ấy vào Space</b>{expired ? <div className="s">Mã mời đã hết hạn.</div> : <><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></>}<button className="pill" onClick={renew}>Tạo mã mới</button></div>}
       <div className="row">
         <Link href="/chat" className="k li"><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></Link>

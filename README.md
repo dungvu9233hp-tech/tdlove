@@ -87,3 +87,10 @@
 - Chỉ ghi khi app đang mở (giới hạn của trình duyệt). Mặc định giữ màn hình sáng khi ghi (Wake Lock; có ô để tắt cho đỡ tốn pin). App đóng quá 2 giờ thì hành trình tự dừng, đủ 6000 điểm cũng tự dừng. Điểm được lọc (bỏ sai số trên 80 m, bỏ lúc đứng yên, bỏ nhiễu nhảy vọt) và gửi lên mỗi ~20 giây; mất mạng thì giữ trong máy và gửi sau.
 - Hành trình chỉ chủ của nó xem được. Bấm "Cho người ấy xem" thì người ấy xem được đường đi (tắt lại bất cứ lúc nào). Xóa từng hành trình hoặc xóa tất cả hành trình đã ghi; xóa là xóa hết các điểm. Xóa Kế hoạch thì hành trình vẫn còn, chỉ gỡ liên kết.
 - Bảng dữ liệu khác so với mô hình khái niệm trong SRS: `plan_id` nằm ở `trips` (một hành trình gồm nhiều điểm), không lặp lại ở từng điểm.
+
+## Hộp thời gian (CAPSULE-01..04)
+
+- Chạy `supabase/phase12.sql` trong SQL Editor (sau phase11.sql). File tạo bảng, hàm `create_capsule`/`open_capsule` và bucket riêng `capsules`; chạy lại vẫn an toàn.
+- Thư và ảnh bị khóa ở server tới ngày mở (RLS dùng đồng hồ của Postgres), người nhận chỉ thấy lời gợi ý và số ngày còn lại.
+- Báo "mở được rồi" qua thông báo đẩy: deploy lại Edge Function `anniversary` (`supabase functions deploy anniversary`). Hàm này chạy mỗi sáng 8h nên thông báo đến vào sáng ngày mở.
+- Cách test nhanh: chôn một hộp mở ngày mai, rồi trong SQL Editor chạy `update capsules set unlock_at = now() - interval '1 minute';` và tải lại trang bằng máy của người nhận.

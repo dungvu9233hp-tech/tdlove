@@ -1,4 +1,5 @@
 // Edge Function `anniversary`: nhắc ngày đặc biệt (ANNIV-04) và nhắc lại kỷ niệm "ngày này năm trước" (DIARY-02).
+// Hộp thời gian (CAPSULE-04): hộp đã tới ngày mở thì báo người nhận một lần (cột capsules.notified_at, cần phase12.sql).
 // Chạy mỗi sáng bằng pg_cron (xem README.md cùng thư mục). Cần đã chạy supabase/phase7.sql (hàm on_this_day).
 // Ngày đặc biệt: nhắc vào ngày đó và trước một ngày (ngày đặc biệt tự thêm, kỷ niệm tròn năm, các mốc 100/200/365... ngày).
 // Kỷ niệm: nhắc trong ngày, gồm nhật ký và Moment của đúng ngày này các năm trước.
@@ -35,7 +36,7 @@ Deno.serve(async () => {
   }
 
   for (const sp of spaces ?? []) {
-    const { data: subs } = await admin.from('push_subscriptions').select('endpoint,p256dh,auth').eq('space_id', sp.id)
+    const { data: subs } = await admin.from('push_subscriptions').select('endpoint,p256dh,auth,user_id').eq('space_id', sp.id)
     if (!subs?.length) continue
     const { data: sd } = await admin.from('special_dates').select('name,on_date,yearly').eq('space_id', sp.id)
     const notes: string[] = []
@@ -49,6 +50,17 @@ Deno.serve(async () => {
       }
     }
     if (notes.length) await push(subs, { kind: 'anniv', title: 'tdlove', body: notes.join('\n'), url: '/special', tag: 'anniv' })
+
+    // CAPSULE-04: hộp đã tới ngày mở và chưa báo. Gom theo người viết, chỉ báo cho người kia (không báo người viết).
+    const { data: caps, error: cErr } = await admin.from('capsules').select('id,author').eq('space_id', sp.id).is('notified_at', null).lte('unlock_at', new Date().toISOString())
+    if (cErr) console.error('capsules', cErr.message)   // chưa chạy phase12.sql thì bỏ qua phần hộp thời gian
+    const byAuthor = new Map<string, string[]>()
+    for (const k of caps ?? []) byAuthor.set(k.author, [...(byAuthor.get(k.author) ?? []), k.id])
+    for (const [author, ids] of byAuthor) {
+      const to = subs.filter(s => s.user_id !== author)
+      if (to.length) await push(to, { kind: 'capsule', title: 'Hộp thời gian', body: ids.length > 1 ? `Có ${ids.length} hộp thời gian mở được rồi. Vào xem nhé!` : 'Có một hộp thời gian mở được rồi. Vào xem nhé!', url: '/capsule', tag: 'capsule' })
+      await admin.from('capsules').update({ notified_at: new Date().toISOString() }).in('id', ids)
+    }
 
     // DIARY-02: một thông báo riêng cho kỷ niệm, mở thẳng Trang chủ (nơi có mục "Ngày này năm trước")
     const mem = memos.get(sp.id) ?? []

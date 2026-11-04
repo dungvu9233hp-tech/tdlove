@@ -1,0 +1,433 @@
+From 2a91c2a599d61495ca9f0518ba5825339eff214c Mon Sep 17 00:00:00 2001
+From: claude <claude@example.com>
+Date: Wed, 4 Nov 2026 07:10:11 +0000
+Subject: [PATCH] =?UTF-8?q?CAPSULE-01..04:=20h=E1=BB=99p=20th=E1=BB=9Di=20?=
+ =?UTF-8?q?gian=20(vi=E1=BA=BFt=20th=C6=B0=20v=C3=A0=20=E1=BA=A3nh,=20h?=
+ =?UTF-8?q?=E1=BA=B9n=20ng=C3=A0y=20m=E1=BB=9F,=20kh=C3=B3a=20n=E1=BB=99i?=
+ =?UTF-8?q?=20dung=20=E1=BB=9F=20server,=20b=C3=A1o=20khi=20m=E1=BB=9F=20?=
+ =?UTF-8?q?=C4=91=C6=B0=E1=BB=A3c)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- supabase/phase12.sql: bảng capsules/capsule_contents, create_capsule/open_capsule, bucket riêng capsules, RLS dùng my_space() và now() của server
+- app/(app)/capsule + components/CapsuleForm: danh sách, chôn hộp, mở hộp, xem lại, xóa
+- Trang chủ: thẻ Hộp thời gian (số hộp mở được / đang chờ)
+- Edge Function anniversary: đẩy thông báo một lần khi hộp tới ngày mở (capsules.notified_at)
+- README: hướng dẫn cài
+---
+ README.md                               |   7 ++
+ app/(app)/capsule/page.tsx              | 121 ++++++++++++++++++++++++
+ app/(app)/page.tsx                      |  10 ++
+ components/CapsuleForm.tsx              |  93 ++++++++++++++++++
+ supabase/functions/anniversary/index.ts |  14 ++-
+ supabase/phase12.sql                    |  89 +++++++++++++++++
+ 6 files changed, 333 insertions(+), 1 deletion(-)
+ create mode 100644 app/(app)/capsule/page.tsx
+ create mode 100644 components/CapsuleForm.tsx
+ create mode 100644 supabase/phase12.sql
+
+diff --git a/README.md b/README.md
+index 50c8cf0..5cbbad6 100644
+--- a/README.md
++++ b/README.md
+@@ -87,3 +87,10 @@
+ - Chỉ ghi khi app đang mở (giới hạn của trình duyệt). Mặc định giữ màn hình sáng khi ghi (Wake Lock; có ô để tắt cho đỡ tốn pin). App đóng quá 2 giờ thì hành trình tự dừng, đủ 6000 điểm cũng tự dừng. Điểm được lọc (bỏ sai số trên 80 m, bỏ lúc đứng yên, bỏ nhiễu nhảy vọt) và gửi lên mỗi ~20 giây; mất mạng thì giữ trong máy và gửi sau.
+ - Hành trình chỉ chủ của nó xem được. Bấm "Cho người ấy xem" thì người ấy xem được đường đi (tắt lại bất cứ lúc nào). Xóa từng hành trình hoặc xóa tất cả hành trình đã ghi; xóa là xóa hết các điểm. Xóa Kế hoạch thì hành trình vẫn còn, chỉ gỡ liên kết.
+ - Bảng dữ liệu khác so với mô hình khái niệm trong SRS: `plan_id` nằm ở `trips` (một hành trình gồm nhiều điểm), không lặp lại ở từng điểm.
++
++## Hộp thời gian (CAPSULE-01..04)
++
++- Chạy `supabase/phase12.sql` trong SQL Editor (sau phase11.sql). File tạo bảng, hàm `create_capsule`/`open_capsule` và bucket riêng `capsules`; chạy lại vẫn an toàn.
++- Thư và ảnh bị khóa ở server tới ngày mở (RLS dùng đồng hồ của Postgres), người nhận chỉ thấy lời gợi ý và số ngày còn lại.
++- Báo "mở được rồi" qua thông báo đẩy: deploy lại Edge Function `anniversary` (`supabase functions deploy anniversary`). Hàm này chạy mỗi sáng 8h nên thông báo đến vào sáng ngày mở.
++- Cách test nhanh: chôn một hộp mở ngày mai, rồi trong SQL Editor chạy `update capsules set unlock_at = now() - interval '1 minute';` và tải lại trang bằng máy của người nhận.
+diff --git a/app/(app)/capsule/page.tsx b/app/(app)/capsule/page.tsx
+new file mode 100644
+index 0000000..88aefc1
+--- /dev/null
++++ b/app/(app)/capsule/page.tsx
+@@ -0,0 +1,121 @@
++'use client'
++import { useCallback, useEffect, useState } from 'react'
++import Link from 'next/link'
++import { sb } from '@/lib/supabase'
++import { useApp } from '@/lib/ctx'
++import Head from '@/components/Head'
++import CapsuleForm from '@/components/CapsuleForm'
++import Lightbox, { LbItem } from '@/components/Lightbox'
++import { ok } from '@/lib/util'
++
++type Cap = { id: string; author: string; teaser: string | null; unlock_at: string; photo_count: number; opened_at: string | null; created_at: string }
++type Shown = { body: string; urls: string[] }
++type State = 'ready' | 'wait' | 'done'
++
++const today = () => { const t = new Date(); t.setHours(0, 0, 0, 0); return t }
++const dayStr = (iso: string) => new Date(iso).toLocaleDateString('vi-VN')
++const stamp = (iso: string) => new Date(iso).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })
++const daysLeft = (iso: string) => Math.max(1, Math.round((+new Date(iso) - +today()) / 864e5))
++
++// CAPSULE-02/03: hộp thời gian. Danh sách (capsules) ai trong Space cũng thấy; nội dung (capsule_contents) và ảnh chỉ đọc được
++// khi tới ngày mở hoặc mình là người viết (RLS ở phase12.sql), nên app không cần tự "giấu" gì.
++export default function Capsule() {
++  const { me, space, partner } = useApp()
++  const [caps, setCaps] = useState<Cap[]>([]); const [loading, setLoading] = useState(true); const [failed, setFailed] = useState(false)
++  const [form, setForm] = useState(false); const [shown, setShown] = useState<Record<string, Shown>>({})
++  const [busy, setBusy] = useState(''); const [note, setNote] = useState('')
++  const [lb, setLb] = useState<null | { items: LbItem[]; start: number }>(null)
++  const [now, setNow] = useState(() => Date.now())
++  const name = partner?.display_name ?? 'Người ấy'
++
++  const load = useCallback(async () => {
++    const { data, error } = await sb.from('capsules').select('id,author,teaser,unlock_at,photo_count,opened_at,created_at').order('unlock_at')
++    if (error) { console.error('capsules', error.message); setFailed(true) } else { setFailed(false); setCaps(data ?? []) }
++    setLoading(false)
++  }, [])
++  useEffect(() => { load() }, [load])
++  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t) }, [])   // qua 0 giờ thì hộp tự chuyển sang "Mở được rồi"
++
++  // Đọc nội dung. Nếu server nói chưa tới ngày (đồng hồ máy lệch) thì RLS trả về rỗng và ta báo lại.
++  async function reveal(c: Cap) {
++    setBusy(c.id); setNote('')
++    try {
++      const mine = c.author === me.id
++      if (!mine && +new Date(c.unlock_at) <= Date.now()) await sb.rpc('open_capsule', { cid: c.id })
++      const { data, error } = await sb.from('capsule_contents').select('body,photo_paths').eq('capsule_id', c.id).maybeSingle()
++      if (error) throw error
++      if (!data) { setNote('Chưa tới ngày mở. Đợi thêm một chút rồi thử lại nhé.'); return }
++      const paths: string[] = data.photo_paths ?? [], urls: string[] = []
++      if (paths.length) {
++        const r = await sb.storage.from('capsules').createSignedUrls(paths, 3600)
++        const by = new Map((r.data ?? []).map(x => [x.path, x.signedUrl])); paths.forEach(p => { const u = by.get(p); if (u) urls.push(u) })
++      }
++      setShown(s => ({ ...s, [c.id]: { body: data.body ?? '', urls } }))
++      load()
++    } catch (e: any) { console.error('capsule', e); setNote('Không mở được hộp. Hãy kiểm tra mạng rồi thử lại.') }
++    finally { setBusy('') }
++  }
++
++  async function remove(c: Cap) {
++    if (!confirm('Xóa hộp thời gian này? Thư và ảnh bên trong sẽ mất, không khôi phục được.')) return
++    setBusy(c.id); setNote('')
++    try {
++      const { data } = await sb.from('capsule_contents').select('photo_paths').eq('capsule_id', c.id).maybeSingle()
++      if (!await ok(sb.from('capsules').delete().eq('id', c.id), 'Không xóa được hộp')) return
++      if (data?.photo_paths?.length) await sb.storage.from('capsules').remove(data.photo_paths)
++      setShown(s => { const { [c.id]: _, ...rest } = s; return rest })
++      load()
++    } finally { setBusy('') }
++  }
++
++  const due = (c: Cap) => +new Date(c.unlock_at) <= now
++  const ready = caps.filter(c => due(c) && c.author !== me.id && !c.opened_at)
++  const wait = caps.filter(c => !due(c))
++  const done = caps.filter(c => due(c) && !ready.includes(c)).reverse()
++
++  const letter = (c: Cap) => {
++    const s = shown[c.id]; if (!s) return null
++    return <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '2px dashed var(--ink)', paddingTop: 10 }}>
++      {s.body && <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{s.body}</div>}
++      {s.urls.length > 0 && <div className="mgrid">{s.urls.map((u, i) => <button key={u} className="th" onClick={() => setLb({ items: s.urls.map(x => ({ kind: 'image' as const, url: x })), start: i })} aria-label={`Xem ảnh ${i + 1}`}><img src={u} alt="" /></button>)}</div>}
++      <button className="pill" style={{ alignSelf: 'flex-start' }} onClick={() => setShown(x => { const { [c.id]: _, ...rest } = x; return rest })}>Gấp thư lại</button>
++    </div>
++  }
++
++  const card = (c: Cap, st: State) => {
++    const mine = c.author === me.id, from = mine ? 'Bạn' : name, loadingMe = busy === c.id
++    return <div key={c.id} className={`k ${st === 'ready' ? 'pk' : st === 'wait' ? 'li' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++      {st === 'wait' && <div><span className="num" style={{ fontSize: 40 }}>{daysLeft(c.unlock_at)}</span> <span className="s">ngày nữa mới mở</span></div>}
++      <b>{st === 'ready' ? `${from} gửi bạn một hộp thời gian` : mine ? 'Hộp bạn đã chôn' : `Hộp ${from} đã chôn`}</b>
++      {c.teaser && <div className="s">“{c.teaser}”</div>}
++      <div className="s">
++        {st === 'wait' ? `Mở vào ${dayStr(c.unlock_at)}` : st === 'ready' ? `Mở được từ ${dayStr(c.unlock_at)}` : `Mở ngày ${dayStr(c.unlock_at)}`}
++        {c.photo_count > 0 ? ` · ${c.photo_count} ảnh` : ''}
++        {st === 'done' && mine ? ` · ${c.opened_at ? `${name} mở lúc ${stamp(c.opened_at)}` : `${name} chưa mở`}` : ''}
++      </div>
++      <div className="row" style={{ flexWrap: 'wrap' }}>
++        {st === 'ready' && <button className="btn" onClick={() => reveal(c)} disabled={loadingMe}>{loadingMe ? 'Đang mở…' : 'Mở hộp'}</button>}
++        {st === 'done' && !shown[c.id] && <button className="pill" onClick={() => reveal(c)} disabled={loadingMe}>{loadingMe ? 'Đang mở…' : 'Đọc lại'}</button>}
++        {st === 'wait' && mine && !shown[c.id] && <button className="pill" onClick={() => reveal(c)} disabled={loadingMe}>Xem lại thư của tôi</button>}
++        {mine && <button className="pill" onClick={() => remove(c)} disabled={loadingMe}>Xóa</button>}
++      </div>
++      {letter(c)}
++    </div>
++  }
++
++  return <>
++    <Head t="Hộp thời gian"><Link href="/" className="pill">Trang chủ</Link></Head>
++    <div className="b">
++      <button className="btn" onClick={() => setForm(true)}>Chôn hộp mới</button>
++      {note && <div className="k pe s" role="status">{note}</div>}
++      {loading && <div className="s">Đang tải…</div>}
++      {failed && <div className="k pe s" role="alert">Không tải được các hộp. Nếu chưa chạy supabase/phase12.sql thì hãy chạy file đó trước, hoặc kiểm tra mạng.</div>}
++      {ready.length > 0 && <><b>Mở được rồi</b>{ready.map(c => card(c, 'ready'))}</>}
++      {wait.length > 0 && <><b>Đang chờ</b>{wait.map(c => card(c, 'wait'))}</>}
++      {done.length > 0 && <><b>Đã mở</b>{done.map(c => card(c, 'done'))}</>}
++      {!loading && !failed && caps.length === 0 && <div className="k pe"><div className="s">Chưa có hộp nào. Hãy viết một lá thư, hẹn ngày mở (một tháng, một năm sau…) rồi chôn nó. Đến ngày đó, người ấy sẽ được mở.</div></div>}
++    </div>
++    {form && <CapsuleForm space={space} onClose={() => setForm(false)} onDone={() => { setForm(false); load() }} />}
++    {lb && <Lightbox items={lb.items} start={lb.start} onClose={() => setLb(null)} />}
++  </>
++}
+diff --git a/app/(app)/page.tsx b/app/(app)/page.tsx
+index 6fc2a90..f1a0bdd 100644
+--- a/app/(app)/page.tsx
++++ b/app/(app)/page.tsx
+@@ -25,6 +25,15 @@ export default function Home() {
+     const t = new Date(), today = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+     sb.rpc('on_this_day', { d: today }).then(r => { if (r.error) console.error('on_this_day', r.error.message); else setMemo((r.data ?? []).filter((m: any) => !m.is_private || m.author === me.id)) })
+   }, [me.id])
++  const [cap, setCap] = useState({ ready: 0, wait: 0 })
++  useEffect(() => {
++    // CAPSULE-03: số hộp thời gian người ấy gửi mà đã mở được (chưa mở) và số hộp còn đang chờ (phase12.sql)
++    sb.from('capsules').select('author,unlock_at,opened_at').then(r => {
++      if (r.error) return
++      const t = Date.now(), rows = r.data ?? []
++      setCap({ ready: rows.filter(c => c.author !== me.id && !c.opened_at && +new Date(c.unlock_at) <= t).length, wait: rows.filter(c => +new Date(c.unlock_at) > t).length })
++    })
++  }, [me.id])
+   const day = space.start_date ? daysTogether(space.start_date) : null
+   const next = day ? MILESTONES.find(m => m > day) : null
+   const expired = !!space.invite_expires && new Date(space.invite_expires).getTime() < Date.now()
+@@ -49,6 +58,7 @@ export default function Home() {
+       {plan && <Link href={`/plan/${plan.id}`} className="k pe"><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></Link>}
+       {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map(m => <Link key={m.kind + m.id} href={m.kind === 'diary' ? `/diary?month=${m.day.slice(0, 7)}` : `/moments?open=${m.id}`} className="s" style={{ display: 'block' }}>{m.kind === 'diary' ? (m.is_private ? '🔒' : '📓') : '📷'} {m.day.slice(0, 4)}: {m.title}</Link>)}{memo.some(m => m.kind === 'moment') && <Link href="/moments?memories=1" className="pill on">▶ Xem lại ảnh</Link>}</div>}
+       <div className="row"><Link href="/diary" className="k pk"><b>Nhật ký</b><div className="s">Viết cho nhau</div></Link><Link href="/special" className="k pe"><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></Link></div>
++      <Link href="/capsule" className={`k ${cap.ready ? 'pk' : 'li'}`}><b>Hộp thời gian</b><div className="s">{cap.ready ? `${cap.ready} hộp mở được rồi, vào xem nhé!` : cap.wait ? `${cap.wait} hộp đang chờ ngày mở` : 'Viết thư, hẹn ngày mở'}</div></Link>
+       {!partner && <div className="k pe"><b>Mời người ấy vào Space</b>{expired ? <div className="s">Mã mời đã hết hạn.</div> : <><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></>}<button className="pill" onClick={renew}>Tạo mã mới</button></div>}
+       <div className="row">
+         <Link href="/chat" className="k li"><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></Link>
+diff --git a/components/CapsuleForm.tsx b/components/CapsuleForm.tsx
+new file mode 100644
+index 0000000..1b495c8
+--- /dev/null
++++ b/components/CapsuleForm.tsx
+@@ -0,0 +1,93 @@
++'use client'
++import { useEffect, useRef, useState } from 'react'
++import { sb } from '@/lib/supabase'
++import { MAX_IMG, MB, localDay, processImage } from '@/lib/media'
++
++export const CAPSULE_MAX_PHOTOS = 3   // khớp create_capsule trong phase12.sql
++const PRESETS = [{ t: '1 tháng', m: 1 }, { t: '3 tháng', m: 3 }, { t: '6 tháng', m: 6 }, { t: '1 năm', m: 12 }]
++const dayIn = (m: number) => { const d = new Date(); d.setMonth(d.getMonth() + m); return localDay(d.toISOString()) }
++const tomorrow = () => { const d = new Date(); d.setDate(d.getDate() + 1); return localDay(d.toISOString()) }
++// yyyy-mm-dd (lịch của máy) → 00:00 của ngày đó theo giờ máy
++const midnight = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d) }
++
++type Item = { id: string; file: File; url: string }
++
++// CAPSULE-01: viết thư + tối đa 3 ảnh, hẹn NGÀY mở. Ảnh tải lên trước, rồi create_capsule() ghi thư và ảnh cùng lúc.
++export default function CapsuleForm({ space, onClose, onDone }: { space: any; onClose: () => void; onDone: () => void }) {
++  const [body, setBody] = useState(''); const [teaser, setTeaser] = useState(''); const [date, setDate] = useState(() => dayIn(3))
++  const [items, setItems] = useState<Item[]>([]); const [notes, setNotes] = useState<string[]>([])
++  const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
++  const itemsRef = useRef<Item[]>([]); itemsRef.current = items
++
++  useEffect(() => () => { itemsRef.current.forEach(i => URL.revokeObjectURL(i.url)) }, [])
++  useEffect(() => {   // đang lưu thì cảnh báo khi người dùng định rời trang
++    if (!busy) return
++    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
++    window.addEventListener('beforeunload', h); return () => window.removeEventListener('beforeunload', h)
++  }, [busy])
++
++  function onFiles(list: FileList | null) {
++    const files = Array.from(list ?? []); if (!files.length) return
++    const msg: string[] = [], add: Item[] = []
++    let room = CAPSULE_MAX_PHOTOS - items.length
++    for (const file of files) {
++      if (room <= 0) { msg.push(`${file.name}: đã đủ ${CAPSULE_MAX_PHOTOS} ảnh`); continue }
++      if (!file.type.startsWith('image/')) { msg.push(`${file.name}: hộp thời gian chỉ nhận ảnh`); continue }
++      if (file.size > MAX_IMG) { msg.push(`${file.name}: ảnh lớn hơn 15 MB (${MB(file.size)})`); continue }
++      add.push({ id: crypto.randomUUID(), file, url: URL.createObjectURL(file) }); room--
++    }
++    setItems(a => [...a, ...add]); setNotes(msg)
++  }
++
++  async function save() {
++    setErr('')
++    if (!date || date < tomorrow()) return setErr('Hãy chọn ngày mở từ ngày mai trở đi.')
++    if (!body.trim() && !items.length) return setErr('Hãy viết gì đó hoặc thêm một tấm ảnh.')
++    setBusy(true)
++    const id = crypto.randomUUID(), paths: string[] = []
++    try {
++      for (let i = 0; i < items.length; i++) {
++        const { full } = await processImage(items[i].file)
++        const p = `${space.id}/${id}/${i}.jpg`
++        const { error } = await sb.storage.from('capsules').upload(p, full, { contentType: 'image/jpeg' })
++        if (error) throw error
++        paths.push(p)
++      }
++      const { error } = await sb.rpc('create_capsule', { p_id: id, p_teaser: teaser.trim(), p_unlock: midnight(date).toISOString(), p_body: body.trim(), p_paths: paths })
++      if (error) throw error
++      onDone()
++    } catch (e: any) {
++      if (paths.length) sb.storage.from('capsules').remove(paths)   // dọn ảnh đã lỡ tải lên
++      setErr(String(e?.message ?? 'Không chôn được hộp, hãy thử lại.'))
++    } finally { setBusy(false) }
++  }
++
++  return <div className="sheet" role="dialog" aria-label="Chôn hộp thời gian">
++    <div className="row"><b style={{ flex: 1 }}>Chôn hộp thời gian</b><button className="pill" style={{ flex: 'none' }} onClick={onClose} disabled={busy}>Đóng</button></div>
++
++    <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++      <textarea rows={7} maxLength={5000} placeholder="Viết cho người ấy của ngày mở hộp…" value={body} onChange={e => setBody(e.target.value)} aria-label="Thư" />
++      <input placeholder="Lời gợi ý cho người ấy thấy trước (không bắt buộc)" value={teaser} maxLength={140} onChange={e => setTeaser(e.target.value)} aria-label="Lời gợi ý" />
++    </div>
++
++    <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++      <b>Mở vào ngày</b>
++      <div className="row" style={{ flexWrap: 'wrap' }}>{PRESETS.map(p => <button key={p.m} className="chip" aria-pressed={date === dayIn(p.m)} onClick={() => setDate(dayIn(p.m))}>{p.t}</button>)}</div>
++      <input type="date" min={tomorrow()} value={date} onChange={e => setDate(e.target.value)} aria-label="Ngày mở hộp" />
++      <div className="s">Trước ngày này người ấy chỉ thấy lời gợi ý và số ngày còn lại, không đọc được thư. Bạn vẫn xem lại được thư của mình.</div>
++    </div>
++
++    <div className="k" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++      <b>Ảnh ({items.length}/{CAPSULE_MAX_PHOTOS})</b>
++      <div className="s">Ảnh ≤ 15 MB, tự nén.</div>
++      <input type="file" accept="image/*" multiple disabled={busy || items.length >= CAPSULE_MAX_PHOTOS} onChange={e => { onFiles(e.target.files); e.target.value = '' }} aria-label="Chọn ảnh" />
++      {items.length > 0 && <div className="grid">{items.map(i => <div key={i.id} className="th">
++        <img src={i.url} alt="" />
++        <button className="x" disabled={busy} onClick={() => { URL.revokeObjectURL(i.url); setItems(a => a.filter(x => x.id !== i.id)) }} aria-label="Gỡ ảnh này">×</button></div>)}</div>}
++      {notes.map((n, k) => <div key={k} className="s" role="alert">{n}</div>)}
++    </div>
++
++    {err && <div className="k pe s" role="alert">{err}</div>}
++    <button className="btn" onClick={save} disabled={busy}>{busy ? 'Đang chôn…' : 'Chôn hộp'}</button>
++  </div>
++}
+diff --git a/supabase/functions/anniversary/index.ts b/supabase/functions/anniversary/index.ts
+index 4acd47e..219b1ae 100644
+--- a/supabase/functions/anniversary/index.ts
++++ b/supabase/functions/anniversary/index.ts
+@@ -1,4 +1,5 @@
+ // Edge Function `anniversary`: nhắc ngày đặc biệt (ANNIV-04) và nhắc lại kỷ niệm "ngày này năm trước" (DIARY-02).
++// Hộp thời gian (CAPSULE-04): hộp đã tới ngày mở thì báo người nhận một lần (cột capsules.notified_at, cần phase12.sql).
+ // Chạy mỗi sáng bằng pg_cron (xem README.md cùng thư mục). Cần đã chạy supabase/phase7.sql (hàm on_this_day).
+ // Ngày đặc biệt: nhắc vào ngày đó và trước một ngày (ngày đặc biệt tự thêm, kỷ niệm tròn năm, các mốc 100/200/365... ngày).
+ // Kỷ niệm: nhắc trong ngày, gồm nhật ký và Moment của đúng ngày này các năm trước.
+@@ -35,7 +36,7 @@ Deno.serve(async () => {
+   }
+ 
+   for (const sp of spaces ?? []) {
+-    const { data: subs } = await admin.from('push_subscriptions').select('endpoint,p256dh,auth').eq('space_id', sp.id)
++    const { data: subs } = await admin.from('push_subscriptions').select('endpoint,p256dh,auth,user_id').eq('space_id', sp.id)
+     if (!subs?.length) continue
+     const { data: sd } = await admin.from('special_dates').select('name,on_date,yearly').eq('space_id', sp.id)
+     const notes: string[] = []
+@@ -50,6 +51,17 @@ Deno.serve(async () => {
+     }
+     if (notes.length) await push(subs, { kind: 'anniv', title: 'tdlove', body: notes.join('\n'), url: '/special', tag: 'anniv' })
+ 
++    // CAPSULE-04: hộp đã tới ngày mở và chưa báo. Gom theo người viết, chỉ báo cho người kia (không báo người viết).
++    const { data: caps, error: cErr } = await admin.from('capsules').select('id,author').eq('space_id', sp.id).is('notified_at', null).lte('unlock_at', new Date().toISOString())
++    if (cErr) console.error('capsules', cErr.message)   // chưa chạy phase12.sql thì bỏ qua phần hộp thời gian
++    const byAuthor = new Map<string, string[]>()
++    for (const k of caps ?? []) byAuthor.set(k.author, [...(byAuthor.get(k.author) ?? []), k.id])
++    for (const [author, ids] of byAuthor) {
++      const to = subs.filter(s => s.user_id !== author)
++      if (to.length) await push(to, { kind: 'capsule', title: 'Hộp thời gian', body: ids.length > 1 ? `Có ${ids.length} hộp thời gian mở được rồi. Vào xem nhé!` : 'Có một hộp thời gian mở được rồi. Vào xem nhé!', url: '/capsule', tag: 'capsule' })
++      await admin.from('capsules').update({ notified_at: new Date().toISOString() }).in('id', ids)
++    }
++
+     // DIARY-02: một thông báo riêng cho kỷ niệm, mở thẳng Trang chủ (nơi có mục "Ngày này năm trước")
+     const mem = memos.get(sp.id) ?? []
+     if (mem.length) {
+diff --git a/supabase/phase12.sql b/supabase/phase12.sql
+new file mode 100644
+index 0000000..53d0fd0
+--- /dev/null
++++ b/supabase/phase12.sql
+@@ -0,0 +1,89 @@
++-- Giai đoạn 12: Hộp thời gian (CAPSULE-01..03)
++-- Chạy trong Supabase > SQL Editor, một lần, SAU phase11.sql. Chạy lại nhiều lần vẫn an toàn.
++-- Một người viết thư (kèm tối đa 3 ảnh) và hẹn NGÀY mở. Trước ngày đó người kia chỉ thấy lời gợi ý và số ngày còn lại.
++-- Khóa nội dung nằm ở server (RLS dùng now() của Postgres): sửa giờ máy hay gọi API trực tiếp cũng không đọc sớm được.
++-- Người viết luôn xem lại được thư của mình.
++
++-- capsules: thông tin hiển thị cho cả hai (ai chôn, ngày mở, lời gợi ý). KHÔNG chứa nội dung thư và ảnh.
++create table if not exists capsules(
++  id uuid primary key default gen_random_uuid(),
++  space_id uuid not null references spaces on delete cascade,
++  author uuid not null default auth.uid() references auth.users on delete cascade,
++  teaser text check (teaser is null or char_length(teaser) <= 140),   -- lời gợi ý, người kia thấy trước
++  unlock_at timestamptz not null,                                      -- 00:00 (giờ máy người viết) của ngày mở
++  photo_count int not null default 0 check (photo_count between 0 and 3),
++  opened_at timestamptz,                                               -- lần đầu người kia mở
++  notified_at timestamptz,                                             -- Edge Function `anniversary` đã đẩy thông báo "mở được rồi"
++  created_at timestamptz default now());
++create index if not exists capsules_space_idx on capsules(space_id, unlock_at);
++
++-- capsule_contents: nội dung thật, chỉ đọc được khi tới ngày mở (hoặc là người viết)
++create table if not exists capsule_contents(
++  capsule_id uuid primary key references capsules on delete cascade,
++  body text not null default '' check (char_length(body) <= 5000),
++  photo_paths text[] not null default '{}');
++
++alter table capsules enable row level security;
++alter table capsule_contents enable row level security;
++
++-- Không có policy insert/update: ghi dữ liệu chỉ qua create_capsule() và open_capsule() bên dưới.
++drop policy if exists cp_r on capsules; drop policy if exists cp_d on capsules;
++create policy cp_r on capsules for select using (space_id=my_space());
++create policy cp_d on capsules for delete using (space_id=my_space() and author=auth.uid());
++revoke insert, update on capsules from authenticated, anon;
++
++drop policy if exists cc_r on capsule_contents;
++create policy cc_r on capsule_contents for select using (exists(
++  select 1 from capsules c where c.id=capsule_id and c.space_id=my_space() and (c.author=auth.uid() or c.unlock_at<=now())));
++revoke insert, update, delete on capsule_contents from authenticated, anon;   -- xóa hộp thì nội dung tự xóa theo (on delete cascade)
++
++-- Chôn hộp: kiểm tra ngày mở nằm sau hôm nay, ảnh nằm đúng thư mục của hộp, ghi cả hai bảng cùng lúc
++create or replace function create_capsule(p_id uuid, p_teaser text, p_unlock timestamptz, p_body text, p_paths text[])
++returns void language plpgsql security definer set search_path=public as $$
++declare n int := coalesce(array_length(p_paths,1),0); sp uuid := my_space(); pth text;
++begin
++  if auth.uid() is null or sp is null then raise exception 'Bạn chưa vào Space nào'; end if;
++  if p_unlock is null or p_unlock <= now() then raise exception 'Hãy chọn ngày mở sau hôm nay'; end if;
++  if n > 3 then raise exception 'Mỗi hộp tối đa 3 ảnh'; end if;
++  if char_length(btrim(coalesce(p_body,''))) = 0 and n = 0 then raise exception 'Hãy viết gì đó hoặc thêm một tấm ảnh'; end if;
++  if char_length(coalesce(p_body,'')) > 5000 then raise exception 'Thư dài quá (tối đa 5000 ký tự)'; end if;
++  if n > 0 then
++    foreach pth in array p_paths loop
++      if pth not like sp::text||'/'||p_id::text||'/%' then raise exception 'Đường dẫn ảnh không hợp lệ'; end if;
++    end loop;
++  end if;
++  insert into capsules(id, space_id, author, teaser, unlock_at, photo_count)
++    values(p_id, sp, auth.uid(), nullif(btrim(coalesce(p_teaser,'')),''), p_unlock, n);
++  insert into capsule_contents(capsule_id, body, photo_paths) values(p_id, btrim(coalesce(p_body,'')), coalesce(p_paths,'{}'));
++end $$;
++
++-- Đánh dấu "đã mở": chỉ người KHÔNG phải tác giả, chỉ khi đã tới ngày, chỉ ghi lần đầu
++create or replace function open_capsule(cid uuid) returns void
++language plpgsql security definer set search_path=public as $$
++begin
++  update capsules set opened_at = now()
++   where id = cid and space_id = my_space() and author <> auth.uid() and unlock_at <= now() and opened_at is null;
++end $$;
++
++revoke all on function create_capsule(uuid, text, timestamptz, text, text[]) from public, anon;
++revoke all on function open_capsule(uuid) from public, anon;
++grant execute on function create_capsule(uuid, text, timestamptz, text, text[]) to authenticated;
++grant execute on function open_capsule(uuid) to authenticated;
++
++-- Ảnh nằm ở bucket riêng `capsules` (KHÔNG dùng bucket `media`: policy media_all cho người kia liệt kê và tải mọi tệp trong thư mục Space,
++-- nên ảnh sẽ lộ trước ngày mở). Đường dẫn: <space_id>/<capsule_id>/<số>.jpg
++insert into storage.buckets(id, name, public, file_size_limit, allowed_mime_types)
++  values('capsules', 'capsules', false, 5242880, array['image/jpeg'])
++  on conflict(id) do update set public=false, file_size_limit=5242880, allowed_mime_types=array['image/jpeg'];
++
++drop policy if exists capsules_obj_i on storage.objects; drop policy if exists capsules_obj_r on storage.objects; drop policy if exists capsules_obj_d on storage.objects;
++create policy capsules_obj_i on storage.objects for insert to authenticated
++  with check (bucket_id='capsules' and (storage.foldername(name))[1]=my_space()::text);
++-- đọc được ảnh chỉ khi hộp tương ứng đã mở khóa (hoặc mình là người viết)
++create policy capsules_obj_r on storage.objects for select to authenticated
++  using (bucket_id='capsules' and exists(
++    select 1 from capsules c where c.id::text=(storage.foldername(name))[2] and c.space_id::text=(storage.foldername(name))[1]
++      and c.space_id=my_space() and (c.author=auth.uid() or c.unlock_at<=now())));
++-- chỉ người đã tải lên mới xóa được (người viết xóa hộp thì app xóa luôn ảnh)
++create policy capsules_obj_d on storage.objects for delete to authenticated
++  using (bucket_id='capsules' and owner_id=auth.uid()::text and (storage.foldername(name))[1]=my_space()::text);
+-- 
+2.43.0
+
