@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import Head, { Heart } from '@/components/Head'
+import Avatar from '@/components/Avatar'
 import { daysTogether, ok } from '@/lib/util'
 
 const MILESTONES = [100, 200, 365, 500, 1000, 1500, 2000]
@@ -40,6 +41,9 @@ export default function Home() {
           <div className="num" style={{ fontSize: 19, marginTop: 4 }}>ngày bên nhau</div>
         </div>
       </div>
+      {partner && <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 'none' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Avatar p={me} size={48} on /><Heart size={24} /><Avatar p={partner} size={48} /></div>
+        <div className="s">{me.display_name} & {partner.display_name}</div></div>}
       {!space.start_date && <label className="k li"><b>Hai đứa bắt đầu yêu từ ngày nào?</b><input type="date" onChange={e => e.target.value && setDate(e.target.value)} /></label>}
       {next && day && <div className="k pk"><b>Mốc kế tiếp: {next} ngày</b><div className="s">Còn {next - day} ngày nữa</div></div>}
       {plan && <Link href={`/plan/${plan.id}`} className="k pe"><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></Link>}

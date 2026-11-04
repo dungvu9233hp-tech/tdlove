@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import Head from '@/components/Head'
+import { sign } from '@/lib/media'
 
 const km = (a: any, b: any) => { const r = (x: number) => x * Math.PI / 180, d = r(b.lat - a.lat), e = r(b.lng - a.lng); return 12742 * Math.asin(Math.sqrt(Math.sin(d / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(e / 2) ** 2)) }
 const live = (l: any) => !!l && new Date(l.share_until) > new Date()
@@ -52,7 +53,12 @@ export default function MapPage() {
       if (pins.current[id]) return pins.current[id].setLatLng([l.lat, l.lng])
       const d = document.createElement('div')
       d.className = 'pin' + (id === me.id ? ' on' : '')
-      d.textContent = ((id === me.id ? me.display_name : partner.display_name) || '?')[0]
+      const who = id === me.id ? me : partner
+      d.textContent = [...(String(who.display_name ?? '').trim() || '?')][0].toUpperCase()
+      if (who.avatar_url) sign([who.avatar_url]).then(m => {   // AUTH-05: có ảnh đại diện thì thay chữ cái đầu
+        const u = m[who.avatar_url]; if (!u) return
+        const i = new Image(); i.alt = ''; i.onload = () => { d.textContent = ''; d.appendChild(i) }; i.src = u
+      }).catch(() => { })
       pins.current[id] = L.current.marker([l.lat, l.lng], { icon: L.current.divIcon({ className: '', html: d, iconSize: [44, 44] }) }).addTo(map.current)
     })
     const pts = Object.values(show).map((l: any) => [l.lat, l.lng])

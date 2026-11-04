@@ -4,6 +4,7 @@ import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import { ok, shrink } from '@/lib/util'
 import Head from '@/components/Head'
+import Avatar from '@/components/Avatar'
 import { notifyPartner } from '@/lib/push'
 
 const PAGE = 50
@@ -190,7 +191,7 @@ export default function Chat() {
   }
 
   return <>
-    <Head t={pn}><button className="pill" onClick={() => { setSearching(s => !s); setQ(''); setHits(null) }}>{searching ? 'Đóng' : 'Tìm'}</button><button className="pill" onClick={() => call(false)}>Gọi</button><button className="pill" onClick={() => call(true)}>Video</button></Head>
+    <Head t={pn} lead={<Avatar p={partner} size={34} />}><button className="pill" onClick={() => { setSearching(s => !s); setQ(''); setHits(null) }}>{searching ? 'Đóng' : 'Tìm'}</button><button className="pill" onClick={() => call(false)}>Gọi</button><button className="pill" onClick={() => call(true)}>Video</button></Head>
     {searching && <div style={{ padding: '0 18px 8px' }}>
       <label className="k s"><input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Tìm trong tin nhắn…" aria-label="Tìm tin nhắn" /></label>
     </div>}

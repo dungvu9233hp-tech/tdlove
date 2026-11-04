@@ -40,6 +40,17 @@ export async function processImage(f: Blob) {
   } finally { d.done() }
 }
 
+// ---------- Ảnh đại diện (AUTH-05): cắt vuông ở giữa ảnh, tối đa 320px ----------
+export async function processAvatar(f: Blob): Promise<Blob> {
+  const d = await decode(f)
+  try {
+    const side = Math.min(d.w, d.h), size = Math.min(320, side), c = document.createElement('canvas')
+    c.width = c.height = size
+    c.getContext('2d')!.drawImage(d.src, (d.w - side) / 2, (d.h - side) / 2, side, side, 0, 0, size, size)
+    return await new Promise<Blob>((ok, no) => c.toBlob(b => b ? ok(b) : no(new Error('Không nén được ảnh')), 'image/jpeg', 0.85))
+  } finally { d.done() }
+}
+
 // ---------- EXIF: ngày chụp + GPS (MOM-01) ----------
 export async function readExif(f: File): Promise<{ taken_at?: string; lat?: number; lng?: number }> {
   try {

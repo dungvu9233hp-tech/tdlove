@@ -61,3 +61,11 @@
 - Quên mật khẩu: ở màn đăng nhập bấm "Quên mật khẩu?" → nhập email → nhận link → mở `/reset-password` → nhập mật khẩu mới. App luôn báo "nếu email đã có tài khoản thì đã gửi" để người lạ không dò được email nào đã đăng ký. Có đếm ngược 60 giây trước khi gửi lại.
 - Đổi mật khẩu: Cài đặt > "Đổi mật khẩu", phải nhập đúng mật khẩu hiện tại. Sau khi đổi hoặc đặt lại, **các máy khác bị đăng xuất** (máy đang dùng vẫn giữ phiên). Nếu dùng app cài ở Màn hình chính trên iPhone, phiên ở đó tách khỏi Safari nên cần đăng nhập lại.
 - Đăng xuất: chỉ đăng xuất máy đang bấm (`scope: 'local'`). Trước đây dùng mặc định của supabase-js nên đăng xuất ở điện thoại sẽ đăng xuất luôn máy tính.
+
+## Hồ sơ cá nhân (AUTH-05)
+
+- Không cần chạy thêm SQL: cột `profiles.avatar_url` và quyền sửa cột đã có từ `phase4.sql`.
+- Cài đặt > Hồ sơ của mình: đổi/gỡ ảnh đại diện, sửa tên hiển thị (1–30 ký tự, tự bỏ khoảng trắng thừa). Ảnh gốc ≤ 15 MB, tự cắt vuông ở giữa và thu về tối đa 320 px; lưu trong bucket private `media` tại `<space>/avatars/`, mỗi lần đổi dùng tên tệp mới và xóa tệp cũ.
+- Cài đặt > Ngày bắt đầu yêu: sửa được bất cứ lúc nào (không chọn ngày tương lai). Ngày này dùng chung cho cả Space nên người ấy cũng thấy ngày mới; Trang chủ, mốc kỷ niệm và thông báo nhắc đều tính lại từ ngày mới.
+- Ảnh đại diện hiện ở Cài đặt, Trang chủ, đầu màn hình Chat và ghim trên Bản đồ; chưa có ảnh thì hiện chữ cái đầu của tên.
+- Đăng ký (tạo/vào Space) cũng kiểm tra tên trước khi tạo tài khoản.

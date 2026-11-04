@@ -1,23 +1,70 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
-import { ok } from '@/lib/util'
+import { daysTogether, ok } from '@/lib/util'
+import { MAX_IMG, MB, processAvatar, uploadBlob } from '@/lib/media'
+import { cleanName, nameError, startDateError, todayStr } from '@/lib/profile'
 import { VAPID, b64ToBytes } from '@/lib/push'
 import Head from '@/components/Head'
 import PwInput from '@/components/PwInput'
+import Avatar from '@/components/Avatar'
 import { authMsg, pwError } from '@/lib/auth'
 
 export default function Settings() {
   const { me, space, partner, reload } = useApp(); const r = useRouter()
-  const [name, setName] = useState(me.display_name ?? ''); const [saved, setSaved] = useState(false)
+  const [name, setName] = useState(me.display_name ?? ''); const [saved, setSaved] = useState(false); const [nameMsg, setNameMsg] = useState('')
+  const [avBusy, setAvBusy] = useState(false); const [avMsg, setAvMsg] = useState<{ good: boolean; text: string } | null>(null); const file = useRef<HTMLInputElement>(null)
+  const [sd, setSd] = useState<string>(space.start_date ?? ''); const [sdMsg, setSdMsg] = useState<{ good: boolean; text: string } | null>(null); const [sdBusy, setSdBusy] = useState(false)
   const [push, setPush] = useState<'unsupported' | 'off' | 'on' | 'denied'>('off'); const [pushMsg, setPushMsg] = useState('')
   const [email, setEmail] = useState('')
   const [cur, setCur] = useState(''); const [pw, setPw] = useState(''); const [pw2, setPw2] = useState('')
   const [pwBusy, setPwBusy] = useState(false); const [pwMsg, setPwMsg] = useState<{ good: boolean; text: string } | null>(null)
   useEffect(() => { sb.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? '')) }, [])
-  const save = async () => { if (await ok(sb.from('profiles').update({ display_name: name }).eq('id', me.id), 'Không lưu được tên')) { setSaved(true); reload() } }
+  // Tên hiển thị (AUTH-05): bỏ khoảng trắng thừa, không để trống, tối đa NAME_MAX ký tự
+  const save = async () => {
+    const bad = nameError(name); setNameMsg(bad); if (bad) return
+    const n = cleanName(name)
+    if (await ok(sb.from('profiles').update({ display_name: n }).eq('id', me.id), 'Không lưu được tên')) { setName(n); setSaved(true); reload() }
+  }
+  // Ảnh đại diện (AUTH-05): cắt vuông 320px, lưu vào bucket private `media` ở <space>/avatars/. Mỗi lần đổi dùng tên tệp mới
+  // (không ghi đè) để link ký và bộ nhớ đệm không hiện ảnh cũ; tệp cũ được xóa sau khi lưu thành công.
+  async function pickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]; e.target.value = ''   // cho phép chọn lại đúng tệp vừa chọn
+    if (!f) return
+    setAvMsg(null)
+    if (!f.type.startsWith('image/')) return setAvMsg({ good: false, text: 'Hãy chọn một tệp ảnh' })
+    if (f.size > MAX_IMG) return setAvMsg({ good: false, text: `Ảnh nặng quá (tối đa ${MB(MAX_IMG)})` })
+    setAvBusy(true)
+    try {
+      const blob = await processAvatar(f), path = `${space.id}/avatars/${me.id}-${Date.now()}.jpg`, old: string | null = me.avatar_url
+      await uploadBlob(path, blob, 'image/jpeg')
+      const { error } = await sb.from('profiles').update({ avatar_url: path }).eq('id', me.id)
+      if (error) { await sb.storage.from('media').remove([path]); throw error }
+      if (old) await sb.storage.from('media').remove([old])
+      reload(); setAvMsg({ good: true, text: 'Đã đổi ảnh đại diện' })
+    } catch (er: any) { setAvMsg({ good: false, text: 'Không đổi được ảnh: ' + authMsg(er) }) }
+    setAvBusy(false)
+  }
+  async function removeAvatar() {
+    const old: string | null = me.avatar_url; if (!old) return
+    setAvBusy(true); setAvMsg(null)
+    const { error } = await sb.from('profiles').update({ avatar_url: null }).eq('id', me.id)
+    if (error) setAvMsg({ good: false, text: 'Không gỡ được ảnh: ' + error.message })
+    else { await sb.storage.from('media').remove([old]); reload(); setAvMsg({ good: true, text: 'Đã gỡ ảnh đại diện' }) }
+    setAvBusy(false)
+  }
+  // Ngày bắt đầu yêu (AUTH-05): dùng chung cho cả Space, Trang chủ / mốc kỷ niệm / nhắc kỷ niệm đều tính từ ngày này
+  async function saveDate() {
+    const bad = startDateError(sd); if (bad) return setSdMsg({ good: false, text: bad })
+    setSdBusy(true); setSdMsg(null)
+    const { error } = await sb.from('spaces').update({ start_date: sd }).eq('id', space.id)
+    if (error) setSdMsg({ good: false, text: 'Không lưu được ngày: ' + error.message })
+    else { reload(); setSdMsg({ good: true, text: 'Đã lưu ngày bắt đầu yêu' }) }
+    setSdBusy(false)
+  }
+  const sdErr = sd ? startDateError(sd) : ''
 
   useEffect(() => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window) || !VAPID) return setPush('unsupported')
@@ -68,9 +115,26 @@ export default function Settings() {
   return <>
     <Head t="Cài đặt" />
     <div className="b">
-      <div className="k"><b>Hồ sơ của mình</b>
-        <label><input value={name} onChange={e => { setName(e.target.value); setSaved(false) }} placeholder="Tên hiển thị" /></label>
-        <button className="pill" onClick={save}>{saved ? 'Đã lưu' : 'Lưu tên'}</button></div>
+      <div className="k" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}><b>Hồ sơ của mình</b>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <Avatar p={me} size={76} on alt="Ảnh đại diện của bạn" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+            <button className="pill" onClick={() => file.current?.click()} disabled={avBusy}>{avBusy ? 'Đang lưu…' : me.avatar_url ? 'Đổi ảnh' : 'Chọn ảnh đại diện'}</button>
+            {me.avatar_url && !avBusy && <button className="pill" onClick={removeAvatar}>Gỡ ảnh</button>}
+          </div>
+          <input ref={file} type="file" accept="image/*" hidden onChange={pickAvatar} />
+        </div>
+        {avMsg && <div className="s" role={avMsg.good ? 'status' : 'alert'}>{avMsg.good ? '✓ ' : ''}{avMsg.text}</div>}
+        <label><span className="s">Tên hiển thị</span><input value={name} onChange={e => { setName(e.target.value); setSaved(false); setNameMsg('') }} placeholder="Tên hiển thị" autoComplete="nickname" aria-invalid={!!nameMsg} /></label>
+        {nameMsg && <div className="s" role="alert">{nameMsg}</div>}
+        <button className="pill" onClick={save} style={{ alignSelf: 'flex-start' }}>{saved ? 'Đã lưu' : 'Lưu tên'}</button></div>
+      <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}><b>Ngày bắt đầu yêu</b>
+        <label><span className="s">Hai đứa bắt đầu yêu từ ngày nào?</span><input type="date" value={sd} max={todayStr()} onChange={e => { setSd(e.target.value); setSdMsg(null) }} aria-invalid={!!sdErr} /></label>
+        {sd && !sdErr && <div className="s">Hôm nay là ngày thứ {daysTogether(sd)} bên nhau.</div>}
+        {sdErr && <div className="s" role="alert">{sdErr}</div>}
+        <div className="s">Ngày này dùng chung cho hai người: Trang chủ, các mốc kỷ niệm và thông báo nhắc đều tính từ đây. Khi bạn đổi, người ấy cũng thấy ngày mới.</div>
+        {sdMsg && <div className="s" role={sdMsg.good ? 'status' : 'alert'}>{sdMsg.good ? '✓ ' : ''}{sdMsg.text}</div>}
+        <button className="pill" onClick={saveDate} disabled={sdBusy || !sd || !!sdErr || sd === space.start_date} style={{ alignSelf: 'flex-start' }}>{sdBusy ? 'Đang lưu…' : 'Lưu ngày'}</button></div>
       <div className="k"><b>Thông báo</b>
         <div className="s">{push === 'unsupported' ? 'Máy hoặc bản cài này chưa hỗ trợ thông báo đẩy.' : push === 'denied' ? 'Bạn đã chặn thông báo. Hãy cho phép lại trong cài đặt trình duyệt.' : push === 'on' ? 'Đang bật: nhận tin nhắn, cuộc gọi và nhắc ngày đặc biệt.' : 'Nhận tin nhắn, cuộc gọi và nhắc ngày đặc biệt khi đang đóng app.'}</div>
         {push === 'off' && <button className="pill" onClick={enablePush}>Bật thông báo</button>}
@@ -85,7 +149,7 @@ export default function Settings() {
         {pwMsg && <div className="s" role={pwMsg.good ? 'status' : 'alert'}>{pwMsg.good ? '✓ ' : ''}{pwMsg.text}</div>}
         <button className="pill" type="submit" disabled={pwBusy} style={{ alignSelf: 'flex-start' }}>{pwBusy ? 'Đang đổi…' : 'Đổi mật khẩu'}</button>
       </form>
-      <div className="k li"><b>Người ấy</b><div className="s">{partner?.display_name ?? 'Chưa vào Space'}</div></div>
+      <div className="k li" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>{partner && <Avatar p={partner} size={48} />}<div><b>Người ấy</b><div className="s">{partner?.display_name ?? 'Chưa vào Space'}</div></div></div>
       <button className="btn" onClick={logout}>Đăng xuất</button>
     </div>
   </>
