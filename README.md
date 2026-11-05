@@ -116,3 +116,20 @@ Cách gửi clip (từ dễ tới khó):
 - Mã gửi nhanh là bí mật như mật khẩu: chỉ lưu bản băm trên server, tạo mã mới thì mã cũ hết hiệu lực, có nút "Tắt gửi nhanh". Hàm chỉ đi theo link thuộc tên miền `tiktok.com` (kể cả link rút gọn `vm.tiktok.com`).
 
 Cách test: gửi một clip từ máy này, máy kia phải thấy thẻ clip hiện ra (realtime), có nhãn "Mới", bấm vào xem được và nhãn đổi thành "Đã xem" ở máy người gửi. Trình phát nhúng cần HTTPS (Vercel có sẵn). Chưa chạy thử trên Supabase thật.
+
+### Giải trí tương tác: cảm xúc, bình luận, yêu thích, xem cùng nhau (phase14)
+
+Mở một clip trong Giải trí sẽ có thêm:
+
+- **Thả cảm xúc** (❤️ 😂 😮 🥺 🔥 🙈): mỗi người một cảm xúc cho mỗi clip, bấm lại để gỡ. Cả hai cùng thả thì clip được gắn 💞. Máy kia nhận thông báo đẩy (trừ khi đang xem cùng nhau).
+- **Bình luận** dưới từng clip, hiện ngay ở máy kia, xóa được bình luận của chính mình.
+- **Yêu thích** (⭐) chung cho cả hai, có bộ lọc Tất cả / Chưa xem / Yêu thích ở đầu danh sách.
+- **Nhắn kèm khi gửi clip**: ô lời nhắn và vài câu nhắn nhanh, hiện trên thẻ clip và ở trình xem.
+- **Xem cùng nhau**: bấm "Rủ … xem cùng", máy kia nhận lời rủ (thẻ ở đầu trang Giải trí hoặc thông báo đẩy, bấm vào là vào thẳng phòng). Ai bấm phát, tạm dừng hay tua thì máy kia theo; thả cảm xúc thì bay lên trên video của cả hai. Có nút "Kéo … về chỗ mình" để ép đồng bộ lại. Điều khiển trình phát qua `postMessage` chính thức của TikTok (play, pause, seekTo), chỉ chạy khi cả hai cùng mở clip đó, không có video nào đi qua server.
+
+Cài đặt (theo thứ tự, **trước khi** đưa bản app mới lên Vercel):
+
+1. Chạy `supabase/phase14.sql` trong SQL Editor (sau phase13.sql, chạy lại vẫn an toàn). Thêm cột `reactions`, `starred`, `comments` cho `clips`, bảng `clip_comments`, hàm `react_clip`/`star_clip`, và tạo lại hai chính sách `call_rt_read`/`call_rt_write` để kênh `together-<space>` dùng được (kênh `call-` và `typing-` vẫn giữ nguyên).
+2. Deploy lại hàm `push` vì đã thêm các loại thông báo mới: `supabase functions deploy push`. Hàm `clip` không đổi.
+
+Cách test với hai máy: thả cảm xúc ở máy A, máy B thấy cảm xúc hiện trên thẻ clip. Viết bình luận ở B, A thấy ngay. Bấm "Rủ xem cùng" ở A, B thấy thẻ lời rủ, bấm Tham gia, rồi bấm phát ở A và xem B có phát theo, thử tua và thử thả cảm xúc. **Chưa chạy thử trên máy thật**; phần đồng bộ phát/tạm dừng/tua phụ thuộc cách trình phát của TikTok báo sự kiện. Nếu trình duyệt (nhất là iPhone) chặn tự phát, máy nhận sẽ hiện dòng nhắc "Chạm vào video để phát"; chạm một lần là các lần sau theo kịp.
