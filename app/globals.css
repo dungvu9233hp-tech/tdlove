@@ -83,3 +83,30 @@ select{font:inherit;border:2px solid var(--ink);border-radius:999px;padding:4px 
 .fly{position:absolute;bottom:8%;font-size:36px;line-height:1;opacity:0}
 @media (prefers-reduced-motion:no-preference){.fly{animation:flyup 2.2s ease-out forwards}@keyframes flyup{0%{opacity:0;transform:translateY(0) scale(.6)}15%{opacity:1}100%{opacity:0;transform:translateY(-45dvh) scale(1.3)}}}
 @media (prefers-reduced-motion:reduce){.fly{animation:flyfade 1.6s ease-out forwards}@keyframes flyfade{0%{opacity:0}20%,70%{opacity:1}100%{opacity:0}}}
+/* Trái tim đếm ngày ở Trang chủ (components/LoveHeart.tsx). Khung 270x221px = viewBox -20 -10 240 196 nhân 1.125, chữ .lh-txt đặt theo px khớp với mặt tim */
+.lh-link{display:flex;justify-content:center;flex:none;border-radius:28px;-webkit-tap-highlight-color:transparent}
+.lh-link:focus-visible{outline:3px solid var(--ink2);outline-offset:4px}
+.lh{position:relative;width:270px;height:221px;flex:none}
+.lh-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.lh-press,.lh-beat{position:absolute;inset:0}
+.lh-beat{transform-origin:50% 56%}
+.lh-txt{position:absolute;left:0;right:0;top:46px;text-align:center;color:var(--ink);text-shadow:0 2px 0 rgba(255,255,255,.55);pointer-events:none}
+.lh-n{font-size:66px}
+.lh-l{font-size:19px}
+.lh-fl,.lh-tw,.lh-eye{transform-box:fill-box;transform-origin:center}
+@media (prefers-reduced-motion:no-preference){
+.lh-press{transition:transform .2s cubic-bezier(.3,1.6,.5,1)}
+.lh-link:active .lh-press{transform:scale(.95)}
+.lh-beat{animation:lhbeat 2.6s ease-in-out infinite}
+.lh-eye{animation:lhblink 5s infinite}
+.lh-fl{animation:lhfloat 3.8s ease-in-out infinite}
+.lh-fl.b{animation-duration:4.4s;animation-delay:-1.3s}
+.lh-tw{animation:lhtw 2.8s ease-in-out infinite}
+.lh-tw.b{animation-delay:-.9s}
+.lh-tw.c{animation-delay:-1.8s}
+@keyframes lhbeat{0%{transform:scale(1)}12%{transform:scale(1.05)}24%{transform:scale(.99)}36%{transform:scale(1.035)}48%,100%{transform:scale(1)}}
+@keyframes lhblink{0%,90%,100%{transform:scaleY(1)}94%{transform:scaleY(.12)}}
+@keyframes lhfloat{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-5px) rotate(6deg)}}
+@keyframes lhtw{0%,100%{transform:scale(.7) rotate(0);opacity:.55}50%{transform:scale(1.15) rotate(20deg);opacity:1}}
+}
+@media (prefers-reduced-motion:no-preference) and (hover:hover){.lh-link:hover .lh-press{transform:scale(1.03)}}

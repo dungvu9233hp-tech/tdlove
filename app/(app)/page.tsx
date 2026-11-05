@@ -5,6 +5,7 @@ import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import Head, { Heart } from '@/components/Head'
 import Avatar from '@/components/Avatar'
+import LoveHeart from '@/components/LoveHeart'
 import { daysTogether, ok } from '@/lib/util'
 
 const MILESTONES = [100, 200, 365, 500, 1000, 1500, 2000]
@@ -48,12 +49,8 @@ export default function Home() {
   return <>
     <Head t="tdlove"><Link href="/settings" className="pill">Cài đặt</Link></Head>
     <div className="b">
-      <Link href="/level" aria-label="Mở khu cấp độ của hai đứa" style={{ position: 'relative', height: 215, display: 'flex', justifyContent: 'center', flex: 'none' }}>
-        <Heart size={215} />
-        <div style={{ position: 'absolute', top: 58, textAlign: 'center' }}>
-          <div className="num" style={{ fontSize: 66 }}>{day ?? '–'}</div>
-          <div className="num" style={{ fontSize: 19, marginTop: 4 }}>ngày bên nhau</div>
-        </div>
+      <Link href="/level" className="lh-link" aria-label={`${day ? `${day} ngày bên nhau. ` : ''}Mở khu cấp độ của hai đứa`}>
+        <LoveHeart days={day} />
       </Link>
       {partner && <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 'none' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Avatar p={me} size={48} on /><Heart size={24} /><Avatar p={partner} size={48} /></div>
