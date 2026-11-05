@@ -34,6 +34,11 @@ export default function Home() {
       setCap({ ready: rows.filter(c => c.author !== me.id && !c.opened_at && +new Date(c.unlock_at) <= t).length, wait: rows.filter(c => +new Date(c.unlock_at) > t).length })
     })
   }, [me.id])
+  const [fun, setFun] = useState(0)
+  useEffect(() => {
+    // ENT-04: số clip TikTok người ấy gửi mà mình chưa xem (phase13.sql)
+    sb.from('clips').select('id', { count: 'exact', head: true }).neq('sender', me.id).is('seen_at', null).then(r => { if (!r.error) setFun(r.count ?? 0) })
+  }, [me.id])
   const day = space.start_date ? daysTogether(space.start_date) : null
   const next = day ? MILESTONES.find(m => m > day) : null
   const expired = !!space.invite_expires && new Date(space.invite_expires).getTime() < Date.now()
@@ -59,6 +64,7 @@ export default function Home() {
       {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map(m => <Link key={m.kind + m.id} href={m.kind === 'diary' ? `/diary?month=${m.day.slice(0, 7)}` : `/moments?open=${m.id}`} className="s" style={{ display: 'block' }}>{m.kind === 'diary' ? (m.is_private ? '🔒' : '📓') : '📷'} {m.day.slice(0, 4)}: {m.title}</Link>)}{memo.some(m => m.kind === 'moment') && <Link href="/moments?memories=1" className="pill on">▶ Xem lại ảnh</Link>}</div>}
       <div className="row"><Link href="/diary" className="k pk"><b>Nhật ký</b><div className="s">Viết cho nhau</div></Link><Link href="/special" className="k pe"><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></Link></div>
       <Link href="/capsule" className={`k ${cap.ready ? 'pk' : 'li'}`}><b>Hộp thời gian</b><div className="s">{cap.ready ? `${cap.ready} hộp mở được rồi, vào xem nhé!` : cap.wait ? `${cap.wait} hộp đang chờ ngày mở` : 'Viết thư, hẹn ngày mở'}</div></Link>
+      <Link href="/fun" className={`k ${fun ? 'pk' : 'pe'}`}><b>Giải trí</b><div className="s">{fun ? `${fun} clip mới từ ${partner?.display_name ?? 'người ấy'}, xem nhé!` : 'Clip TikTok hai đứa gửi nhau'}</div></Link>
       {!partner && <div className="k pe"><b>Mời người ấy vào Space</b>{expired ? <div className="s">Mã mời đã hết hạn.</div> : <><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></>}<button className="pill" onClick={renew}>Tạo mã mới</button></div>}
       <div className="row">
         <Link href="/chat" className="k li"><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></Link>

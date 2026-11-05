@@ -94,3 +94,25 @@
 - Thư và ảnh bị khóa ở server tới ngày mở (RLS dùng đồng hồ của Postgres), người nhận chỉ thấy lời gợi ý và số ngày còn lại.
 - Báo "mở được rồi" qua thông báo đẩy: deploy lại Edge Function `anniversary` (`supabase functions deploy anniversary`). Hàm này chạy mỗi sáng 8h nên thông báo đến vào sáng ngày mở.
 - Cách test nhanh: chôn một hộp mở ngày mai, rồi trong SQL Editor chạy `update capsules set unlock_at = now() - interval '1 minute';` và tải lại trang bằng máy của người nhận.
+
+## Giải trí: clip TikTok gửi cho nhau (ENT-01..05)
+
+Người này gửi link clip TikTok, người kia mở ra **xem ngay trong app** (trình phát nhúng chính thức của TikTok). App không tải hay lưu video của TikTok, chỉ lưu mã video, caption và tên tác giả (lấy qua oEmbed chính thức). Không có feed cuộn của TikTok; clip đã xóa hoặc đặt riêng tư thì trình phát sẽ báo lỗi, bấm "Mở trong TikTok" để thử lại.
+
+Cài đặt (làm **trước khi** đưa bản app mới lên Vercel):
+
+1. Chạy `supabase/phase13.sql` trong SQL Editor (sau phase12.sql, chạy lại vẫn an toàn). Tạo bảng `clips`, `share_tokens`, hàm `open_clip`/`create_share_token`/`revoke_share_token`, có RLS.
+2. Deploy Edge Function **không bắt JWT** (để Phím tắt iPhone gọi được bằng mã gửi nhanh): `supabase functions deploy clip --no-verify-jwt`. Hàm tự xác thực bằng mã gửi nhanh hoặc JWT của người đăng nhập. Thông báo đẩy dùng chung các secret VAPID đã đặt ở `supabase/functions/README.md`; chưa đặt thì vẫn gửi được clip, chỉ không có thông báo.
+3. Trang chủ có thẻ "Giải trí" (đếm clip chưa xem), trang là `/fun`.
+
+Cách gửi clip (từ dễ tới khó):
+
+- **Dán trong app:** trong TikTok bấm Chia sẻ > Sao chép liên kết, mở app > Giải trí > "Dán link đã sao chép và gửi". Máy hỏi quyền đọc bộ nhớ tạm thì bấm Cho phép (iPhone hiện nút "Dán" một lần mỗi lượt).
+- **Chia sẻ thẳng từ TikTok bằng Phím tắt (iPhone):** vào Giải trí > "Gửi nhanh từ TikTok" > Tạo mã gửi nhanh, sao chép mã và địa chỉ. Mở app **Phím tắt** > dấu **+** > đặt tên "Gửi cho anh", rồi thêm:
+  1. Bấm biểu tượng (i) ở đáy > bật **Hiện trong Bảng chia sẻ** > loại đầu vào chỉ chọn **URL** và **Văn bản**.
+  2. Hành động **Lấy nội dung của URL**: URL = địa chỉ đã sao chép; bấm Hiện thêm > Phương thức **POST**; Tiêu đề: thêm `x-share-token` = mã đã sao chép; Nội dung yêu cầu = **JSON**, thêm khóa **url** (kiểu Văn bản) = biến **Đầu vào phím tắt**.
+  3. Hành động **Lấy giá trị từ từ điển** (khóa `message`) từ kết quả bước 2, rồi **Hiện thông báo** với giá trị đó. Khi gửi được sẽ báo "Đã gửi cho …", lỗi thì báo lý do.
+  4. Dùng: trong TikTok bấm Chia sẻ > cuộn hàng biểu tượng > **Gửi cho anh**.
+- Mã gửi nhanh là bí mật như mật khẩu: chỉ lưu bản băm trên server, tạo mã mới thì mã cũ hết hiệu lực, có nút "Tắt gửi nhanh". Hàm chỉ đi theo link thuộc tên miền `tiktok.com` (kể cả link rút gọn `vm.tiktok.com`).
+
+Cách test: gửi một clip từ máy này, máy kia phải thấy thẻ clip hiện ra (realtime), có nhãn "Mới", bấm vào xem được và nhãn đổi thành "Đã xem" ở máy người gửi. Trình phát nhúng cần HTTPS (Vercel có sẵn). Chưa chạy thử trên Supabase thật.
