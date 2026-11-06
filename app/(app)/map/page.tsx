@@ -1,5 +1,6 @@
 'use client'
 import 'leaflet/dist/leaflet.css'
+import './map-ui.css'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { sb } from '@/lib/supabase'
@@ -641,13 +642,24 @@ export default function MapPage() {
       {mode === 'live' && sharing && <span className="pill on">Đang chia sẻ</span>}
       {mode === 'live' && <button className={'pill' + (showMoms ? ' on' : '')} onClick={() => setShowMoms(!showMoms)} aria-pressed={showMoms}>♥ Khoảnh khắc ({moms.length})</button>}
     </Head>
-    <div className="b">
+    <div className={`b map-page ${mode === 'memory' ? 'is-memory' : 'is-live'}`}>
+      {mode === 'memory' && <section className="memory-hero" aria-label="Tổng quan bản đồ kỷ niệm">
+        <div className="memory-hero-copy">
+          <span className="memory-eyebrow">OUR LITTLE STORY</span>
+          <h2>Bản đồ kỷ niệm</h2>
+          <p>Mỗi dấu ghim là một nơi hai đứa đã cùng đi qua.</p>
+        </div>
+        <div className="memory-total">
+          <strong>{processedPins.length}</strong>
+          <span>địa điểm</span>
+        </div>
+      </section>
       <div ref={el} className="mapbox" />
       {err && <div className="k pe s" role="alert">{err}</div>}
       {memoryError && mode === 'memory' && <div className="k pe s" role="alert">{memoryError}</div>}
 
       {/* Mode tabs */}
-      <div className="k pk" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+      <div className="k pk map-mode-tabs" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <button className={'pill' + (mode === 'live' ? ' on' : '')} onClick={() => setMode('live')}>Trực tiếp</button>
         <button className={'pill' + (mode === 'memory' ? ' on' : '')} onClick={() => setMode('memory')}>Kỷ niệm</button>
       </div>
@@ -674,14 +686,14 @@ export default function MapPage() {
       </>}
 
       {/* Memory mode UI */}
-      {mode === 'memory' && <>
+      {mode === 'memory' && <section className="memory-dashboard">
         {/* Time range chips */}
-        <div className="k" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div className="k memory-filters" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
           {CHIP_LABELS.map(chip => {
             const disabled = chip.key === 'love' && !space.start_date
             return <button
               key={chip.key}
-              className={'pill' + (selectedChip === chip.key ? ' on' : '') + (disabled ? ' disabled' : '')}
+              className={'pill memory-filter-chip' + (selectedChip === chip.key ? ' on' : '') + (disabled ? ' disabled' : '')}
               onClick={() => !disabled && setSelectedChip(chip.key)}
               disabled={disabled}
               aria-pressed={selectedChip === chip.key}
@@ -693,14 +705,14 @@ export default function MapPage() {
         </div>
 
         {/* Loading/empty state */}
-        {loadingMemories && <div className="k s" style={{textAlign:'center',padding:20}}>Đang tải ký ức…</div>}
-        {!loadingMemories && !processedPins.length && <div className="k li" style={{textAlign:'center',padding:20}}>
+        {loadingMemories && <div className="k s memory-loading" style={{textAlign:'center',padding:20}}>Đang tải ký ức…</div>}
+        {!loadingMemories && !processedPins.length && <div className="k li memory-empty" style={{textAlign:'center',padding:20}}>
           <div>Chưa có kỷ niệm nào trong khoảng này</div>
           <div className="s" style={{marginTop:8}}>Thử chọn khoảng thời gian dài hơn hoặc {missingCount > 0 && <button className="pill" onClick={loadMissingMoments}>Gắn vị trí cho {missingCount} kỷ niệm cũ</button>}</div>
         </div>}
 
         {/* Timeline slider */}
-        {processedPins.length > 1 && !loadingMemories && <div className="k pk" style={{marginTop:12}}>
+        {processedPins.length > 1 && !loadingMemories && <div className="k pk memory-timeline" style={{marginTop:12}}>
           <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:8}}>
             <button className="pill" onClick={togglePlay} disabled={playing && timelineIndex >= processedPins.length - 1}>
               {playing ? '⏸ Tạm dừng' : '▶ Phát lại'}
@@ -712,8 +724,8 @@ export default function MapPage() {
         </div>}
 
         {/* Synced list */}
-        {processedPins.length > 0 && !loadingMemories && <div className="k li" style={{marginTop:12, maxHeight: 400, overflow: 'auto'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+        {processedPins.length > 0 && !loadingMemories && <div className="k li memory-list-panel" style={{marginTop:12, maxHeight: 400, overflow: 'auto'}}>
+          <div className="memory-list-heading" style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
             <b>Danh sách kỷ niệm ({processedPins.length})</b>
             <span className="s">{timelineIndex >= 0 ? `Đã xem ${timelineIndex + 1} / ${processedPins.length}` : 'Kéo thanh thời gian để lọc'}</span>
           </div>
@@ -760,7 +772,7 @@ export default function MapPage() {
             </div>
           </div>
         )}
-      </>}
+      </section>}
     </div>
   </>
 }
@@ -781,15 +793,7 @@ function MemoryListItem({ pin, idx, isVisible, isActive, timelineIndex, onClick 
 
   return <div
     id={`memory-list-${pin.ref_id}`}
-    className={'k s' + (!isVisible ? ' disabled' : '') + (pin.merged ? ' merged' : '')}
-    style={{
-      display: 'flex', flexDirection: 'column', gap: 4,
-      borderRadius: 8, cursor: 'pointer',
-      background: isVisible ? 'rgba(91,31,58,0.05)' : 'transparent',
-      opacity: isVisible ? 1 : 0.4,
-      border: isActive ? '2px solid #5B1F3A' : 'none',
-      padding: '8px 10px'
-    }}
+    className={'memory-list-item' + (!isVisible ? ' is-future' : '') + (isActive ? ' is-active' : '') + (pin.merged ? ' has-merged' : '')}
     onClick={pin.merged ? () => setShowMergedDates(!showMergedDates) : onClick}
   >
     <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -805,7 +809,7 @@ function MemoryListItem({ pin, idx, isVisible, isActive, timelineIndex, onClick 
     {pin.merged && showMergedDates && (
       <div style={{marginLeft:36,display:'flex',flexDirection:'column',gap:4,paddingTop:4,borderTop:'1px dashed #FFB3CF'}}>
         {pin.merged!.map((mp, mi) => (
-          <button key={mi} className="k s" style={{textAlign:'left',padding:'6px 8px',borderRadius:6,background:'#fff',border:'1px solid #FFD9E8',cursor:'pointer',width:'100%'}}
+          <button key={mi} className="memory-list-subitem" style={{textAlign:'left',padding:'6px 8px',borderRadius:6,background:'#fff',border:'1px solid #FFD9E8',cursor:'pointer',width:'100%'}}
             onClick={(e) => { e.stopPropagation(); onClick(); }}
           >
             <div style={{fontWeight:500}}>{mp.title}</div>

@@ -1,4 +1,5 @@
 'use client'
+import './moments-ui.css'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { sb } from '@/lib/supabase'
@@ -138,37 +139,45 @@ export default function Moments() {
 
   return <>
     <Head t="Khoảnh khắc"><Link href="/map?layer=moments" className="pill">Bản đồ</Link></Head>
-    <div className="b">
+    <div className="b moments-page">
+      <section className="moments-hero" aria-label="Kho lưu niệm">
+        <div className="moments-hero-copy">
+          <span className="moments-eyebrow">A LITTLE TIME CAPSULE</span>
+          <h2>Những ngày mình nhớ</h2>
+          <p>Lưu lại những khoảnh khắc nhỏ, để sau này cùng mở ra.</p>
+        </div>
+        <div className="moments-hero-count"><strong>{list.length}</strong><span>đã tải</span></div>
+      </section>
       {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map(m => <div key={m.id} className="s">{m.taken_on.slice(0, 4)}: {m.title}</div>)}
         <button className="pill on" style={{ marginTop: 6 }} onClick={() => setShow(true)}>▶ Xem slideshow</button></div>}
 
-      <div className="row" style={{ flex: 'none' }}>
+      <div className="row moments-toolbar" style={{ flex: 'none' }}>
         <button className={'pill' + (nf ? ' on' : '')} onClick={() => setShowF(!showF)} aria-expanded={showF}>Lọc{nf ? ` (${nf})` : ''}</button>
         <button className="pill" onClick={downloadAll} disabled={!!zip}>{zip || 'Tải tất cả (zip)'}</button>
         <Link className="pill" href="/moments/trash" style={{ textAlign: 'center' }}>Thùng rác{trashN ? ` (${trashN})` : ''}</Link>
       </div>
-      {showF && <div className="k" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {showF && <div className="k moments-filter-panel" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div className="row"><label className="s">Năm<select value={flt.year} onChange={e => set('year', e.target.value)} style={{ maxWidth: '100%', width: '100%' }}><option value="">Tất cả</option>{opts.years.map(y => <option key={y}>{y}</option>)}</select></label>
           <label className="s">Thẻ<select value={flt.tag} onChange={e => set('tag', e.target.value)} style={{ maxWidth: '100%', width: '100%' }}><option value="">Tất cả</option>{opts.tags.map(t => <option key={t} value={t}>{TAG_EMOJI[t] ?? '🏷️'} {t}</option>)}</select></label></div>
         <label className="s">Địa điểm<select value={flt.place} onChange={e => set('place', e.target.value)} style={{ maxWidth: '100%', width: '100%' }}><option value="">Tất cả</option>{opts.places.map(p => <option key={p}>{p}</option>)}</select></label>
         {nf > 0 && <button className="pill" onClick={() => setFlt({ ...NOF, album: flt.album })}>Bỏ lọc</button>}
       </div>}
 
-      <div className="days" aria-label="Album">
+      <div className="days moments-albums" aria-label="Album">
         <button className={'pill' + (!flt.album ? ' on' : '')} onClick={() => set('album', '')}>Tất cả</button>
         {albums.map(a => <button key={a.id} className={'pill' + (flt.album === a.id ? ' on' : '')} onClick={() => set('album', a.id)}>📁 {a.name}</button>)}
       </div>
       {flt.album && (() => { const a = albums.find(x => x.id === flt.album); return a && <div className="row" style={{ flex: 'none' }}><button className="pill" onClick={() => renameAlbum(a)}>Đổi tên album</button><button className="pill" onClick={() => delAlbum(a)}>Xóa album</button></div> })()}
 
-      {!list.length && !loading && <div className="k pe"><b>{nf || flt.album ? 'Không có khoảnh khắc nào khớp' : 'Chưa có khoảnh khắc nào'}</b><div className="s">{nf || flt.album ? 'Thử bỏ bớt bộ lọc nhé.' : 'Bấm dấu + để lưu kỷ niệm đầu tiên của hai đứa.'}</div></div>}
+      {!list.length && !loading && <div className="k pe moments-empty"><b>{nf || flt.album ? 'Không có khoảnh khắc nào khớp' : 'Chưa có khoảnh khắc nào'}</b><div className="s">{nf || flt.album ? 'Thử bỏ bớt bộ lọc nhé.' : 'Bấm dấu + để lưu kỷ niệm đầu tiên của hai đứa.'}</div></div>}
 
-      {groups.map(([d, ms]) => <div key={d} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div className="s" style={{ position: 'sticky', top: 0, background: '#FFF0F6', padding: '2px 0', zIndex: 1 }}>{dayLabel(d)}</div>
+      {groups.map(([d, ms]) => <div key={d} className="moment-day" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="s moment-day-label" style={{ position: 'sticky', top: 0, background: '#FFF0F6', padding: '2px 0', zIndex: 1 }}>{dayLabel(d)}</div>
         {ms.map(m => {
           const md = (m.media ?? []).slice().sort((a: any, b: any) => a.sort - b.sort), nh = (m.moment_hearts ?? []).length, nc = m.moment_comments?.[0]?.count ?? 0
           const myHeart = (m.moment_hearts ?? []).some((h: any) => h.user_id === me.id)
-          return <button key={m.id} className="k" style={{ textAlign: 'left', width: '100%', font: 'inherit', color: 'inherit', cursor: 'pointer' }} onClick={() => setView(m)}>
-            {md.length > 0 && <div className="mgrid" style={{ gridTemplateColumns: md.length === 1 ? '1fr' : 'repeat(2,1fr)' }}>
+          return <button key={m.id} className="k moment-card" style={{ textAlign: 'left', width: '100%', font: 'inherit', color: 'inherit', cursor: 'pointer' }} onClick={() => setView(m)}>
+            {md.length > 0 && <div className="mgrid moment-media-grid" style={{ gridTemplateColumns: md.length === 1 ? '1fr' : 'repeat(2,1fr)' }}>
               {md.slice(0, 4).map((x: any, i: number) => {
                 const t = thumbs[x.thumb_path ?? (x.kind === 'image' ? x.path : '')]
                 return <span key={x.id} className="th" style={md.length === 1 ? { aspectRatio: '16/10' } : undefined}>{t ? <img src={t} alt="" loading="lazy" /> : x.kind === 'video' ? '🎬' : '🖼️'}
