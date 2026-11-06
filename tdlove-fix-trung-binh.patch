@@ -1,0 +1,1318 @@
+From 270b44e9dc4e1fe303964b99244083a06e3c77c7 Mon Sep 17 00:00:00 2001
+From: claude <claude@example.com>
+Date: Fri, 6 Nov 2026 21:21:58 +0000
+Subject: [PATCH 1/2] fix: T1,T2,T3,T4,T5,T6,T7,T8,T9 (+L1,L2,L11,L12)
+
+---
+ app/(app)/layout.tsx                    | 25 ++++++++-
+ app/(app)/map/page.tsx                  | 12 ++---
+ app/(app)/page.tsx                      | 41 +++++++++++---
+ app/(app)/plan/[id]/page.tsx            |  3 +-
+ app/(app)/special/page.tsx              | 15 +++---
+ components/Call.tsx                     | 35 +++++++++---
+ components/LocShare.tsx                 | 72 +++++++++++++++++++++++++
+ components/MomentForm.tsx               |  3 +-
+ lib/util.ts                             | 26 +++++++++
+ supabase/functions/anniversary/index.ts | 32 ++++++++---
+ supabase/phase20.sql                    | 39 ++++++++++++++
+ supabase/phase21.sql                    | 47 ++++++++++++++++
+ 12 files changed, 308 insertions(+), 42 deletions(-)
+ create mode 100644 components/LocShare.tsx
+ create mode 100644 supabase/phase20.sql
+ create mode 100644 supabase/phase21.sql
+
+diff --git a/app/(app)/layout.tsx b/app/(app)/layout.tsx
+index 73ee77d..45f9159 100644
+--- a/app/(app)/layout.tsx
++++ b/app/(app)/layout.tsx
+@@ -7,6 +7,7 @@ import Nav from '@/components/Nav'
+ import Call from '@/components/Call'
+ import LockGate from '@/components/LockGate'
+ import TripBar from '@/components/TripBar'
++import LocShare from '@/components/LocShare'
+ 
+ export default function AppLayout({ children }: { children: React.ReactNode }) {
+   const r = useRouter()
+@@ -20,9 +21,29 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
+       sb.from('spaces').select('*').eq('id', me.space_id).single(),
+       sb.from('profiles').select('*').eq('space_id', me.space_id).neq('id', user.id),
+     ])
+-    set({ me, space, partner: ps?.[0] ?? null })
++    // Chỉ cập nhật khi dữ liệu thật sự đổi, để các trang con không bị nạp lại vô ích mỗi lần làm mới
++    const next = { me, space, partner: ps?.[0] ?? null }
++    set((prev: any) => prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next)
+   }, [r])
+   useEffect(() => { load() }, [load])
++  // T5: quay lại app thì nạp lại hồ sơ (người kia vào Space, đổi tên/ảnh...)
++  useEffect(() => {
++    const onVis = () => { if (document.visibilityState === 'visible') load() }
++    document.addEventListener('visibilitychange', onVis)
++    return () => document.removeEventListener('visibilitychange', onVis)
++  }, [load])
++  // T5: chưa có người kia thì cứ 10 giây hỏi lại một lần, để máy người mời tự cập nhật khi người kia vào Space
++  const waiting = !!s && !s.partner
++  useEffect(() => {
++    if (!waiting) return
++    const id = setInterval(() => { if (document.visibilityState === 'visible') load() }, 10000)
++    return () => clearInterval(id)
++  }, [waiting, load])
++  // L11: bị đăng xuất (ví dụ đổi mật khẩu ở máy khác) thì về trang đăng nhập thay vì hiện app rỗng
++  useEffect(() => {
++    const { data } = sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_OUT') r.replace('/login') })
++    return () => data.subscription.unsubscribe()
++  }, [r])
+   if (!s) return <div className="p"><div className="b s">Đang mở góc nhỏ của hai đứa…</div></div>
+-  return <C.Provider value={{ ...s, reload: load }}><div className="p"><LockGate uid={s.me.id}><TripBar />{children}<Nav /><Call /></LockGate></div></C.Provider>
++  return <C.Provider value={{ ...s, reload: load }}><div className="p"><LockGate uid={s.me.id}><TripBar /><LocShare />{children}<Nav /><Call /></LockGate></div></C.Provider>
+ }
+diff --git a/app/(app)/map/page.tsx b/app/(app)/map/page.tsx
+index fe8a3b9..40c0738 100644
+--- a/app/(app)/map/page.tsx
++++ b/app/(app)/map/page.tsx
+@@ -7,6 +7,7 @@ import { sb } from '@/lib/supabase'
+ import { useApp } from '@/lib/ctx'
+ import Head from '@/components/Head'
+ import { sign } from '@/lib/media'
++import { LOC_CHANGED } from '@/components/LocShare'
+ import TripPanel, { type Route } from '@/components/TripPanel'
+ import PlacePicker from '@/components/PlacePicker'
+ import { loadPoints } from '@/lib/trip'
+@@ -542,14 +543,10 @@ export default function MapPage() {
+     const { error } = await sb.from('locations').upsert(row)
+     if (error) return setErr(`Không lưu được vị trí: ${error.message}`)
+     setLocs(a => ({ ...a, [me.id]: row }))
++    window.dispatchEvent(new Event(LOC_CHANGED))
+   }
+ 
+-  useEffect(() => {
+-    if (!sharing) return
+-    let last = 0
+-    const id = navigator.geolocation.watchPosition(p => { if (Date.now() - last < 8000) return; last = Date.now(); push(p, mine.share_until) }, () => {}, { enableHighAccuracy: true, maximumAge: 5000 })
+-    return () => navigator.geolocation.clearWatch(id)
+-  }, [sharing])
++  // Việc cập nhật vị trí liên tục đã chuyển sang components/LocShare.tsx (chạy ở mọi màn hình).
+ 
+   const start = (h: number) => {
+     const su = new Date(); h ? su.setTime(Date.now() + h * 36e5) : su.setHours(23, 59, 59, 0)
+@@ -560,6 +557,7 @@ export default function MapPage() {
+     const { error } = await sb.from('locations').delete().eq('user_id', me.id)
+     if (error) return setErr(`Không tắt được chia sẻ: ${error.message}`)
+     setLocs(a => { const n = { ...a }; delete n[me.id]; return n })
++    window.dispatchEvent(new Event(LOC_CHANGED))
+   }
+ 
+   // Spots from plans
+@@ -689,7 +687,7 @@ export default function MapPage() {
+             <button className="pill" onClick={stop}>Tắt chia sẻ</button>
+           </> : <>
+             <b>Chia sẻ vị trí của mình</b>
+-            <div className="s">Chỉ cập nhật khi app đang mở</div>
++            <div className="s">Vị trí được cập nhật khi app đang mở, kể cả khi bạn sang màn hình khác trong app</div>
+             <div className="row">{([['1 giờ', 1], ['4 giờ', 4], ['Hết hôm nay', 0]] as [string, number][]).map(([l, h]) => <button key={l} className="pill" onClick={() => start(h)}>{l}</button>)}</div>
+           </>}
+         </div>
+diff --git a/app/(app)/page.tsx b/app/(app)/page.tsx
+index 18d1e54..f480738 100644
+--- a/app/(app)/page.tsx
++++ b/app/(app)/page.tsx
+@@ -6,9 +6,11 @@ import { useApp } from '@/lib/ctx'
+ import Head, { Heart } from '@/components/Head'
+ import Avatar from '@/components/Avatar'
+ import LoveHeart from '@/components/LoveHeart'
+-import { daysTogether, ok } from '@/lib/util'
++import { daysTogether, ok, MILESTONES, nextMonthAnniv, nextYearlyDate } from '@/lib/util'
++import { startDateError, todayStr } from '@/lib/profile'
+ 
+-const MILESTONES = [100, 200, 365, 500, 1000, 1500, 2000]
++const DAY = 864e5
++const midnight = () => { const t = new Date(); t.setHours(0, 0, 0, 0); return t }
+ 
+ export default function Home() {
+   const { me, space, partner, reload } = useApp()
+@@ -18,7 +20,17 @@ export default function Home() {
+   }, [me.id])
+   const [plan, setPlan] = useState<any>(null)
+   useEffect(() => {
+-    sb.from('plans').select('id,name,start_date').in('status', ['Ý tưởng', 'Đã chốt']).gte('end_date', new Date().toISOString().slice(0, 10)).order('start_date').limit(1).then(r => setPlan(r.data?.[0] ?? null))
++    sb.from('plans').select('id,name,start_date').in('status', ['Ý tưởng', 'Đã chốt']).gte('end_date', todayStr()).order('start_date').limit(1).then(r => setPlan(r.data?.[0] ?? null))
++  }, [])
++  const [latest, setLatest] = useState<any>(null)
++  useEffect(() => {
++    // HOME-01: Moment mới nhất
++    sb.from('moments').select('id,title,taken_on,place').is('deleted_at', null).order('taken_on', { ascending: false }).order('created_at', { ascending: false }).limit(1).then(r => { if (!r.error) setLatest(r.data?.[0] ?? null) })
++  }, [])
++  const [specials, setSpecials] = useState<any[]>([])
++  useEffect(() => {
++    // ANNIV-04: ngày đặc biệt tự đặt cũng hiện ở Trang chủ
++    sb.from('special_dates').select('name,on_date,yearly').then(r => { if (!r.error) setSpecials(r.data ?? []) })
+   }, [])
+   const [memo, setMemo] = useState<any[]>([])
+   useEffect(() => {
+@@ -41,10 +53,24 @@ export default function Home() {
+     sb.from('clips').select('id', { count: 'exact', head: true }).neq('sender', me.id).is('seen_at', null).then(r => { if (!r.error) setFun(r.count ?? 0) })
+   }, [me.id])
+   const day = space.start_date ? daysTogether(space.start_date) : null
+-  const next = day ? MILESTONES.find(m => m > day) : null
++  // Mốc/kỷ niệm gần nhất (kể cả hôm nay): mốc ngày, kỷ niệm tháng/năm và ngày đặc biệt tự đặt
++  const next = (() => {
++    const t0 = midnight(), c: { t: string; n: number }[] = []
++    if (space.start_date && day) {
++      const m = MILESTONES.find(m => m >= day); if (m) c.push({ t: `Ngày thứ ${m}`, n: m - day })
++      const ma = nextMonthAnniv(space.start_date)
++      if (ma) c.push({ t: ma.months % 12 ? `Kỷ niệm ${ma.months} tháng` : `Kỷ niệm ${ma.months / 12} năm`, n: Math.round((+ma.date - +t0) / DAY) })
++    }
++    for (const s of specials) {
++      const [y, mo, d] = s.on_date.split('-').map(Number)
++      const dt = s.yearly ? nextYearlyDate(s.on_date) : new Date(y, mo - 1, d)
++      const n = Math.round((+dt - +t0) / DAY); if (n >= 0) c.push({ t: s.name, n })
++    }
++    return c.sort((a, b) => a.n - b.n)[0] ?? null
++  })()
+   const expired = !!space.invite_expires && new Date(space.invite_expires).getTime() < Date.now()
+   const renew = async () => { const { error } = await sb.rpc('renew_invite'); if (error) alert(error.message); else reload() }
+-  const setDate = async (v: string) => { if (await ok(sb.from('spaces').update({ start_date: v }).eq('id', space.id), 'Không lưu được ngày bắt đầu')) reload() }
++  const setDate = async (v: string) => { const bad = startDateError(v); if (bad) { alert(bad); return }; if (await ok(sb.from('spaces').update({ start_date: v }).eq('id', space.id), 'Không lưu được ngày bắt đầu')) reload() }
+ 
+   return <>
+     <Head t="tdlove"><Link href="/settings" className="pill">Cài đặt</Link></Head>
+@@ -55,8 +81,9 @@ export default function Home() {
+       {partner && <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 'none' }}>
+         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Avatar p={me} size={48} on /><Heart size={24} /><Avatar p={partner} size={48} /></div>
+         <div className="s">{me.display_name} & {partner.display_name}</div></div>}
+-      {!space.start_date && <label className="k li"><b>Hai đứa bắt đầu yêu từ ngày nào?</b><input type="date" onChange={e => e.target.value && setDate(e.target.value)} /></label>}
+-      {next && day && <div className="k pk"><b>Mốc kế tiếp: {next} ngày</b><div className="s">Còn {next - day} ngày nữa</div></div>}
++      {!space.start_date && <label className="k li"><b>Hai đứa bắt đầu yêu từ ngày nào?</b><input type="date" min="1950-01-01" max={todayStr()} onChange={e => e.target.value && setDate(e.target.value)} /></label>}
++      {next && <Link href="/special" className="k pk"><b>{next.n === 0 ? `Hôm nay: ${next.t} 🎉` : `Sắp tới: ${next.t}`}</b><div className="s">{next.n === 0 ? 'Chúc mừng hai đứa!' : `Còn ${next.n} ngày nữa`}</div></Link>}
++      {latest && <Link href={`/moments?open=${latest.id}`} className="k li"><b>Moment mới nhất: {latest.title}</b><div className="s">{new Date(latest.taken_on + 'T00:00:00').toLocaleDateString('vi-VN')}{latest.place ? ` · ${latest.place}` : ''}</div></Link>}
+       {plan && <Link href={`/plan/${plan.id}`} className="k pe"><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></Link>}
+       {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map(m => <Link key={m.kind + m.id} href={m.kind === 'diary' ? `/diary?month=${m.day.slice(0, 7)}` : `/moments?open=${m.id}`} className="s" style={{ display: 'block' }}>{m.kind === 'diary' ? (m.is_private ? '🔒' : '📓') : '📷'} {m.day.slice(0, 4)}: {m.title}</Link>)}{memo.some(m => m.kind === 'moment') && <Link href="/moments?memories=1" className="pill on">▶ Xem lại ảnh</Link>}</div>}
+       <div className="row"><Link href="/diary" className="k pk"><b>Nhật ký</b><div className="s">Viết cho nhau</div></Link><Link href="/special" className="k pe"><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></Link></div>
+diff --git a/app/(app)/plan/[id]/page.tsx b/app/(app)/plan/[id]/page.tsx
+index 9219bcf..e91b8ef 100644
+--- a/app/(app)/plan/[id]/page.tsx
++++ b/app/(app)/plan/[id]/page.tsx
+@@ -5,6 +5,7 @@ import { sb } from '@/lib/supabase'
+ import { useApp } from '@/lib/ctx'
+ import { shrink, km, coords, ok, safeUrl } from '@/lib/util'
+ import Head from '@/components/Head'
++import { todayStr } from '@/lib/profile'
+ 
+ const ST = ['Ý tưởng', 'Đã chốt', 'Đã đi', 'Hủy']
+ const TY = ['Ăn', 'Uống', 'Tham quan', 'Di chuyển', 'Lưu trú', 'Khác']
+@@ -96,7 +97,7 @@ export default function PlanPage() {
+   }
+   const addTodo = async () => { if (!todo.trim()) return; if (!await ok(sb.from('checklist_items').insert({ plan_id: id, space_id: space.id, text: todo }))) return; setTodo(''); load() }
+   async function toMoment() {
+-    const { data, error } = await sb.from('moments').insert({ space_id: space.id, title: p.name, taken_on: p.end_date ?? p.start_date ?? new Date().toISOString().slice(0, 10), place: p.area, plan_id: id }).select('id').single()
++    const { data, error } = await sb.from('moments').insert({ space_id: space.id, title: p.name, taken_on: p.end_date ?? p.start_date ?? todayStr(), place: p.area, plan_id: id }).select('id').single()
+     if (error || !data) return alert('Không tạo được khoảnh khắc: ' + (error?.message ?? ''))
+     r.push('/moments?edit=' + data.id)   // mở sẵn form sửa để thêm ảnh/video
+   }
+diff --git a/app/(app)/special/page.tsx b/app/(app)/special/page.tsx
+index 18f0bf3..76ec513 100644
+--- a/app/(app)/special/page.tsx
++++ b/app/(app)/special/page.tsx
+@@ -4,14 +4,12 @@ import Link from 'next/link'
+ import { sb } from '@/lib/supabase'
+ import { useApp } from '@/lib/ctx'
+ import Head from '@/components/Head'
+-import { daysTogether, ok } from '@/lib/util'
++import { daysTogether, ok, MILESTONES as MS, nextMonthAnniv, nextYearlyDate } from '@/lib/util'
+ 
+-const MS = [100, 200, 300, 365, 400, 500, 600, 700, 730, 800, 900, 1000, 1500, 2000]
+ const pd = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d) }
+ const today = () => { const t = new Date(); t.setHours(0, 0, 0, 0); return t }
+ const left = (d: Date) => Math.round((+d - +today()) / 864e5)
+ const when = (n: number) => n === 0 ? 'Hôm nay!' : `Còn ${n} ngày`
+-const nextYearly = (s: string) => { const o = pd(s), t = today(), n = new Date(t.getFullYear(), o.getMonth(), o.getDate()); if (n < t) n.setFullYear(n.getFullYear() + 1); return n }
+ 
+ export default function Special() {
+   const { space } = useApp()
+@@ -21,13 +19,12 @@ export default function Special() {
+ 
+   const items: { t: string; d: Date }[] = []
+   if (space.start_date) {
+-    const start = pd(space.start_date), t = today(), day = daysTogether(space.start_date)
+-    MS.filter(m => m > day).slice(0, 3).forEach(m => items.push({ t: `Ngày thứ ${m}`, d: new Date(start.getFullYear(), start.getMonth(), start.getDate() + m - 1) }))
+-    let mo = new Date(t.getFullYear(), t.getMonth(), start.getDate()); if (mo < t) mo = new Date(t.getFullYear(), t.getMonth() + 1, start.getDate())
+-    const months = (mo.getFullYear() - start.getFullYear()) * 12 + mo.getMonth() - start.getMonth()
+-    if (months > 0) items.push({ t: months % 12 ? `Kỷ niệm ${months} tháng` : `Kỷ niệm ${months / 12} năm`, d: mo })
++    const start = pd(space.start_date), day = daysTogether(space.start_date)
++    MS.filter(m => m >= day).slice(0, 3).forEach(m => items.push({ t: `Ngày thứ ${m}`, d: new Date(start.getFullYear(), start.getMonth(), start.getDate() + m - 1) }))
++    const ma = nextMonthAnniv(space.start_date)
++    if (ma) items.push({ t: ma.months % 12 ? `Kỷ niệm ${ma.months} tháng` : `Kỷ niệm ${ma.months / 12} năm`, d: ma.date })
+   }
+-  list.forEach(s => { const d = s.yearly ? nextYearly(s.on_date) : pd(s.on_date); if (left(d) >= 0) items.push({ t: s.name, d }) })
++  list.forEach(s => { const d = s.yearly ? nextYearlyDate(s.on_date) : pd(s.on_date); if (left(d) >= 0) items.push({ t: s.name, d }) })
+   items.sort((a, b) => +a.d - +b.d)
+ 
+   async function save() {
+diff --git a/components/Call.tsx b/components/Call.tsx
+index 85c8b37..7035302 100644
+--- a/components/Call.tsx
++++ b/components/Call.tsx
+@@ -22,7 +22,7 @@ const permMsg = () => window.isSecureContext && navigator.mediaDevices
+   ? 'Không mở được micro/camera. Hãy cho phép quyền truy cập trong trình duyệt.'
+   : 'Trình duyệt này không cho dùng micro/camera. Hãy mở app bằng địa chỉ https.'
+ 
+-// Cuộc gọi 1-1 qua WebRTC; tín hiệu đi qua Supabase Realtime (broadcast). Gọi đến chỉ hiện khi app đang mở.
++// Cuộc gọi 1-1 qua WebRTC; tín hiệu đi qua Supabase Realtime (broadcast). Gọi đến hiện khi app đang mở; nếu app đang đóng thì thông báo đẩy mở app và app hỏi bảng calls (phase21.sql).
+ export default function Call() {
+   const { me, space, partner } = useApp()
+   const [st, setSt] = useState<St>('idle'); const [video, setVideo] = useState(true)
+@@ -30,9 +30,15 @@ export default function Call() {
+   const [spk, setSpk] = useState(false); const [lost, setLost] = useState(false); const [msg, setMsg] = useState('')
+   const ch = useRef<any>(null), pc = useRef<RTCPeerConnection | null>(null), local = useRef<MediaStream | null>(null), pend = useRef<RTCIceCandidateInit[]>([])
+   const lv = useRef<HTMLVideoElement>(null), rv = useRef<HTMLVideoElement>(null)
+-  const S = useRef<any>({ st: 'idle', caller: false, video: true, t0: 0, tick: 0, face: 'user', busy: false, yielded: false, flip: false, ring: 0, conn: 0, lost: 0, note: 0 })
++  const S = useRef<any>({ st: 'idle', caller: false, video: true, t0: 0, tick: 0, face: 'user', busy: false, yielded: false, flip: false, ring: 0, conn: 0, lost: 0, note: 0, callP: null as Promise<string | null> | null })
+   const send = (event: string, data: any = {}) => ch.current?.send({ type: 'broadcast', event, payload: { from: me.id, ...data } })
+   const go = (s: St) => { S.current.st = s; setSt(s); if (s !== 'incoming') navigator.vibrate?.(0) }
++  // T7: người gọi ghi/đóng dòng trong bảng calls để bên nhận đang đóng app vẫn thấy cuộc gọi khi mở app
++  const closeCall = (status: 'accepted' | 'ended') => {
++    const p = S.current.callP; if (!p) return
++    if (status === 'ended') S.current.callP = null
++    p.then((id: string | null) => { if (id) sb.from('calls').update({ status }).eq('id', id).then(() => { }, () => { }) })
++  }
+   const flash = (t: string) => { setMsg(t); clearTimeout(S.current.note); S.current.note = setTimeout(() => setMsg(''), 5000) }
+ 
+   useEffect(() => { if (lv.current) lv.current.srcObject = local.current }, [st])
+@@ -76,6 +82,7 @@ export default function Call() {
+     const s = S.current
+     if (s.st === 'idle') return
+     if (notify) send('hangup')
++    if (s.caller) closeCall('ended')
+     const dur = s.t0 ? Math.round((Date.now() - s.t0) / 1000) : 0
+     if (s.caller) { // người gọi ghi lại vào chat: thời lượng, nhỡ, bị từ chối hoặc không kết nối được
+       const body = dur ? `Cuộc gọi ${s.video ? 'video' : 'thoại'} ${clock(dur)}` : reason === 'rejected' ? 'Cuộc gọi bị từ chối' : reason === 'failed' ? 'Cuộc gọi không kết nối được' : 'Cuộc gọi nhỡ'
+@@ -87,6 +94,18 @@ export default function Call() {
+     else if (!dur && !s.caller && !notify) flash('Bạn vừa lỡ một cuộc gọi.')
+   }
+ 
++  // T7: có cuộc gọi đang đổ chuông mà lời mời broadcast đã lỡ (bên nhận vừa mở app từ thông báo đẩy)
++  async function checkRinging() {
++    const s = S.current
++    if (s.st !== 'idle' || s.busy) return
++    const { data, error } = await sb.rpc('ringing_call')
++    const c = (data as { id: string; video: boolean; left_ms: number }[] | null)?.[0]
++    if (error || !c || S.current.st !== 'idle') return
++    s.video = !!c.video; s.caller = false; setVideo(s.video); go('incoming')
++    navigator.vibrate?.([400, 200, 400, 200, 400])
++    clearTimeout(s.ring); s.ring = setTimeout(() => end(false, 'missed'), c.left_ms + 3000)
++  }
++
+   // CALL-01: người gọi bấm Gọi/Video
+   async function start(v: boolean) {
+     const s = S.current
+@@ -96,7 +115,8 @@ export default function Call() {
+     try { m = await media(v) } catch { s.busy = false; return flash(permMsg()) }
+     s.busy = false
+     if (s.yielded || s.st !== 'idle') return stopStream(m) // hai người gọi cùng lúc và mình đã nhường
+-    local.current = m; go('calling'); send('invite', { video: v }); notifyPartner('call') // CALL-05: báo cả khi bên kia đang đóng app
++    local.current = m; go('calling'); send('invite', { video: v }); notifyPartner('call')
++    s.callP = Promise.resolve(sb.from('calls').insert({ video: v }).select('id').single()).then((r: any) => r.data?.id ?? null, () => null) // CALL-05: báo cả khi bên kia đang đóng app
+     s.ring = setTimeout(() => end(true, 'missed'), RING)
+   }
+   // CALL-02: người nhận bấm Nhận
+@@ -129,7 +149,7 @@ export default function Call() {
+     })).on('broadcast', { event: 'accept' }, safe(async () => {
+       const s = S.current
+       if (s.st !== 'calling' || pc.current) return
+-      clearTimeout(s.ring); go('live'); s.conn = setTimeout(() => end(true, 'failed'), CONNECT)
++      clearTimeout(s.ring); go('live'); closeCall('accepted'); s.conn = setTimeout(() => end(true, 'failed'), CONNECT)
+       const p = makePc(); const o = await p.createOffer(); await p.setLocalDescription(o); send('offer', { sdp: o })
+     })).on('broadcast', { event: 'offer' }, safe(async p => {
+       if (S.current.st !== 'live' || pc.current) return
+@@ -142,12 +162,13 @@ export default function Call() {
+       if (pc.current?.remoteDescription) await pc.current.addIceCandidate(p.c); else if (S.current.st !== 'idle') pend.current.push(p.c)
+     })).on('broadcast', { event: 'reject' }, safe(() => end(false, 'rejected')))
+       .on('broadcast', { event: 'hangup' }, safe(() => end(false)))
+-      .subscribe((status: string, err?: Error) => { if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') console.error('Kênh cuộc gọi lỗi (đã chạy phase4.sql chưa?)', status, err?.message) })
++      .subscribe((status: string, err?: Error) => { if (status === 'SUBSCRIBED') checkRinging(); if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') console.error('Kênh cuộc gọi lỗi (đã chạy phase4.sql chưa?)', status, err?.message) })
+     const onStart = (e: any) => start(!!e.detail?.video)
+     const onLeave = () => { if (S.current.st !== 'idle') send('hangup') } // đóng tab giữa cuộc gọi: báo cho bên kia
+-    window.addEventListener('tdlove-call', onStart); window.addEventListener('pagehide', onLeave)
++    const onVis = () => { if (document.visibilityState === 'visible') checkRinging() }
++    window.addEventListener('tdlove-call', onStart); window.addEventListener('pagehide', onLeave); document.addEventListener('visibilitychange', onVis)
+     if (!turn) console.warn('Chưa cấu hình NEXT_PUBLIC_TURN_URL: gọi qua 4G có thể không kết nối được (CALL-04).')
+-    return () => { window.removeEventListener('tdlove-call', onStart); window.removeEventListener('pagehide', onLeave); sb.removeChannel(c); stopAll() }
++    return () => { window.removeEventListener('tdlove-call', onStart); window.removeEventListener('pagehide', onLeave); document.removeEventListener('visibilitychange', onVis); sb.removeChannel(c); stopAll() }
+   }, [space.id])
+ 
+   // CALL-03: bật/tắt mic, camera
+diff --git a/components/LocShare.tsx b/components/LocShare.tsx
+new file mode 100644
+index 0000000..7692ef0
+--- /dev/null
++++ b/components/LocShare.tsx
+@@ -0,0 +1,72 @@
++'use client'
++import { useCallback, useEffect, useRef, useState } from 'react'
++import Link from 'next/link'
++import { sb } from '@/lib/supabase'
++import { useApp } from '@/lib/ctx'
++
++export const LOC_CHANGED = 'tdlove-loc-changed'
++const GAP_MS = 8000
++
++// Chia sẻ vị trí chạy ở mọi màn hình (MAP-02, MAP-03), cùng cách với TripBar:
++// - đang chia sẻ thì vẫn cập nhật vị trí khi bạn chuyển sang trang khác trong app;
++// - luôn hiện thanh báo rõ ràng "Đang chia sẻ vị trí" kèm nút Tắt;
++// - hết giờ thì tự dừng. Bản đồ chỉ bắt đầu/tắt chia sẻ rồi phát sự kiện LOC_CHANGED để thanh này nạp lại.
++export default function LocShare() {
++  const { me, space } = useApp()
++  const [row, setRow] = useState<any>(null)
++  const [, tick] = useState(0)
++  const [busy, setBusy] = useState(false)
++  const rowRef = useRef<any>(null); rowRef.current = row
++
++  const load = useCallback(async () => {
++    const { data, error } = await sb.from('locations').select('*').eq('user_id', me.id).maybeSingle()
++    if (!error) setRow(data ?? null)
++  }, [me.id])
++  useEffect(() => {
++    load()
++    const f = () => load()
++    window.addEventListener(LOC_CHANGED, f)
++    const vis = () => { if (document.visibilityState === 'visible') load() }
++    document.addEventListener('visibilitychange', vis)
++    return () => { window.removeEventListener(LOC_CHANGED, f); document.removeEventListener('visibilitychange', vis) }
++  }, [load])
++
++  const until = row?.share_until as string | undefined
++  const live = !!until && new Date(until).getTime() > Date.now()
++
++  useEffect(() => {
++    if (!until) return
++    const left = new Date(until).getTime() - Date.now()
++    if (left <= 0) return
++    const t = setTimeout(() => tick(x => x + 1), left + 500)   // hết giờ thì ẩn thanh báo và dừng theo dõi
++    return () => clearTimeout(t)
++  }, [until])
++
++  useEffect(() => {
++    if (!live || !until || !('geolocation' in navigator)) return
++    let last = 0
++    const id = navigator.geolocation.watchPosition(async p => {
++      if (Date.now() - last < GAP_MS) return
++      last = Date.now()
++      const next = { user_id: me.id, space_id: space.id, lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, updated_at: new Date().toISOString(), share_until: until }
++      const { error } = await sb.from('locations').upsert(next)
++      if (!error) setRow(next)
++    }, () => { }, { enableHighAccuracy: true, maximumAge: 5000 })
++    return () => navigator.geolocation.clearWatch(id)
++  }, [live, until, me.id, space.id])
++
++  async function stop() {
++    setBusy(true)
++    const { error } = await sb.from('locations').delete().eq('user_id', me.id)
++    setBusy(false)
++    if (error) return alert('Không tắt được chia sẻ: ' + error.message)
++    setRow(null); window.dispatchEvent(new Event(LOC_CHANGED))
++  }
++
++  if (!live) return null
++  return <div className="rec on" role="status">
++    <i className="dot" aria-hidden="true" />
++    <Link href="/map" style={{ flex: 1 }}>Đang chia sẻ vị trí · đến {new Date(until!).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</Link>
++    <button className="pill" onClick={stop} disabled={busy}>{busy ? 'Đang tắt…' : 'Tắt'}</button>
++  </div>
++}
+diff --git a/components/MomentForm.tsx b/components/MomentForm.tsx
+index 0d24447..1babcc7 100644
+--- a/components/MomentForm.tsx
++++ b/components/MomentForm.tsx
+@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
+ import { sb } from '@/lib/supabase'
+ import { MAX_FILES, MAX_IMG, MAX_VIDEO, MAX_VIDEO_SEC, MB, TAGS, TAG_EMOJI, localDay, probeVideo, processImage, readExif, reverse, sign, uploadBlob } from '@/lib/media'
+ import PlacePicker from '@/components/PlacePicker'
++import { todayStr } from '@/lib/profile'
+ 
+ type Item = { id: string; file: File; kind: 'image' | 'video'; url: string; status: 'ready' | 'up' | 'done' | 'err'; p: number; err?: string; meta: any }
+ const uid = () => crypto.randomUUID()
+@@ -12,7 +13,7 @@ export default function MomentForm({ space, moment, plans, albums, onClose, onDo
+   space: any; moment?: any; plans: any[]; albums: any[]; onClose: () => void; onDone: () => void; onAlbumCreated: (a: any) => void
+ }) {
+   const edit = !!moment
+-  const today = new Date().toISOString().slice(0, 10)
++  const today = todayStr()
+   const [f, setF] = useState({
+     title: moment?.title ?? '', desc: moment?.description ?? '', date: moment?.taken_on ?? localDay(new Date().toISOString()),
+     place: moment?.place ?? '', lat: moment?.lat ?? null as number | null, lng: moment?.lng ?? null as number | null,
+diff --git a/lib/util.ts b/lib/util.ts
+index 0c3e6ca..118b604 100644
+--- a/lib/util.ts
++++ b/lib/util.ts
+@@ -37,3 +37,29 @@ export const daysTogether = (start: string) => {
+   const [y, m, d] = start.split('-').map(Number), t = new Date()
+   return Math.round((Date.UTC(t.getFullYear(), t.getMonth(), t.getDate()) - Date.UTC(y, m - 1, d)) / 864e5) + 1
+ }
++
++// Các mốc ngày bên nhau, dùng chung cho Trang chủ, Ngày đặc biệt và (bản sao trong Edge Function anniversary)
++export const MILESTONES = [100, 200, 300, 365, 400, 500, 600, 700, 730, 800, 900, 1000, 1500, 2000]
++// Ngày kỷ niệm tháng gần nhất (kể cả hôm nay). Bắt đầu yêu ngày 29-31 thì kẹp về ngày cuối tháng, không tràn sang tháng sau.
++export const nextMonthAnniv = (start: string, now = new Date()): { date: Date; months: number } | null => {
++  const [y, m, d] = start.split('-').map(Number)
++  const t = new Date(now.getFullYear(), now.getMonth(), now.getDate())
++  for (let k = 0; k < 3; k++) {
++    const mi = t.getMonth() + k
++    const last = new Date(t.getFullYear(), mi + 1, 0).getDate()
++    const date = new Date(t.getFullYear(), mi, Math.min(d, last))
++    if (date >= t) {
++      const months = (date.getFullYear() - y) * 12 + date.getMonth() - (m - 1)
++      return months > 0 ? { date, months } : null
++    }
++  }
++  return null
++}
++// Lần tới của một ngày lặp hằng năm; 29/02 ở năm không nhuận rơi vào 28/02
++export const nextYearlyDate = (onDate: string, now = new Date()): Date => {
++  const [, m, d] = onDate.split('-').map(Number)
++  const t = new Date(now.getFullYear(), now.getMonth(), now.getDate())
++  const at = (y: number) => new Date(y, m - 1, Math.min(d, new Date(y, m, 0).getDate()))
++  let n = at(t.getFullYear()); if (n < t) n = at(t.getFullYear() + 1)
++  return n
++}
+diff --git a/supabase/functions/anniversary/index.ts b/supabase/functions/anniversary/index.ts
+index 219b1ae..9fac39a 100644
+--- a/supabase/functions/anniversary/index.ts
++++ b/supabase/functions/anniversary/index.ts
+@@ -1,7 +1,7 @@
+ // Edge Function `anniversary`: nhắc ngày đặc biệt (ANNIV-04) và nhắc lại kỷ niệm "ngày này năm trước" (DIARY-02).
+ // Hộp thời gian (CAPSULE-04): hộp đã tới ngày mở thì báo người nhận một lần (cột capsules.notified_at, cần phase12.sql).
+ // Chạy mỗi sáng bằng pg_cron (xem README.md cùng thư mục). Cần đã chạy supabase/phase7.sql (hàm on_this_day).
+-// Ngày đặc biệt: nhắc vào ngày đó và trước một ngày (ngày đặc biệt tự thêm, kỷ niệm tròn năm, các mốc 100/200/365... ngày).
++// Ngày đặc biệt: nhắc vào ngày đó, trước 1 ngày và trước 7 ngày (ngày đặc biệt tự thêm, kỷ niệm tháng/năm, các mốc 100/200/365... ngày).
+ // Kỷ niệm: nhắc trong ngày, gồm nhật ký và Moment của đúng ngày này các năm trước.
+ import { createClient } from 'npm:@supabase/supabase-js@2'
+ import webpush from 'npm:web-push@3.6.7'
+@@ -9,11 +9,23 @@ import webpush from 'npm:web-push@3.6.7'
+ const MS = [100, 200, 300, 365, 400, 500, 600, 700, 730, 800, 900, 1000, 1500, 2000]
+ const ymd = (d: Date) => d.toISOString().slice(0, 10)   // dùng UTC trên "ngày lịch" đã quy đổi sang giờ Việt Nam
+ const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 864e5)
++const REMIND = [0, 1, 7]                                  // ANNIV-04: nhắc đúng ngày, trước 1 ngày và trước 7 ngày
++const lastDom = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
++// Ngày lặp hằng năm; 29/02 ở năm không nhuận được nhắc vào 28/02
++const sameYearly = (on: string, d: Date) => {
++  const m = +on.slice(5, 7), dd = +on.slice(8, 10)
++  return d.getUTCMonth() + 1 === m && d.getUTCDate() === Math.min(dd, lastDom(d))
++}
+ const MAX_LINES = 3                                       // tối đa số dòng kỷ niệm hiện trong một thông báo
+ 
+-Deno.serve(async () => {
++Deno.serve(async (req) => {
+   const url = Deno.env.get('SUPABASE_URL')!
+-  const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
++  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
++  // T8: anon key cũng là JWT hợp lệ và nằm sẵn trong mã trình duyệt, nên kiểm tra JWT của nền tảng là chưa đủ.
++  // Chỉ chấp nhận gọi bằng service_role (pg_cron trong README đã gửi khóa này).
++  const bearer = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
++  if (!serviceKey || bearer !== serviceKey) return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
++  const admin = createClient(url, serviceKey)
+   webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT')!, Deno.env.get('VAPID_PUBLIC_KEY')!, Deno.env.get('VAPID_PRIVATE_KEY')!)
+   const vn = new Date(Date.now() + 7 * 36e5)                // giờ Việt Nam (UTC+7)
+   const today = new Date(Date.UTC(vn.getUTCFullYear(), vn.getUTCMonth(), vn.getUTCDate()))
+@@ -40,13 +52,17 @@ Deno.serve(async () => {
+     if (!subs?.length) continue
+     const { data: sd } = await admin.from('special_dates').select('name,on_date,yearly').eq('space_id', sp.id)
+     const notes: string[] = []
+-    for (const off of [0, 1]) {
+-      const day = addDays(today, off), key = ymd(day), md = key.slice(5), when = off ? 'Ngày mai' : 'Hôm nay'
+-      for (const s of sd ?? []) if (s.yearly ? s.on_date.slice(5) === md : s.on_date === key) notes.push(`${when}: ${s.name}`)
++    for (const off of REMIND) {
++      const day = addDays(today, off), key = ymd(day), when = off === 0 ? 'Hôm nay' : off === 1 ? 'Ngày mai' : `Còn ${off} ngày nữa`
++      for (const s of sd ?? []) if (s.yearly ? sameYearly(s.on_date, day) : s.on_date === key) notes.push(`${when}: ${s.name}`)
+       if (sp.start_date) {
+-        const n = Math.round((+day - +new Date(sp.start_date + 'T00:00:00Z')) / 864e5) + 1
++        const start = new Date(sp.start_date + 'T00:00:00Z')
++        const n = Math.round((+day - +start) / 864e5) + 1
+         if (MS.includes(n)) notes.push(`${when}: ngày thứ ${n} bên nhau`)
+-        if (sp.start_date.slice(5) === md && +day > +new Date(sp.start_date + 'T00:00:00Z')) notes.push(`${when}: kỷ niệm ${day.getUTCFullYear() - +sp.start_date.slice(0, 4)} năm yêu nhau`)
++        // Kỷ niệm tháng/năm: bắt đầu yêu ngày 29-31 thì kẹp về ngày cuối tháng (T3)
++        const dom = Math.min(start.getUTCDate(), lastDom(day))
++        const months = (day.getUTCFullYear() - start.getUTCFullYear()) * 12 + day.getUTCMonth() - start.getUTCMonth()
++        if (months > 0 && day.getUTCDate() === dom) notes.push(`${when}: kỷ niệm ${months % 12 ? `${months} tháng` : `${months / 12} năm`} yêu nhau`)
+       }
+     }
+     if (notes.length) await push(subs, { kind: 'anniv', title: 'tdlove', body: notes.join('\n'), url: '/special', tag: 'anniv' })
+diff --git a/supabase/phase20.sql b/supabase/phase20.sql
+new file mode 100644
+index 0000000..e09dc65
+--- /dev/null
++++ b/supabase/phase20.sql
+@@ -0,0 +1,39 @@
++-- Giai đoạn 20: vá lỗi mức trung bình T4 và T9 (báo cáo rà soát 07/11/2026).
++-- Chạy SAU phase19.sql. Có thể chạy lại an toàn.
++
++-- T4: chỉ còn sửa được tên và ngày bắt đầu yêu của Space (trước đây mọi thành viên sửa được mọi cột,
++-- kể cả invite_code/invite_expires). Các hàm security definer (renew_invite, join_space) vẫn ghi bình thường.
++revoke update on spaces from authenticated, anon;
++grant update (name, start_date) on spaces to authenticated;
++drop policy if exists sp_u on spaces;
++create policy sp_u on spaces for update using (id = my_space()) with check (id = my_space());
++
++-- T4: ngày bắt đầu yêu phải từ 01/01/1950 đến hôm nay (giờ Việt Nam, chừa 1 ngày lệch múi giờ máy).
++-- Ngày quá cũ làm điểm cấp độ (level_stats) phình ra hàng trăm nghìn; ngày tương lai làm số ngày âm.
++-- Dùng trigger (không dùng CHECK vì now() không bất biến); chỉ kiểm khi giá trị thay đổi nên dữ liệu cũ không bị chặn.
++create or replace function spaces_check_start_date() returns trigger language plpgsql as $$
++begin
++  if new.start_date is not null
++     and (tg_op = 'INSERT' or new.start_date is distinct from old.start_date)
++     and (new.start_date < date '1950-01-01'
++          or new.start_date > (now() at time zone 'Asia/Ho_Chi_Minh')::date + 1) then
++    raise exception 'Ngày bắt đầu yêu phải từ 01/01/1950 đến hôm nay';
++  end if;
++  return new;
++end $$;
++drop trigger if exists spaces_start_date_chk on spaces;
++create trigger spaces_start_date_chk before insert or update on spaces
++  for each row execute function spaces_check_start_date();
++
++-- T9: create_space không được gọi khi đã ở trong một Space (trước đây gọi lại là rời Space cũ và bỏ lại một người).
++create or replace function create_space(p_name text) returns text language plpgsql security definer set search_path = public as $$
++declare s spaces; begin
++  if auth.uid() is null then raise exception 'Bạn cần đăng nhập'; end if;
++  if exists (select 1 from profiles where id = auth.uid() and space_id is not null) then
++    raise exception 'Bạn đã ở trong một Space rồi'; end if;
++  insert into spaces default values returning * into s;
++  insert into profiles(id, space_id, display_name) values (auth.uid(), s.id, p_name)
++    on conflict (id) do update set space_id = s.id, display_name = p_name;
++  return s.invite_code; end $$;
++revoke all on function create_space(text) from public, anon;
++grant execute on function create_space(text) to authenticated;
+diff --git a/supabase/phase21.sql b/supabase/phase21.sql
+new file mode 100644
+index 0000000..d559f50
+--- /dev/null
++++ b/supabase/phase21.sql
+@@ -0,0 +1,47 @@
++-- Giai đoạn 21: sửa lỗi T7 - gọi khi app bên nhận đang đóng (CALL-05).
++-- Chạy SAU phase20.sql. Có thể chạy lại an toàn.
++--
++-- Nguyên nhân: lời mời gọi chỉ đi qua kênh broadcast (không lưu lại). Bên nhận đóng app nhận được thông báo đẩy,
++-- nhưng mở app thì lời mời đã mất nên cuộc gọi không bao giờ kết nối.
++-- Cách sửa: người gọi ghi một dòng vào bảng calls (trạng thái 'ringing'); app bên nhận hỏi hàm ringing_call()
++-- khi mở app / quay lại app. Hàm tính theo giờ server nên không lệch đồng hồ máy. Tín hiệu WebRTC vẫn đi qua broadcast.
++
++create table if not exists calls(
++  id uuid primary key default gen_random_uuid(),
++  space_id uuid not null default my_space(),
++  caller uuid not null default auth.uid(),
++  video boolean not null default false,
++  status text not null default 'ringing' check (status in ('ringing', 'accepted', 'ended')),
++  created_at timestamptz not null default now());
++create index if not exists calls_space_idx on calls(space_id, created_at desc);
++alter table calls enable row level security;
++drop policy if exists calls_r on calls;
++drop policy if exists calls_i on calls;
++drop policy if exists calls_u on calls;
++create policy calls_r on calls for select using (space_id = my_space());
++create policy calls_i on calls for insert with check (space_id = my_space() and caller = auth.uid());
++create policy calls_u on calls for update using (space_id = my_space() and caller = auth.uid())
++  with check (space_id = my_space() and caller = auth.uid());
++revoke all on calls from anon, authenticated;
++grant select, insert on calls to authenticated;
++grant update (status) on calls to authenticated;
++
++-- Cuộc gọi đang đổ chuông (do người kia gọi, trong 30 giây gần nhất), kèm số mili giây còn lại của lần đổ chuông.
++create or replace function ringing_call()
++returns table(id uuid, video boolean, left_ms integer)
++language sql stable security invoker set search_path = public as $$
++  select c.id, c.video,
++         greatest(1000, 30000 - (extract(epoch from (now() - c.created_at)) * 1000)::integer)
++  from calls c
++  where c.space_id = my_space() and c.caller <> auth.uid() and c.status = 'ringing'
++    and c.created_at > now() - interval '30 seconds'
++  order by c.created_at desc limit 1
++$$;
++revoke all on function ringing_call() from public, anon;
++grant execute on function ringing_call() to authenticated;
++
++-- Dọn dòng cũ khi có cuộc gọi mới (giữ 30 ngày gần nhất), không cần cron.
++create or replace function calls_trim() returns trigger language plpgsql security definer set search_path = public as $$
++begin delete from calls where space_id = new.space_id and created_at < now() - interval '30 days'; return null; end $$;
++drop trigger if exists calls_trim_t on calls;
++create trigger calls_trim_t after insert on calls for each statement execute function calls_trim();
+-- 
+2.43.0
+
+
+From 5633964c7e89754c02038c4346ba17c351f47d0a Mon Sep 17 00:00:00 2001
+From: claude <claude@example.com>
+Date: Fri, 6 Nov 2026 21:27:40 +0000
+Subject: [PATCH 2/2] fix: T10,T11,T13,T14,T15 (+L3); phase22, phase23; README
+
+---
+ README.md                        |  11 +++
+ app/(app)/diary/page.tsx         |  13 ++-
+ app/(app)/map/page.tsx           |   8 +-
+ app/(app)/plan/[id]/page.tsx     |  73 +++++++++++---
+ app/(app)/plan/wishlist/page.tsx |   4 +-
+ components/DiaryForm.tsx         |   7 +-
+ components/MomentForm.tsx        |   5 +-
+ components/MomentView.tsx        |  17 +++-
+ components/PlaceReview.tsx       |   7 +-
+ lib/media.ts                     |  54 +++++++---
+ supabase/functions/README.md     |   5 +-
+ supabase/phase22.sql             | 164 +++++++++++++++++++++++++++++++
+ supabase/phase23.sql             |  18 ++++
+ 13 files changed, 338 insertions(+), 48 deletions(-)
+ create mode 100644 supabase/phase22.sql
+ create mode 100644 supabase/phase23.sql
+
+diff --git a/README.md b/README.md
+index 8a6945e..81b523e 100644
+--- a/README.md
++++ b/README.md
+@@ -158,3 +158,14 @@ Cách test với hai máy: máy A chọn nhân vật, máy B vào là thấy mì
+ ## Vá C2: ảnh bìa kế hoạch (phase19)
+ 
+ - Sau `supabase/phase18.sql`, chạy `supabase/phase19.sql` trong Supabase SQL Editor. Migration thêm điều kiện `plans.cover_path` vào policy đọc/sửa/xóa Storage để người còn lại xem được ảnh bìa kế hoạch. Có thể chạy lại an toàn.
++
++## Vá lỗi mức trung bình (phase20 đến phase23)
++
++Chạy lần lượt trong Supabase SQL Editor, **sau `phase19.sql`**, rồi deploy frontend và Edge Functions. Tất cả đều chạy lại an toàn.
++
++- `phase20.sql` (T4, T9): `spaces` chỉ còn sửa được cột `name` và `start_date`; trigger chặn ngày bắt đầu yêu ngoài khoảng 01/01/1950 đến hôm nay; `create_space` từ chối khi người gọi đã ở trong một Space.
++- `phase21.sql` (T7): bảng `calls` và hàm `ringing_call()`, để bên nhận đang đóng app vẫn thấy cuộc gọi khi mở app từ thông báo đẩy.
++- `phase22.sql` (T11b): `memory_places` không còn lặp toàn bộ đường đi ở dòng điểm cuối của hành trình.
++- `phase23.sql` (T15, L3): cột `stops.end_time` và hàm `set_stop_vote` (bình chọn Thích/Không không ghi đè nhau).
++- Deploy lại hàm: `supabase functions deploy anniversary`. Hàm này giờ **chỉ nhận khóa service_role** trong header `Authorization` (T8); lịch `pg_cron` ở `supabase/functions/README.md` đã gửi đúng khóa này. Nhắc thêm 7 ngày, kỷ niệm tháng và 29/02 (T2) cũng nằm trong hàm này.
++- T9, bước làm tay: khi cả hai đã vào Space, vào Supabase > Authentication > Providers > Email và tắt **Allow new users to sign up**. Không có bước này thì ai biết địa chỉ site vẫn tạo được tài khoản mới.
+diff --git a/app/(app)/diary/page.tsx b/app/(app)/diary/page.tsx
+index 6dbd431..e6891f9 100644
+--- a/app/(app)/diary/page.tsx
++++ b/app/(app)/diary/page.tsx
+@@ -67,9 +67,18 @@ export default function Diary() {
+   useEffect(() => { const t = setTimeout(() => setFlt(f => f.q === qIn ? f : { ...f, q: qIn }), 300); return () => clearTimeout(t) }, [qIn])
+   // mở sẵn một tháng từ liên kết /diary?month=yyyy-mm (từ "Ngày này năm trước" ở Trang chủ)
+   useEffect(() => {
+-    const m = new URLSearchParams(location.search).get('month')
++    const q = new URLSearchParams(location.search), m = q.get('month'), o = q.get('open')
+     if (m && /^\d{4}-(0[1-9]|1[0-2])$/.test(m)) setFlt(f => ({ ...f, month: m }))
++    if (o && /^[0-9a-f-]{36}$/i.test(o)) openId.current = o   // T11c: từ ghim "Mở nhật ký" trên Bản đồ Kỷ niệm: cuộn tới đúng bài
+   }, [])
++  const openId = useRef<string | null>(null)
++  useEffect(() => {
++    const id = openId.current; if (!id) return
++    const el = document.getElementById('d-' + id); if (!el) return
++    openId.current = null
++    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
++    el.style.outline = '3px solid var(--ink)'; setTimeout(() => { el.style.outline = '' }, 2500)
++  }, [list])
+ 
+   useEffect(() => {
+     const el = sentinel.current; if (!el || !more) return
+@@ -122,7 +131,7 @@ export default function Diary() {
+ 
+       {list.map(e => {
+         const mine = e.author === me.id, ms = (e.diary_media ?? []).slice().sort((a: any, b: any) => a.sort - b.sort)
+-        return <div key={e.id} className={`k ${mine ? 'pk' : 'li'}`}>
++        return <div key={e.id} id={`d-${e.id}`} className={`k ${mine ? 'pk' : 'li'}`}>
+           <div className="s">{new Date(e.entry_date).toLocaleDateString('vi-VN')}, {mine ? 'bạn viết' : `${partner?.display_name ?? 'Người ấy'} viết`} {e.mood}{e.is_private ? ' · 🔒 riêng tư' : ''}{e.updated_at ? ' · đã sửa' : ''}</div>
+           {e.title && <b>{e.title}</b>}
+           {e.body && <div style={{ whiteSpace: 'pre-wrap' }}>{e.body}</div>}
+diff --git a/app/(app)/map/page.tsx b/app/(app)/map/page.tsx
+index 40c0738..77a4403 100644
+--- a/app/(app)/map/page.tsx
++++ b/app/(app)/map/page.tsx
+@@ -58,6 +58,8 @@ function addDays(date: Date, days: number): Date {
+   return d
+ }
+ 
++// T11d: ngày yyyy-mm-dd theo giờ máy (toISOString đổi sang UTC nên lệch 1 ngày ở Việt Nam)
++const ymdLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+ function getChipDate(key: string, startDate: string | null): Date | null {
+   const today = new Date()
+   today.setHours(0, 0, 0, 0)
+@@ -201,8 +203,8 @@ export default function MapPage() {
+       const to = new Date()
+       to.setHours(23, 59, 59, 999)
+       const { data, error } = await sb.rpc('memory_places', {
+-        p_from: from?.toISOString().slice(0, 10) || null,
+-        p_to: to.toISOString().slice(0, 10)
++        p_from: from ? ymdLocal(from) : null,
++        p_to: ymdLocal(to)
+       })
+       if (error) throw new Error(error.message)
+       setMemories(data ?? [])
+@@ -745,7 +747,7 @@ export default function MapPage() {
+           </div>
+           {processedPins.map((pin, idx) => (
+             <MemoryListItem
+-              key={pin.ref_id}
++              key={`${pin.source}:${pin.ref_id}:${pin.is_start_point === false ? 'end' : 'start'}`}
+               pin={pin}
+               idx={idx}
+               isVisible={idx <= timelineIndex}
+diff --git a/app/(app)/plan/[id]/page.tsx b/app/(app)/plan/[id]/page.tsx
+index e91b8ef..29e46a9 100644
+--- a/app/(app)/plan/[id]/page.tsx
++++ b/app/(app)/plan/[id]/page.tsx
+@@ -12,7 +12,7 @@ const TY = ['Ăn', 'Uống', 'Tham quan', 'Di chuyển', 'Lưu trú', 'Khác']
+ const vnd = (n: number) => Math.round(n).toLocaleString('vi-VN') + 'đ'
+ const sum = (a: any[], k: string) => a.reduce((t, s) => t + (Number(s[k]) || 0), 0)
+ const mins = (t: string) => +t.slice(0, 2) * 60 + +t.slice(3, 5)
+-const empty = { name: '', time: '', type: 'Ăn', est: '', address: '', link: '', hours: '', phone: '', review: '', note: '' }
++const empty = { name: '', time: '', end: '', day: 1, type: 'Ăn', est: '', address: '', link: '', hours: '', phone: '', review: '', note: '' }
+ const votes = (s: any, v: number) => Object.values(s.likes ?? {}).filter(x => x === v).length
+ 
+ // Cảnh báo giữa hai điểm dừng liền kề: ngược giờ, trùng giờ, không kịp di chuyển
+@@ -31,6 +31,8 @@ export default function PlanPage() {
+   const [p, setP] = useState<any>(null); const [stops, setStops] = useState<any[]>([]); const [items, setItems] = useState<any[]>([])
+   const [wish, setWish] = useState<any[]>([]); const [cover, setCover] = useState(''); const [wx, setWx] = useState<any>(null)
+   const [day, setDay] = useState(1); const [add, setAdd] = useState(false); const [f, setF] = useState(empty); const [todo, setTodo] = useState('')
++  const [editId, setEditId] = useState<string | null>(null)                                   // T15: đang sửa điểm dừng nào (null = thêm mới)
++  const [pEdit, setPEdit] = useState(false); const [pf, setPf] = useState({ name: '', start: '', end: '', area: '' })   // T15: sửa thông tin kế hoạch
+ 
+   const load = useCallback(async () => {
+     const [a, b, c, d] = await Promise.all([
+@@ -77,15 +79,47 @@ export default function PlanPage() {
+     const e = x.error ?? y.error; if (e) alert('Không đổi được thứ tự: ' + e.message)
+     load()
+   }
+-  const vote = (s: any, v: number) => { const l = { ...(s.likes ?? {}) }; l[me.id] = l[me.id] === v ? 0 : v; upd(s.id, { likes: l }) }
+-  async function addStop() {
++  // L3: ghi riêng phiếu của mình bằng hàm phía server, không đọc rồi ghi đè cả cột likes (phase23.sql)
++  const vote = async (s: any, v: number) => { await ok(sb.rpc('set_stop_vote', { p_stop: s.id, p_vote: s.likes?.[me.id] === v ? 0 : v })); load() }
++  async function saveStop() {
+     if (!f.name.trim()) return
+     // Link chỉ nhận http(s): chặn javascript:... đi qua dữ liệu chia sẻ giữa hai người
+     const link = safeUrl(f.link), review = safeUrl(f.review)
+     if (f.link.trim() && !link) return alert('Link Google Maps không hợp lệ')
+     if (f.review.trim() && !review) return alert('Link review không hợp lệ')
+-    if (!await ok(sb.from('stops').insert({ plan_id: id, space_id: space.id, day, start_time: f.time || null, type: f.type, name: f.name, address: f.address, est_cost: Number(f.est) || 0, link: link ?? '', hours: f.hours, phone: f.phone, review_url: review ?? '', note: f.note, ...coords(link ?? '') }), 'Không thêm được điểm dừng')) return
+-    setF(empty); setAdd(false); load()
++    if (f.time && f.end && f.end <= f.time) return alert('Giờ kết thúc phải sau giờ bắt đầu')
++    const row = { start_time: f.time || null, end_time: f.end || null, type: f.type, name: f.name.trim(), address: f.address, est_cost: Number(f.est) || 0, link: link ?? '', hours: f.hours, phone: f.phone, review_url: review ?? '', note: f.note }
++    if (editId) {
++      const old = stops.find(x => x.id === editId)
++      const patch: any = { ...row, day: f.day }
++      if ((link ?? '') !== (old?.link ?? '')) { const c = coords(link ?? '') as { lat?: number; lng?: number }; patch.lat = c.lat ?? null; patch.lng = c.lng ?? null }   // đổi link thì cập nhật tọa độ
++      if (!await ok(sb.from('stops').update(patch).eq('id', editId), 'Không lưu được điểm dừng')) return
++      setDay(f.day)
++    } else if (!await ok(sb.from('stops').insert({ plan_id: id, space_id: space.id, day, ...row, ...coords(link ?? '') }), 'Không thêm được điểm dừng')) return
++    setF(empty); setEditId(null); setAdd(false); load()
++  }
++  const startEdit = (s: any) => {
++    setF({ name: s.name ?? '', time: s.start_time?.slice(0, 5) ?? '', end: s.end_time?.slice(0, 5) ?? '', day: s.day ?? 1, type: s.type ?? 'Khác', est: s.est_cost ? String(s.est_cost) : '', address: s.address ?? '', link: s.link ?? '', hours: s.hours ?? '', phone: s.phone ?? '', review: s.review_url ?? '', note: s.note ?? '' })
++    setEditId(s.id); setAdd(true)
++    setTimeout(() => document.getElementById('stop-form')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50)
++  }
++  const cancelStop = () => { setF(empty); setEditId(null); setAdd(false) }
++  // T15: sửa tên/ngày/khu vực của kế hoạch, và xóa hẳn kế hoạch
++  const startPlanEdit = () => { setPf({ name: p.name ?? '', start: p.start_date ?? '', end: p.end_date ?? '', area: p.area ?? '' }); setPEdit(true) }
++  async function savePlan() {
++    const name = pf.name.trim(); if (!name) return alert('Hãy nhập tên kế hoạch')
++    if (pf.start && pf.end && pf.end < pf.start) return alert('Ngày kết thúc phải từ ngày bắt đầu trở đi')
++    const end = pf.end || pf.start || null
++    const days = pf.start && end ? Math.round((+new Date(end) - +new Date(pf.start)) / 864e5) + 1 : 1
++    const maxDay = Math.max(1, ...stops.map(x => x.day ?? 1))
++    if (maxDay > days && !confirm(`Có điểm dừng ở ngày ${maxDay} nhưng kế hoạch mới chỉ còn ${days} ngày. Các điểm đó sẽ không hiện cho tới khi bạn kéo dài lại kế hoạch hoặc chuyển ngày. Vẫn lưu?`)) return
++    if (await ok(sb.from('plans').update({ name, start_date: pf.start || null, end_date: end, area: pf.area.trim() }).eq('id', id), 'Không lưu được kế hoạch')) { setPEdit(false); setDay(1); load() }
++  }
++  async function delPlan() {
++    if (!confirm(`Xóa kế hoạch "${p.name}"? Toàn bộ điểm dừng và danh sách chuẩn bị sẽ mất. Khoảnh khắc và nhật ký đã gắn với kế hoạch vẫn được giữ.`)) return
++    // xóa ảnh bìa trước khi xóa dòng (xem T10)
++    if (p.cover_path) { const { error } = await sb.storage.from('media').remove([p.cover_path]); if (error) return alert('Không xóa được ảnh bìa: ' + error.message) }
++    if (await ok(sb.from('plans').delete().eq('id', id), 'Không xóa được kế hoạch')) r.replace('/plan')
+   }
+   const fromWish = (wid: string) => { const w = wish.find(x => x.id === wid); if (w) setF({ ...f, name: w.name, address: w.area ?? '', link: w.link ?? '', note: w.dish ?? '', type: 'Ăn' }) }
+   async function setCoverFile(file?: File) {
+@@ -119,6 +153,15 @@ export default function PlanPage() {
+     <div className="b">
+       {cover && <img src={cover} alt={p.name} style={{ flex: 'none', width: '100%', height: 150, objectFit: 'cover', borderRadius: 22, border: '2.5px solid var(--ink)' }} />}
+       <div className="row" style={{ flex: 'none', flexWrap: 'wrap' }}>{ST.map(s => <button key={s} className={`pill ${p.status === s ? 'on' : ''}`} onClick={() => setStatus(s)}>{s}</button>)}</div>
++      <div className="row" style={{ flex: 'none', flexWrap: 'wrap' }}><button className="pill" onClick={() => pEdit ? setPEdit(false) : startPlanEdit()}>{pEdit ? 'Đóng' : 'Sửa kế hoạch'}</button><button className="pill" onClick={delPlan}>Xóa kế hoạch</button></div>
++      {pEdit && <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++        <b>Sửa kế hoạch</b>
++        <input placeholder="Tên chuyến đi" value={pf.name} onChange={e => setPf({ ...pf, name: e.target.value })} />
++        <label className="s">Từ ngày<input type="date" value={pf.start} onChange={e => setPf({ ...pf, start: e.target.value })} /></label>
++        <label className="s">Đến ngày<input type="date" value={pf.end} onChange={e => setPf({ ...pf, end: e.target.value })} /></label>
++        <input placeholder="Khu vực" value={pf.area} onChange={e => setPf({ ...pf, area: e.target.value })} />
++        <button className="btn" onClick={savePlan}>Lưu</button>
++      </div>}
+       <div className="k pk">
+         <b>Ngân sách dự kiến {vnd(est)}</b>
+         {byType.length > 0 && <div className="s">{byType.map(([t, v]) => `${t} ${vnd(v as number)}`).join(', ')}</div>}
+@@ -130,7 +173,7 @@ export default function PlanPage() {
+       {today.map((s, i) => <div key={s.id}>
+         {i > 0 && warn(today[i - 1], s) && <div className="s" style={{ textAlign: 'center', margin: '0 0 8px' }}>{warn(today[i - 1], s)}</div>}
+         <div className="k">
+-          <div className="row"><span className="pill on" style={{ flex: 'none' }}>{s.start_time?.slice(0, 5) ?? '--:--'}</span><div><b>{s.name}</b><div className="s">{s.type}, dự kiến {vnd(s.est_cost)}</div></div>
++          <div className="row"><span className="pill on" style={{ flex: 'none' }}>{s.start_time?.slice(0, 5) ?? '--:--'}{s.end_time ? `–${s.end_time.slice(0, 5)}` : ''}</span><div><b>{s.name}</b><div className="s">{s.type}, dự kiến {vnd(s.est_cost)}</div></div>
+             <span className="rb" style={{ display: 'flex', flexDirection: 'column', gap: 4, border: 0, background: 'none', width: 'auto', height: 'auto' }}>
+               <button className="pill" onClick={() => mv(i, -1)} aria-label="Đưa lên">▲</button><button className="pill" onClick={() => mv(i, 1)} aria-label="Đưa xuống">▼</button></span></div>
+           {s.address && <div className="s">{s.address}</div>}
+@@ -144,19 +187,22 @@ export default function PlanPage() {
+             <button className={`pill ${s.likes?.[me.id] === -1 ? 'on' : ''}`} onClick={() => vote(s, -1)}>Không {votes(s, -1)}</button>
+           </div>
+           <div className="row" style={{ marginTop: 8 }}>
+-            <input type="number" inputMode="numeric" placeholder="Thực tế (đ)" defaultValue={s.actual_cost ?? ''} onBlur={e => upd(s.id, { actual_cost: e.target.value === '' ? null : Number(e.target.value) })} />
++            <input key={s.actual_cost ?? 'none'} type="number" inputMode="numeric" placeholder="Thực tế (đ)" defaultValue={s.actual_cost ?? ''} onBlur={e => upd(s.id, { actual_cost: e.target.value === '' ? null : Number(e.target.value) })} />
+             <select aria-label="Ai trả" value={s.paid_by ?? ''} onChange={e => upd(s.id, { paid_by: e.target.value || null })}>
+               <option value="">Ai trả?</option><option value={me.id}>Bạn</option>{partner && <option value={partner.id}>{pn}</option>}
+             </select>
++            <button className="pill" style={{ flex: 'none' }} onClick={() => startEdit(s)}>Sửa</button>
+             <button className="pill" style={{ flex: 'none' }} onClick={() => del(s.id)}>Xóa</button>
+           </div>
+         </div>
+       </div>)}
+-      {add ? <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+-        <b>Điểm dừng mới (ngày {day})</b>
+-        {wish.length > 0 && <select style={{ maxWidth: 'none' }} defaultValue="" onChange={e => fromWish(e.target.value)}><option value="">Chọn từ quán muốn thử</option>{wish.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>}
++      {add ? <div id="stop-form" className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++        <b>{editId ? 'Sửa điểm dừng' : `Điểm dừng mới (ngày ${day})`}</b>
++        {editId && <label className="s">Ngày<select value={f.day} onChange={e => setF({ ...f, day: Number(e.target.value) })} style={{ maxWidth: 'none' }}>{Array.from({ length: Math.max(nDays, f.day) }, (_, i) => <option key={i} value={i + 1}>Ngày {i + 1}</option>)}</select></label>}
++        {!editId && wish.length > 0 && <select style={{ maxWidth: 'none' }} defaultValue="" onChange={e => fromWish(e.target.value)}><option value="">Chọn từ quán muốn thử</option>{wish.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>}
+         <input placeholder="Tên, ví dụ: Quán lẩu gà lá é" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
+-        <input type="time" value={f.time} onChange={e => setF({ ...f, time: e.target.value })} />
++        <label className="s">Giờ bắt đầu<input type="time" value={f.time} onChange={e => setF({ ...f, time: e.target.value })} /></label>
++        <label className="s">Giờ kết thúc (không bắt buộc)<input type="time" value={f.end} onChange={e => setF({ ...f, end: e.target.value })} /></label>
+         <select value={f.type} onChange={e => setF({ ...f, type: e.target.value })} style={{ maxWidth: 'none' }}>{TY.map(t => <option key={t}>{t}</option>)}</select>
+         <input type="number" inputMode="numeric" placeholder="Chi phí dự kiến (đ)" value={f.est} onChange={e => setF({ ...f, est: e.target.value })} />
+         <input placeholder="Địa chỉ" value={f.address} onChange={e => setF({ ...f, address: e.target.value })} />
+@@ -165,8 +211,9 @@ export default function PlanPage() {
+         <input type="tel" placeholder="Số điện thoại" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} />
+         <input placeholder="Link review" value={f.review} onChange={e => setF({ ...f, review: e.target.value })} />
+         <textarea rows={2} placeholder="Ghi chú" value={f.note} onChange={e => setF({ ...f, note: e.target.value })} />
+-        <button className="btn" onClick={addStop}>Thêm điểm dừng</button>
+-      </div> : <button className="btn" onClick={() => setAdd(true)}>+ Thêm điểm dừng</button>}
++        <button className="btn" onClick={saveStop}>{editId ? 'Lưu điểm dừng' : 'Thêm điểm dừng'}</button>
++        {editId && <button className="pill" onClick={cancelStop}>Hủy sửa</button>}
++      </div> : <button className="btn" onClick={() => { setF({ ...empty, day }); setAdd(true) }}>+ Thêm điểm dừng</button>}
+       <div className="k"><b>Chuẩn bị</b>
+         {items.map(c => <div key={c.id} className="row" style={{ margin: '6px 0' }}>
+           <label className="row" style={{ justifyContent: 'flex-start' }}><input type="checkbox" style={{ width: 22, flex: 'none' }} checked={c.done} onChange={async e => { await ok(sb.from('checklist_items').update({ done: e.target.checked }).eq('id', c.id)); load() }} /><span style={{ textDecoration: c.done ? 'line-through' : 'none' }}>{c.text}</span></label>
+diff --git a/app/(app)/plan/wishlist/page.tsx b/app/(app)/plan/wishlist/page.tsx
+index c921917..c6ced03 100644
+--- a/app/(app)/plan/wishlist/page.tsx
++++ b/app/(app)/plan/wishlist/page.tsx
+@@ -65,8 +65,10 @@ export default function Wishlist() {
+             <button className={`pill ${w.visited ? 'on' : ''}`} onClick={() => toggleVisited(w)}>{w.visited ? 'Đã đến' : 'Chưa đến'}</button>
+             {w.visited && <button className="pill on" onClick={() => setRev(w)}>{w.review || ph.length ? 'Sửa đánh giá / ảnh' : 'Viết đánh giá, thêm ảnh'}</button>}
+             <button className="pill" onClick={async () => {
++              // T10: xóa tệp ảnh trước (policy Storage còn thấy dòng tham chiếu nên người không phải chủ tệp cũng xóa được), rồi mới xóa quán
++              const files = Array.from(new Set(ph.flatMap((m: any) => [m.path, m.thumb_path]).filter(Boolean))) as string[]
++              if (files.length) { const { error } = await sb.storage.from('media').remove(files); if (error) return alert('Không xóa được ảnh của quán: ' + error.message) }
+               if (!await ok(sb.from('wishlist_places').delete().eq('id', w.id), 'Không xóa được')) return
+-              const files = ph.flatMap((m: any) => [m.path, m.thumb_path].filter(Boolean)); if (files.length) sb.storage.from('media').remove(files)   // dọn tệp ảnh của quán đã xóa
+               load()
+             }}>Xóa</button>
+           </div>
+diff --git a/components/DiaryForm.tsx b/components/DiaryForm.tsx
+index 2d9f39e..641234f 100644
+--- a/components/DiaryForm.tsx
++++ b/components/DiaryForm.tsx
+@@ -1,7 +1,7 @@
+ 'use client'
+ import { useEffect, useRef, useState } from 'react'
+ import { sb } from '@/lib/supabase'
+-import { MAX_IMG, MB, localDay, processImage, sign, uploadBlob } from '@/lib/media'
++import { MAX_IMG, MB, localDay, processImage, sign, uploadBlob, dropMedia } from '@/lib/media'
+ 
+ export const MOOD = ['😍', '🥰', '😊', '😴', '😢', '😡']
+ export const DIARY_MAX_PHOTOS = 10   // khớp trigger diary_media_limit trong phase7.sql
+@@ -88,11 +88,10 @@ export default function DiaryForm({ space, entry, moments, plans, onClose, onDon
+         if (error || !data) return alert('Không lưu được nhật ký: ' + (error?.message ?? ''))
+         savedId.current = data.id
+       }
+-      // gỡ ảnh cũ đã bỏ (xóa dòng trước, tệp sau)
++      // gỡ ảnh cũ đã bỏ (xóa tệp trước, dòng sau)
+       if (gone.length) {
+         const rm = old.filter((m: any) => gone.includes(m.id))
+-        const { error } = await sb.from('diary_media').delete().in('id', gone)
+-        if (!error) { sb.storage.from('media').remove(rm.flatMap((m: any) => [m.path, m.thumb_path].filter(Boolean))); setOld(o => o.filter((m: any) => !gone.includes(m.id))); setGone([]) }
++        if (await dropMedia('diary_media', rm)) { setOld(o => o.filter((m: any) => !gone.includes(m.id))); setGone([]) }
+       }
+       // tải ảnh mới lên lần lượt; ảnh nào xong rồi thì bỏ qua (cho phép thử lại ảnh lỗi)
+       let sort = Math.max(-1, ...old.map((m: any) => m.sort)) + 1, fail = 0
+diff --git a/components/MomentForm.tsx b/components/MomentForm.tsx
+index 1babcc7..0a207d2 100644
+--- a/components/MomentForm.tsx
++++ b/components/MomentForm.tsx
+@@ -1,7 +1,7 @@
+ 'use client'
+ import { useEffect, useMemo, useRef, useState } from 'react'
+ import { sb } from '@/lib/supabase'
+-import { MAX_FILES, MAX_IMG, MAX_VIDEO, MAX_VIDEO_SEC, MB, TAGS, TAG_EMOJI, localDay, probeVideo, processImage, readExif, reverse, sign, uploadBlob } from '@/lib/media'
++import { MAX_FILES, MAX_IMG, MAX_VIDEO, MAX_VIDEO_SEC, MB, TAGS, TAG_EMOJI, localDay, probeVideo, processImage, readExif, reverse, sign, uploadBlob, dropMedia } from '@/lib/media'
+ import PlacePicker from '@/components/PlacePicker'
+ import { todayStr } from '@/lib/profile'
+ 
+@@ -134,8 +134,7 @@ export default function MomentForm({ space, moment, plans, albums, onClose, onDo
+       // xóa tệp cũ đã bỏ
+       if (gone.length) {
+         const rm = old.filter((m: any) => gone.includes(m.id))
+-        const { error } = await sb.from('media').delete().in('id', gone)
+-        if (!error) { sb.storage.from('media').remove(rm.flatMap((m: any) => [m.path, m.thumb_path].filter(Boolean))); setOld(o => o.filter((m: any) => !gone.includes(m.id))); setGone([]) }
++        if (await dropMedia('media', rm)) { setOld(o => o.filter((m: any) => !gone.includes(m.id))); setGone([]) }
+       }
+       // tải tệp mới lên, lần lượt từng tệp, tệp nào xong rồi thì bỏ qua (cho phép thử lại tệp lỗi)
+       let sort = Math.max(-1, ...old.map((m: any) => m.sort)) + 1, fail = 0
+diff --git a/components/MomentView.tsx b/components/MomentView.tsx
+index e53a234..1dba361 100644
+--- a/components/MomentView.tsx
++++ b/components/MomentView.tsx
+@@ -1,5 +1,5 @@
+ 'use client'
+-import { useCallback, useEffect, useState } from 'react'
++import { useCallback, useEffect, useRef, useState } from 'react'
+ import Link from 'next/link'
+ import { sb } from '@/lib/supabase'
+ import { sign, TAG_EMOJI } from '@/lib/media'
+@@ -18,6 +18,17 @@ export default function MomentView({ m, me, partner, plan, albumNames, onClose,
+   const name = (id: string) => id === me.id ? 'Mình' : partner?.display_name ?? 'Người ấy'
+ 
+   useEffect(() => { sign(media.flatMap((x: any) => [x.path, x.thumb_path])).then(setUrl) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [m.id])
++  // T13: link ký sống 5 phút nên để mở lâu rồi mới bấm thì đã chết. Ký lại lúc bấm xem ảnh lớn/video (TTL 1 giờ),
++  // và ký lại khi ảnh nhỏ báo lỗi (tối đa một lần mỗi 20 giây để không lặp vô hạn).
++  const lastFix = useRef(0)
++  const allPaths = () => media.flatMap((x: any) => [x.path, x.thumb_path])
++  const refresh = async () => { if (Date.now() - lastFix.current < 20000) return; lastFix.current = Date.now(); setUrl(await sign(allPaths(), 300, true)) }
++  const openLb = async (x: any) => {
++    const u = await sign(media.map((m: any) => m.path), 3600, true)
++    setUrl(a => ({ ...a, ...u }))
++    const k = media.filter((m: any) => u[m.path]).findIndex((m: any) => m.id === x.id)
++    if (k >= 0) setLb(k)
++  }
+   const load = useCallback(async () => {
+     const [h, c] = await Promise.all([
+       sb.from('moment_hearts').select('user_id').eq('moment_id', m.id),
+@@ -54,8 +65,8 @@ export default function MomentView({ m, me, partner, plan, albumNames, onClose,
+     {media.length > 0 && <div className="mgrid" style={{ gridTemplateColumns: media.length === 1 ? '1fr' : 'repeat(3,1fr)' }}>
+       {media.map((x: any, i: number) => {
+         const t = url[x.thumb_path ?? (x.kind === 'image' ? x.path : '')]
+-        return <button key={x.id} className="th" onClick={() => url[x.path] && setLb(lbItems.findIndex((l: any) => l.url === url[x.path]))} aria-label={`Xem ${x.kind === 'video' ? 'video' : 'ảnh'} ${i + 1}`} style={media.length === 1 ? { aspectRatio: '4/3' } : undefined}>
+-          {t ? <img src={t} alt="" /> : x.kind === 'video' ? '🎬' : '🖼️'}
++        return <button key={x.id} className="th" onClick={() => openLb(x)} aria-label={`Xem ${x.kind === 'video' ? 'video' : 'ảnh'} ${i + 1}`} style={media.length === 1 ? { aspectRatio: '4/3' } : undefined}>
++          {t ? <img src={t} alt="" onError={refresh} /> : x.kind === 'video' ? '🎬' : '🖼️'}
+           {x.kind === 'video' && t && <span style={{ position: 'absolute', fontSize: 34 }}>▶️</span>}
+         </button>
+       })}
+diff --git a/components/PlaceReview.tsx b/components/PlaceReview.tsx
+index ed066ea..3f83ceb 100644
+--- a/components/PlaceReview.tsx
++++ b/components/PlaceReview.tsx
+@@ -1,7 +1,7 @@
+ 'use client'
+ import { useEffect, useRef, useState } from 'react'
+ import { sb } from '@/lib/supabase'
+-import { MAX_IMG, MB, localDay, processImage, sign, uploadBlob } from '@/lib/media'
++import { MAX_IMG, MB, localDay, processImage, sign, uploadBlob, dropMedia } from '@/lib/media'
+ 
+ export const PLACE_MAX_PHOTOS = 10   // khớp trigger wishlist_media_limit trong phase9.sql
+ 
+@@ -74,11 +74,10 @@ export default function PlaceReview({ space, place, onClose, onDone }: {
+         visited: true, stars: f.stars || null, review: f.review.trim() || null, visited_on: f.date || today,
+       }).eq('id', place.id)
+       if (error) return alert('Không lưu được đánh giá: ' + error.message)
+-      // gỡ ảnh cũ đã bỏ (xóa dòng trước, tệp sau)
++      // gỡ ảnh cũ đã bỏ (xóa tệp trước, dòng sau)
+       if (gone.length) {
+         const rm = old.filter((m: any) => gone.includes(m.id))
+-        const { error } = await sb.from('wishlist_media').delete().in('id', gone)
+-        if (!error) { sb.storage.from('media').remove(rm.flatMap((m: any) => [m.path, m.thumb_path].filter(Boolean))); setOld(o => o.filter((m: any) => !gone.includes(m.id))); setGone([]) }
++        if (await dropMedia('wishlist_media', rm)) { setOld(o => o.filter((m: any) => !gone.includes(m.id))); setGone([]) }
+       }
+       // tải ảnh mới lên lần lượt; ảnh nào xong rồi thì bỏ qua (cho phép thử lại ảnh lỗi)
+       let sort = Math.max(-1, ...old.map((m: any) => m.sort)) + 1, fail = 0
+diff --git a/lib/media.ts b/lib/media.ts
+index cd81781..9979e03 100644
+--- a/lib/media.ts
++++ b/lib/media.ts
+@@ -131,11 +131,12 @@ export const uploadBlob = (path: string, b: Blob, type: string, onP: (p: number)
+ 
+ // ---------- Link ký có thời hạn, có nhớ tạm (NFR-02) ----------
+ const cache = new Map<string, { u: string; exp: number }>()
+-export async function sign(paths: (string | null | undefined)[], ttl = 300): Promise<Record<string, string>> {
++// fresh = true: bỏ qua bộ nhớ tạm, ký lại ngay (T13: ký lúc người dùng bấm xem ảnh lớn/video, kèm TTL dài hơn)
++export async function sign(paths: (string | null | undefined)[], ttl = 300, fresh = false): Promise<Record<string, string>> {
+   const { data: { session } } = await sb.auth.getSession()
+   const cacheScope = session?.user.id ?? 'anon'
+   const want = Array.from(new Set(paths.filter(Boolean) as string[])), out: Record<string, string> = {}, now = Date.now(), miss: string[] = []
+-  for (const p of want) { const c = cache.get(`${cacheScope}:${p}`); if (c && c.exp > now + 60000) out[p] = c.u; else miss.push(p) }
++  for (const p of want) { const c = fresh ? undefined : cache.get(`${cacheScope}:${p}`); if (c && c.exp > now + 60000) out[p] = c.u; else miss.push(p) }
+   if (miss.length) {
+     const { data } = await sb.storage.from('media').createSignedUrls(miss, ttl)
+     for (const x of data ?? []) if (x.path && x.signedUrl) { out[x.path] = x.signedUrl; cache.set(`${cacheScope}:${x.path}`, { u: x.signedUrl, exp: now + ttl * 1000 }) }
+@@ -144,21 +145,31 @@ export async function sign(paths: (string | null | undefined)[], ttl = 300): Pro
+ }
+ 
+ // ---------- Nén zip để tải về (MOM-09) ----------
++// T14: mọi chunk của một zip nằm trong RAM cho tới khi lưu, nên chia thành nhiều tệp, mỗi phần tối đa ZIP_PART_BYTES
++// (máy yếu như Oppo F5 có thể sập tab nếu gom vài trăm MB vào một Blob). Chỉ có một phần thì giữ nguyên tên tệp.
++export const ZIP_PART_BYTES = 250 * 1048576
+ export async function zipDownload(files: { name: string; path: string }[], zipName: string, onP: (done: number, total: number) => void) {
+-  const urls = await sign(files.map(f => f.path), 3600 * 2), chunks: BlobPart[] = []
+-  let fail: Error | null = null
+-  const zip = new Zip((err, chunk) => { if (err) fail = err; else chunks.push(chunk) })
+-  let n = 0
+-  for (const f of files) {
+-    const u = urls[f.path]; if (!u) { n++; continue }
++  const urls = await sign(files.map(f => f.path), 3600 * 2)
++  let chunks: BlobPart[] = [], bytes = 0, part = 0, fail: Error | null = null, zip: Zip
++  const fresh = () => { chunks = []; bytes = 0; zip = new Zip((err, chunk) => { if (err) fail = err; else chunks.push(chunk) }) }
++  const save = (multi: boolean) => {
++    zip.end()
++    if (fail) throw fail
++    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type: 'application/zip' }))
++    a.download = multi ? zipName.replace(/\.zip$/i, '') + `-phan-${++part}.zip` : zipName
++    document.body.appendChild(a); a.click(); a.remove(); const href = a.href; setTimeout(() => URL.revokeObjectURL(href), 60000)
++  }
++  fresh()
++  let n = 0, saved = false
++  for (let i = 0; i < files.length; i++) {
++    const f = files[i], u = urls[f.path]; if (!u) { n++; continue }
+     const r = await fetch(u); if (!r.ok) throw new Error(`Không tải được ${f.name}`)
+-    const e = new ZipPassThrough(f.name); zip.add(e); e.push(new Uint8Array(await r.arrayBuffer()), true)   // ảnh/video đã nén sẵn, không nén lại
+-    onP(++n, files.length)
++    const buf = new Uint8Array(await r.arrayBuffer())
++    const e = new ZipPassThrough(f.name); zip!.add(e); e.push(buf, true)   // ảnh/video đã nén sẵn, không nén lại
++    bytes += buf.byteLength; onP(++n, files.length)
++    if (bytes >= ZIP_PART_BYTES && i < files.length - 1) { save(true); saved = true; await new Promise(res => setTimeout(res, 800)); fresh() }   // còn tệp: lưu phần này, sang phần mới
+   }
+-  zip.end()
+-  if (fail) throw fail
+-  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type: 'application/zip' })); a.download = zipName
+-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000)
++  if (bytes > 0 || !saved) save(saved)
+ }
+ 
+ // ---------- Tìm địa điểm bằng OpenStreetMap Nominatim (MOM-01) ----------
+@@ -178,3 +189,18 @@ export async function reverse(lat: number, lng: number): Promise<string> {
+ 
+ export const TAGS = ['Vui vẻ', 'Ngọt ngào', 'Háo hức', 'Bình yên', 'Nhớ mãi', 'Cười xỉu', 'Xúc động', 'Hơi mệt']
+ export const TAG_EMOJI: Record<string, string> = { 'Vui vẻ': '😆', 'Ngọt ngào': '🥰', 'Háo hức': '🤩', 'Bình yên': '😌', 'Nhớ mãi': '🥹', 'Cười xỉu': '🤣', 'Xúc động': '😭', 'Hơi mệt': '😴' }
++
++// T10: gỡ tệp đính kèm theo đúng thứ tự "xóa tệp trước, xóa dòng sau". Policy xóa Storage (phase17/19) chỉ cho người không phải
++// chủ tệp xóa khi tệp CÒN được dòng dữ liệu tham chiếu; xóa dòng trước thì ảnh do người kia tải lên bị từ chối và mồ côi trong Storage.
++// Trả về true khi cả tệp lẫn dòng đã xóa; lỗi thì báo người dùng và không xóa dòng (ảnh vẫn còn nguyên, thử lại được).
++export async function dropMedia(table: 'media' | 'diary_media' | 'wishlist_media', rows: { id: string; path?: string | null; thumb_path?: string | null }[]): Promise<boolean> {
++  if (!rows.length) return true
++  const paths = Array.from(new Set(rows.flatMap(m => [m.path, m.thumb_path]).filter((x): x is string => !!x)))
++  if (paths.length) {
++    const { error } = await sb.storage.from('media').remove(paths)
++    if (error) { alert('Không xóa được tệp ảnh: ' + error.message); return false }
++  }
++  const { error } = await sb.from(table).delete().in('id', rows.map(r => r.id))
++  if (error) { alert('Không xóa được: ' + error.message); return false }
++  return true
++}
+diff --git a/supabase/functions/README.md b/supabase/functions/README.md
+index 3782ec4..24504be 100644
+--- a/supabase/functions/README.md
++++ b/supabase/functions/README.md
+@@ -1,5 +1,7 @@
+ # Thông báo đẩy (Web Push): CHAT-04, CALL-05, ANNIV-04
+ 
++Cuộc gọi khi app đóng (CALL-05) cần thêm `supabase/phase21.sql`: thông báo đẩy mở app, rồi app hỏi bảng `calls` để hiện cuộc gọi đang đổ chuông.
++
+ Phần này **chưa được chạy thử trên Supabase thật**; làm theo từng bước và thử bằng hai máy.
+ 
+ 1. Tạo khóa VAPID (một lần): `npx web-push generate-vapid-keys`
+@@ -16,5 +18,6 @@ Phần này **chưa được chạy thử trên Supabase thật**; làm theo t
+        headers := jsonb_build_object('Authorization', 'Bearer <SERVICE_ROLE_KEY>', 'Content-Type', 'application/json'),
+        body := '{}'::jsonb) $$);
+    ```
+-   (Khóa service_role chỉ dán vào SQL Editor, không đưa vào mã nguồn.)
++   (Khóa service_role chỉ dán vào SQL Editor, không đưa vào mã nguồn. Hàm `anniversary` từ chối mọi lời gọi không mang đúng khóa này, nên anon key trong trình duyệt không kích hoạt được nó.)
++   Nhắc ngày đặc biệt: đúng ngày, trước 1 ngày và trước 7 ngày; có cả kỷ niệm tháng.
+ 6. Mỗi người mở **Cài đặt > Bật thông báo** trên máy của mình. iPhone: phải "Thêm vào Màn hình chính" trước, iOS 16.4 trở lên.
+diff --git a/supabase/phase22.sql b/supabase/phase22.sql
+new file mode 100644
+index 0000000..a868345
+--- /dev/null
++++ b/supabase/phase22.sql
+@@ -0,0 +1,164 @@
++-- Giai đoạn 22: sửa lỗi T11(b) - Bản đồ Kỷ niệm gửi toàn bộ đường đi (tối đa 6000 điểm) lặp ở cả hai dòng của một hành trình.
++-- Chạy SAU phase21.sql. Có thể chạy lại an toàn. Chỉ đổi memory_places: dòng điểm cuối không còn mang journey_path
++-- (app chỉ cần đường đi từ dòng điểm đầu).
++
++create or replace function memory_places(p_from date default null, p_to date default null)
++returns table(
++  source text,
++  title text,
++  lat double precision,
++  lng double precision,
++  visited_on date,
++  ref_id uuid,
++  kind text,
++  is_private boolean,
++  author uuid,
++  journey_path jsonb,
++  is_start_point boolean
++)
++language sql stable security invoker set search_path = public as $$
++  -- Moment: có lat/lng hoặc đã điền bù từ ảnh
++  select
++    'moment'::text as source,
++    m.title,
++    m.lat,
++    m.lng,
++    m.taken_on as visited_on,
++    m.id as ref_id,
++    'moment'::text as kind,
++    false as is_private,
++    m.author,
++    null::jsonb as journey_path,
++    null::boolean as is_start_point
++  from moments m
++  where m.space_id = my_space()
++    and m.deleted_at is null
++    and m.lat is not null and m.lng is not null
++    and (p_from is null or m.taken_on >= p_from)
++    and (p_to is null or m.taken_on <= p_to)
++
++  union all
++
++  -- Nhật ký: có địa điểm thông qua moment_id hoặc plan_id (lấy từ stop của plan)
++  select
++    'journal'::text as source,
++    coalesce(nullif(trim(e.title),''), 'Nhật ký') as title,
++    coalesce(m.lat, s.lat) as lat,
++    coalesce(m.lng, s.lng) as lng,
++    e.entry_date as visited_on,
++    e.id as ref_id,
++    'journal'::text as kind,
++    e.is_private as is_private,
++    e.author,
++    null::jsonb as journey_path,
++    null::boolean as is_start_point
++  from diary_entries e
++  left join moments m on e.moment_id = m.id
++  left join plans p on e.plan_id = p.id
++  left join lateral (
++    select lat, lng from stops
++    where plan_id = p.id and lat is not null and lng is not null
++    order by sort asc
++    limit 1
++  ) s on true
++  where e.space_id = my_space()
++    and coalesce(m.lat, s.lat) is not null
++    and coalesce(m.lng, s.lng) is not null
++    and (p_from is null or e.entry_date >= p_from)
++    and (p_to is null or e.entry_date <= p_to)
++
++  union all
++
++  -- Plan: đã chốt và đã qua end_date, lấy toạ độ từ stop đầu tiên có lat/lng
++  select
++    'plan'::text as source,
++    p.name as title,
++    s.lat,
++    s.lng,
++    p.end_date as visited_on,
++    p.id as ref_id,
++    'plan'::text as kind,
++    false as is_private,
++    null::uuid as author,
++    null::jsonb as journey_path,
++    null::boolean as is_start_point
++  from plans p
++  join lateral (
++    select lat, lng from stops
++    where plan_id = p.id and lat is not null and lng is not null
++    order by sort asc
++    limit 1
++  ) s on true
++  where p.space_id = my_space()
++    and p.end_date is not null
++    and (
++      p.status = 'Đã đi'
++      or (
++        p.status = 'Đã chốt'
++        and p.end_date <= (now() at time zone 'Asia/Ho_Chi_Minh')::date
++      )
++    )
++    and (p_from is null or p.end_date >= p_from)
++    and (p_to is null or p.end_date <= p_to)
++
++  union all
++
++  -- Hành trình ghi lại: chỉ những chuyến đã chia sẻ (shared=true) hoặc là chủ sở hữu
++  -- Trả về: điểm đầu, điểm cuối, VÀ toàn bộ đường đi (dùng cho FR-14 thay đường nối thẳng)
++  select
++    'journey'::text as source,
++    t.name || ' (điểm đầu)' as title,
++    (lh.points->0->>'lat')::double precision as lat,
++    (lh.points->0->>'lng')::double precision as lng,
++    t.started_at::date as visited_on,
++    t.id as ref_id,
++    'journey'::text as kind,
++    false as is_private,
++    t.user_id as author,
++    lh.points as journey_path,
++    true as is_start_point
++  from trips t
++  join lateral (
++    select jsonb_agg(jsonb_build_object('lat', lat, 'lng', lng) order by recorded_at) as points
++    from location_history
++    where trip_id = t.id
++  ) lh on true
++  where t.space_id = my_space()
++    and t.ended_at is not null
++    and (t.shared or t.user_id = auth.uid())
++    and jsonb_array_length(lh.points) > 0
++    and (p_from is null or t.started_at::date >= p_from)
++    and (p_to is null or t.started_at::date <= p_to)
++
++  union all
++
++  select
++    'journey'::text as source,
++    t.name || ' (điểm cuối)' as title,
++    (lh.points->(jsonb_array_length(lh.points)-1)->>'lat')::double precision as lat,
++    (lh.points->(jsonb_array_length(lh.points)-1)->>'lng')::double precision as lng,
++    t.ended_at::date as visited_on,
++    t.id as ref_id,
++    'journey'::text as kind,
++    false as is_private,
++    t.user_id as author,
++    null::jsonb as journey_path,   -- T11b: toàn bộ đường đi chỉ gửi một lần (ở dòng điểm đầu), không lặp ở điểm cuối
++    false as is_start_point
++  from trips t
++  join lateral (
++    select jsonb_agg(jsonb_build_object('lat', lat, 'lng', lng) order by recorded_at) as points
++    from location_history
++    where trip_id = t.id
++  ) lh on true
++  where t.space_id = my_space()
++    and t.ended_at is not null
++    and (t.shared or t.user_id = auth.uid())
++    and jsonb_array_length(lh.points) > 1
++    and (p_from is null or t.ended_at::date >= p_from)
++    and (p_to is null or t.ended_at::date <= p_to)
++
++  order by visited_on asc, kind;
++$$;
++
++revoke all on function memory_places(date, date) from public, anon;
++grant execute on function memory_places(date, date) to authenticated, service_role;
+diff --git a/supabase/phase23.sql b/supabase/phase23.sql
+new file mode 100644
+index 0000000..fda80ef
+--- /dev/null
++++ b/supabase/phase23.sql
+@@ -0,0 +1,18 @@
++-- Giai đoạn 23: sửa lỗi T15 (Kế hoạch) và L3 (bình chọn Thích/Không ghi đè nhau).
++-- Chạy SAU phase22.sql. Có thể chạy lại an toàn.
++
++-- T15 / PLAN-02: giờ kết thúc của điểm dừng (SRS có, schema chưa có cột).
++alter table stops add column if not exists end_time time;
++
++-- L3: trước đây app đọc cả cột likes rồi ghi đè toàn bộ, nên hai người bấm cùng lúc thì mất phiếu của một người.
++-- Hàm này chỉ ghi phiếu của chính người gọi (jsonb_set), qua RLS của stops nên chỉ thấy điểm dừng trong Space của mình.
++create or replace function set_stop_vote(p_stop uuid, p_vote integer) returns void
++language plpgsql security invoker set search_path = public as $$
++begin
++  if p_vote not in (-1, 0, 1) then raise exception 'Phiếu không hợp lệ'; end if;
++  update stops
++     set likes = jsonb_set(coalesce(likes, '{}'::jsonb), array[auth.uid()::text], to_jsonb(p_vote), true)
++   where id = p_stop and space_id = my_space();
++end $$;
++revoke all on function set_stop_vote(uuid, integer) from public, anon;
++grant execute on function set_stop_vote(uuid, integer) to authenticated;
+-- 
+2.43.0
+
