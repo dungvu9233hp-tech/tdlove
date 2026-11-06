@@ -1,0 +1,275 @@
+From e5616b10f019a53c3f31b25faeb8d98182eeba4d Mon Sep 17 00:00:00 2001
+From: claude <claude@example.com>
+Date: Fri, 6 Nov 2026 21:14:43 +0000
+Subject: [PATCH] =?UTF-8?q?fix:=20C1=20popup=20b=E1=BA=A3n=20=C4=91?=
+ =?UTF-8?q?=E1=BB=93=20tr=E1=BA=A3=20Element=20=C4=91=E1=BB=93ng=20b?=
+ =?UTF-8?q?=E1=BB=99;=20C2=20policy=20Storage=20cho=20plans.cover=5Fpath?=
+ =?UTF-8?q?=20(phase19)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ README.md              |   4 +
+ app/(app)/map/page.tsx |  43 +++++-----
+ supabase/phase19.sql   | 175 +++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 202 insertions(+), 20 deletions(-)
+ create mode 100644 supabase/phase19.sql
+
+diff --git a/README.md b/README.md
+index 6dcf940..8a6945e 100644
+--- a/README.md
++++ b/README.md
+@@ -154,3 +154,7 @@ Cách test với hai máy: máy A chọn nhân vật, máy B vào là thấy mì
+ - Ảnh upload mới được đặt dưới `space_id/user_id/...`. Quyền sửa/xóa đối chiếu `owner_id` của Storage, thư mục user và bản ghi metadata (khi còn tồn tại), nên vẫn hỗ trợ các tệp cũ và giữ nguyên thứ tự xóa hiện tại. Cache URL ký được tách theo user để không dùng nhầm URL giữa hai phiên đăng nhập trên cùng trình duyệt.
+ - Bản đồ Kỷ niệm hiển thị cả kế hoạch có trạng thái `Đã đi`, ngoài kế hoạch `Đã chốt` có ngày kết thúc đã qua.
+ - Cập nhật framework: Next.js `15.5.29`, React/React DOM `19.3.1` và typings React `19.3.0`. Sau khi áp dụng mã nguồn, chạy `npm install` để đồng bộ `package-lock.json`, rồi `npm run build`.
++
++## Vá C2: ảnh bìa kế hoạch (phase19)
++
++- Sau `supabase/phase18.sql`, chạy `supabase/phase19.sql` trong Supabase SQL Editor. Migration thêm điều kiện `plans.cover_path` vào policy đọc/sửa/xóa Storage để người còn lại xem được ảnh bìa kế hoạch. Có thể chạy lại an toàn.
+diff --git a/app/(app)/map/page.tsx b/app/(app)/map/page.tsx
+index ccec72c..fe8a3b9 100644
+--- a/app/(app)/map/page.tsx
++++ b/app/(app)/map/page.tsx
+@@ -318,15 +318,9 @@ export default function MapPage() {
+       }).addTo(memoryLayer.current)
+ 
+       // Popup
+-      marker.bindPopup(async () => {
+-        let thumbUrl = ''
+-        if (pin.source === 'moment') {
+-          const { data } = await sb.from('media').select('thumb_path').eq('moment_id', pin.ref_id).eq('kind', 'image').order('sort').limit(1)
+-          if (data?.[0]?.thumb_path) {
+-            const urls = await sign([data[0].thumb_path])
+-            thumbUrl = urls[data[0].thumb_path] || ''
+-          }
+-        }
++      // Leaflet gọi hàm này rồi appendChild kết quả nên PHẢI trả về Element đồng bộ (không phải Promise).
++      // Ảnh xem trước được tải sau rồi thay vào ô giữ chỗ.
++      marker.bindPopup(() => {
+         const sourceLabels: Record<string, string> = {
+           moment: '📷 Khoảnh khắc',
+           journal: '📓 Nhật ký',
+@@ -335,17 +329,26 @@ export default function MapPage() {
+         }
+         const box = document.createElement('div')
+         box.style.minWidth = '200px'
+-        if (thumbUrl) {
+-          const img = document.createElement('img')
+-          img.src = thumbUrl
+-          img.alt = ''
+-          img.style.cssText = 'width:100%;height:120px;object-fit:cover;border-radius:8px;margin-bottom:8px'
+-          box.appendChild(img)
+-        } else {
+-          const ph = document.createElement('div')
+-          ph.style.cssText = 'width:100%;height:120px;background:linear-gradient(135deg,'+START_COLOR+','+END_COLOR+');border-radius:8px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:24px'
+-          ph.textContent = '📍'
+-          box.appendChild(ph)
++        const ph = document.createElement('div')
++        ph.style.cssText = 'width:100%;height:120px;background:linear-gradient(135deg,'+START_COLOR+','+END_COLOR+');border-radius:8px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:24px'
++        ph.textContent = '📍'
++        box.appendChild(ph)
++        if (pin.source === 'moment') {
++          void (async () => {
++            try {
++              const { data } = await sb.from('media').select('thumb_path').eq('moment_id', pin.ref_id).eq('kind', 'image').order('sort').limit(1)
++              const tp = data?.[0]?.thumb_path
++              if (!tp) return
++              const urls = await sign([tp])
++              const url = urls[tp]
++              if (!url || !ph.isConnected) return
++              const img = document.createElement('img')
++              img.src = url
++              img.alt = ''
++              img.style.cssText = 'width:100%;height:120px;object-fit:cover;border-radius:8px;margin-bottom:8px'
++              ph.replaceWith(img)
++            } catch { /* giữ ô giữ chỗ nếu tải ảnh lỗi */ }
++          })()
+         }
+         const title = document.createElement('b')
+         title.textContent = pin.title
+diff --git a/supabase/phase19.sql b/supabase/phase19.sql
+new file mode 100644
+index 0000000..92525ff
+--- /dev/null
++++ b/supabase/phase19.sql
+@@ -0,0 +1,175 @@
++-- Giai đoạn 19: sửa lỗi C2 - người kia không xem được ảnh bìa kế hoạch.
++-- Chạy SAU phase18.sql. Có thể chạy lại an toàn.
++--
++-- Nguyên nhân: policy đọc/sửa/xóa Storage ở phase17.sql không tham chiếu plans.cover_path,
++-- nên chỉ người tải ảnh bìa lên thấy được (người kia nhận 403, ô bìa trống).
++-- Cách sửa: thêm điều kiện plans.cover_path = name vào cả ba nhóm policy.
++
++drop policy if exists media_read_visible on storage.objects;
++drop policy if exists media_update_owned on storage.objects;
++drop policy if exists media_delete_owned on storage.objects;
++
++create policy media_read_visible on storage.objects
++for select to authenticated
++using (
++  bucket_id = 'media'
++  and (
++    owner_id = auth.uid()::text
++    or exists (
++      select 1 from public.media md
++      where md.space_id = my_space()
++        and name in (md.path, md.thumb_path)
++    )
++    or exists (
++      select 1 from public.diary_media dm
++      where dm.space_id = my_space()
++        and name in (dm.path, dm.thumb_path)
++    )
++    or exists (
++      select 1 from public.wishlist_media wm
++      where wm.space_id = my_space()
++        and name in (wm.path, wm.thumb_path)
++    )
++    or exists (
++      select 1 from public.messages msg
++      where msg.space_id = my_space() and msg.media_path = name
++    )
++    or exists (
++      select 1 from public.moments m
++      where m.space_id = my_space() and name = any(m.photos)
++    )
++    or exists (
++      select 1 from public.plans pl
++      where pl.space_id = my_space() and pl.cover_path = name
++    )
++    or exists (
++      select 1 from public.profiles p
++      where p.space_id = my_space() and p.avatar_url = name
++    )
++  )
++);
++
++-- Cho sửa/xóa tệp của chính user (kể cả tệp mới upload chưa gắn metadata),
++-- hoặc tệp đang thuộc bản ghi mà caller có quyền quản lý.
++create policy media_update_owned on storage.objects
++for update to authenticated
++using (
++  bucket_id = 'media'
++  and (storage.foldername(name))[1] = my_space()::text
++  and (
++    owner_id = auth.uid()::text
++    or coalesce((storage.foldername(name))[2], '') = auth.uid()::text
++    or exists (
++      select 1 from public.media md
++      where md.space_id = my_space()
++        and name in (md.path, md.thumb_path)
++    )
++    or exists (
++      select 1 from public.diary_media dm
++      join public.diary_entries de on de.id = dm.entry_id
++      where dm.space_id = my_space() and de.author = auth.uid()
++        and name in (dm.path, dm.thumb_path)
++    )
++    or exists (
++      select 1 from public.wishlist_media wm
++      where wm.space_id = my_space() and name in (wm.path, wm.thumb_path)
++    )
++    or exists (
++      select 1 from public.messages msg
++      where msg.space_id = my_space() and msg.sender = auth.uid() and msg.media_path = name
++    )
++    or exists (
++      select 1 from public.moments m
++      where m.space_id = my_space() and name = any(m.photos)
++    )
++    or exists (
++      select 1 from public.plans pl
++      where pl.space_id = my_space() and pl.cover_path = name
++    )
++    or exists (
++      select 1 from public.profiles p
++      where p.id = auth.uid() and p.avatar_url = name
++    )
++  )
++)
++with check (
++  bucket_id = 'media'
++  and (storage.foldername(name))[1] = my_space()::text
++  and (
++    owner_id = auth.uid()::text
++    or coalesce((storage.foldername(name))[2], '') = auth.uid()::text
++    or exists (
++      select 1 from public.media md
++      where md.space_id = my_space()
++        and name in (md.path, md.thumb_path)
++    )
++    or exists (
++      select 1 from public.diary_media dm
++      join public.diary_entries de on de.id = dm.entry_id
++      where dm.space_id = my_space() and de.author = auth.uid()
++        and name in (dm.path, dm.thumb_path)
++    )
++    or exists (
++      select 1 from public.wishlist_media wm
++      where wm.space_id = my_space() and name in (wm.path, wm.thumb_path)
++    )
++    or exists (
++      select 1 from public.messages msg
++      where msg.space_id = my_space() and msg.sender = auth.uid() and msg.media_path = name
++    )
++    or exists (
++      select 1 from public.moments m
++      where m.space_id = my_space() and name = any(m.photos)
++    )
++    or exists (
++      select 1 from public.plans pl
++      where pl.space_id = my_space() and pl.cover_path = name
++    )
++    or exists (
++      select 1 from public.profiles p
++      where p.id = auth.uid() and p.avatar_url = name
++    )
++  )
++);
++
++create policy media_delete_owned on storage.objects
++for delete to authenticated
++using (
++  bucket_id = 'media'
++  and (storage.foldername(name))[1] = my_space()::text
++  and (
++    owner_id = auth.uid()::text
++    or coalesce((storage.foldername(name))[2], '') = auth.uid()::text
++    or exists (
++      select 1 from public.media md
++      where md.space_id = my_space()
++        and name in (md.path, md.thumb_path)
++    )
++    or exists (
++      select 1 from public.diary_media dm
++      join public.diary_entries de on de.id = dm.entry_id
++      where dm.space_id = my_space() and de.author = auth.uid()
++        and name in (dm.path, dm.thumb_path)
++    )
++    or exists (
++      select 1 from public.wishlist_media wm
++      where wm.space_id = my_space() and name in (wm.path, wm.thumb_path)
++    )
++    or exists (
++      select 1 from public.messages msg
++      where msg.space_id = my_space() and msg.sender = auth.uid() and msg.media_path = name
++    )
++    or exists (
++      select 1 from public.moments m
++      where m.space_id = my_space() and name = any(m.photos)
++    )
++    or exists (
++      select 1 from public.plans pl
++      where pl.space_id = my_space() and pl.cover_path = name
++    )
++    or exists (
++      select 1 from public.profiles p
++      where p.id = auth.uid() and p.avatar_url = name
++    )
++  )
++);
+-- 
+2.43.0
+
