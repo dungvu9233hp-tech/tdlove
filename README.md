@@ -154,3 +154,7 @@ Cách test với hai máy: máy A chọn nhân vật, máy B vào là thấy mì
 - Ảnh upload mới được đặt dưới `space_id/user_id/...`. Quyền sửa/xóa đối chiếu `owner_id` của Storage, thư mục user và bản ghi metadata (khi còn tồn tại), nên vẫn hỗ trợ các tệp cũ và giữ nguyên thứ tự xóa hiện tại. Cache URL ký được tách theo user để không dùng nhầm URL giữa hai phiên đăng nhập trên cùng trình duyệt.
 - Bản đồ Kỷ niệm hiển thị cả kế hoạch có trạng thái `Đã đi`, ngoài kế hoạch `Đã chốt` có ngày kết thúc đã qua.
 - Cập nhật framework: Next.js `15.5.29`, React/React DOM `19.3.1` và typings React `19.3.0`. Sau khi áp dụng mã nguồn, chạy `npm install` để đồng bộ `package-lock.json`, rồi `npm run build`.
+
+## Vá C2: ảnh bìa kế hoạch (phase19)
+
+- Sau `supabase/phase18.sql`, chạy `supabase/phase19.sql` trong Supabase SQL Editor. Migration thêm điều kiện `plans.cover_path` vào policy đọc/sửa/xóa Storage để người còn lại xem được ảnh bìa kế hoạch. Có thể chạy lại an toàn.

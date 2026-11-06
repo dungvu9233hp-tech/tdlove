@@ -318,15 +318,9 @@ export default function MapPage() {
       }).addTo(memoryLayer.current)
 
       // Popup
-      marker.bindPopup(async () => {
-        let thumbUrl = ''
-        if (pin.source === 'moment') {
-          const { data } = await sb.from('media').select('thumb_path').eq('moment_id', pin.ref_id).eq('kind', 'image').order('sort').limit(1)
-          if (data?.[0]?.thumb_path) {
-            const urls = await sign([data[0].thumb_path])
-            thumbUrl = urls[data[0].thumb_path] || ''
-          }
-        }
+      // Leaflet gọi hàm này rồi appendChild kết quả nên PHẢI trả về Element đồng bộ (không phải Promise).
+      // Ảnh xem trước được tải sau rồi thay vào ô giữ chỗ.
+      marker.bindPopup(() => {
         const sourceLabels: Record<string, string> = {
           moment: '📷 Khoảnh khắc',
           journal: '📓 Nhật ký',
@@ -335,17 +329,26 @@ export default function MapPage() {
         }
         const box = document.createElement('div')
         box.style.minWidth = '200px'
-        if (thumbUrl) {
-          const img = document.createElement('img')
-          img.src = thumbUrl
-          img.alt = ''
-          img.style.cssText = 'width:100%;height:120px;object-fit:cover;border-radius:8px;margin-bottom:8px'
-          box.appendChild(img)
-        } else {
-          const ph = document.createElement('div')
-          ph.style.cssText = 'width:100%;height:120px;background:linear-gradient(135deg,'+START_COLOR+','+END_COLOR+');border-radius:8px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:24px'
-          ph.textContent = '📍'
-          box.appendChild(ph)
+        const ph = document.createElement('div')
+        ph.style.cssText = 'width:100%;height:120px;background:linear-gradient(135deg,'+START_COLOR+','+END_COLOR+');border-radius:8px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:24px'
+        ph.textContent = '📍'
+        box.appendChild(ph)
+        if (pin.source === 'moment') {
+          void (async () => {
+            try {
+              const { data } = await sb.from('media').select('thumb_path').eq('moment_id', pin.ref_id).eq('kind', 'image').order('sort').limit(1)
+              const tp = data?.[0]?.thumb_path
+              if (!tp) return
+              const urls = await sign([tp])
+              const url = urls[tp]
+              if (!url || !ph.isConnected) return
+              const img = document.createElement('img')
+              img.src = url
+              img.alt = ''
+              img.style.cssText = 'width:100%;height:120px;object-fit:cover;border-radius:8px;margin-bottom:8px'
+              ph.replaceWith(img)
+            } catch { /* giữ ô giữ chỗ nếu tải ảnh lỗi */ }
+          })()
         }
         const title = document.createElement('b')
         title.textContent = pin.title
