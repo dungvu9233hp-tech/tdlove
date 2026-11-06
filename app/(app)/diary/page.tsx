@@ -67,9 +67,18 @@ export default function Diary() {
   useEffect(() => { const t = setTimeout(() => setFlt(f => f.q === qIn ? f : { ...f, q: qIn }), 300); return () => clearTimeout(t) }, [qIn])
   // mở sẵn một tháng từ liên kết /diary?month=yyyy-mm (từ "Ngày này năm trước" ở Trang chủ)
   useEffect(() => {
-    const m = new URLSearchParams(location.search).get('month')
+    const q = new URLSearchParams(location.search), m = q.get('month'), o = q.get('open')
     if (m && /^\d{4}-(0[1-9]|1[0-2])$/.test(m)) setFlt(f => ({ ...f, month: m }))
+    if (o && /^[0-9a-f-]{36}$/i.test(o)) openId.current = o   // T11c: từ ghim "Mở nhật ký" trên Bản đồ Kỷ niệm: cuộn tới đúng bài
   }, [])
+  const openId = useRef<string | null>(null)
+  useEffect(() => {
+    const id = openId.current; if (!id) return
+    const el = document.getElementById('d-' + id); if (!el) return
+    openId.current = null
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    el.style.outline = '3px solid var(--ink)'; setTimeout(() => { el.style.outline = '' }, 2500)
+  }, [list])
 
   useEffect(() => {
     const el = sentinel.current; if (!el || !more) return
@@ -122,7 +131,7 @@ export default function Diary() {
 
       {list.map(e => {
         const mine = e.author === me.id, ms = (e.diary_media ?? []).slice().sort((a: any, b: any) => a.sort - b.sort)
-        return <div key={e.id} className={`k ${mine ? 'pk' : 'li'}`}>
+        return <div key={e.id} id={`d-${e.id}`} className={`k ${mine ? 'pk' : 'li'}`}>
           <div className="s">{new Date(e.entry_date).toLocaleDateString('vi-VN')}, {mine ? 'bạn viết' : `${partner?.display_name ?? 'Người ấy'} viết`} {e.mood}{e.is_private ? ' · 🔒 riêng tư' : ''}{e.updated_at ? ' · đã sửa' : ''}</div>
           {e.title && <b>{e.title}</b>}
           {e.body && <div style={{ whiteSpace: 'pre-wrap' }}>{e.body}</div>}

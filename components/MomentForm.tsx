@@ -1,8 +1,9 @@
 'use client'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { sb } from '@/lib/supabase'
-import { MAX_FILES, MAX_IMG, MAX_VIDEO, MAX_VIDEO_SEC, MB, TAGS, TAG_EMOJI, localDay, probeVideo, processImage, readExif, reverse, sign, uploadBlob } from '@/lib/media'
+import { MAX_FILES, MAX_IMG, MAX_VIDEO, MAX_VIDEO_SEC, MB, TAGS, TAG_EMOJI, localDay, probeVideo, processImage, readExif, reverse, sign, uploadBlob, dropMedia } from '@/lib/media'
 import PlacePicker from '@/components/PlacePicker'
+import { todayStr } from '@/lib/profile'
 
 type Item = { id: string; file: File; kind: 'image' | 'video'; url: string; status: 'ready' | 'up' | 'done' | 'err'; p: number; err?: string; meta: any }
 const uid = () => crypto.randomUUID()
@@ -12,7 +13,7 @@ export default function MomentForm({ space, moment, plans, albums, onClose, onDo
   space: any; moment?: any; plans: any[]; albums: any[]; onClose: () => void; onDone: () => void; onAlbumCreated: (a: any) => void
 }) {
   const edit = !!moment
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayStr()
   const [f, setF] = useState({
     title: moment?.title ?? '', desc: moment?.description ?? '', date: moment?.taken_on ?? localDay(new Date().toISOString()),
     place: moment?.place ?? '', lat: moment?.lat ?? null as number | null, lng: moment?.lng ?? null as number | null,
@@ -133,8 +134,7 @@ export default function MomentForm({ space, moment, plans, albums, onClose, onDo
       // xóa tệp cũ đã bỏ
       if (gone.length) {
         const rm = old.filter((m: any) => gone.includes(m.id))
-        const { error } = await sb.from('media').delete().in('id', gone)
-        if (!error) { sb.storage.from('media').remove(rm.flatMap((m: any) => [m.path, m.thumb_path].filter(Boolean))); setOld(o => o.filter((m: any) => !gone.includes(m.id))); setGone([]) }
+        if (await dropMedia('media', rm)) { setOld(o => o.filter((m: any) => !gone.includes(m.id))); setGone([]) }
       }
       // tải tệp mới lên, lần lượt từng tệp, tệp nào xong rồi thì bỏ qua (cho phép thử lại tệp lỗi)
       let sort = Math.max(-1, ...old.map((m: any) => m.sort)) + 1, fail = 0

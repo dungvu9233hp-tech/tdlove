@@ -1,7 +1,7 @@
 // Edge Function `anniversary`: nhắc ngày đặc biệt (ANNIV-04) và nhắc lại kỷ niệm "ngày này năm trước" (DIARY-02).
 // Hộp thời gian (CAPSULE-04): hộp đã tới ngày mở thì báo người nhận một lần (cột capsules.notified_at, cần phase12.sql).
 // Chạy mỗi sáng bằng pg_cron (xem README.md cùng thư mục). Cần đã chạy supabase/phase7.sql (hàm on_this_day).
-// Ngày đặc biệt: nhắc vào ngày đó và trước một ngày (ngày đặc biệt tự thêm, kỷ niệm tròn năm, các mốc 100/200/365... ngày).
+// Ngày đặc biệt: nhắc vào ngày đó, trước 1 ngày và trước 7 ngày (ngày đặc biệt tự thêm, kỷ niệm tháng/năm, các mốc 100/200/365... ngày).
 // Kỷ niệm: nhắc trong ngày, gồm nhật ký và Moment của đúng ngày này các năm trước.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import webpush from 'npm:web-push@3.6.7'
@@ -9,11 +9,23 @@ import webpush from 'npm:web-push@3.6.7'
 const MS = [100, 200, 300, 365, 400, 500, 600, 700, 730, 800, 900, 1000, 1500, 2000]
 const ymd = (d: Date) => d.toISOString().slice(0, 10)   // dùng UTC trên "ngày lịch" đã quy đổi sang giờ Việt Nam
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 864e5)
+const REMIND = [0, 1, 7]                                  // ANNIV-04: nhắc đúng ngày, trước 1 ngày và trước 7 ngày
+const lastDom = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
+// Ngày lặp hằng năm; 29/02 ở năm không nhuận được nhắc vào 28/02
+const sameYearly = (on: string, d: Date) => {
+  const m = +on.slice(5, 7), dd = +on.slice(8, 10)
+  return d.getUTCMonth() + 1 === m && d.getUTCDate() === Math.min(dd, lastDom(d))
+}
 const MAX_LINES = 3                                       // tối đa số dòng kỷ niệm hiện trong một thông báo
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
   const url = Deno.env.get('SUPABASE_URL')!
-  const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  // T8: anon key cũng là JWT hợp lệ và nằm sẵn trong mã trình duyệt, nên kiểm tra JWT của nền tảng là chưa đủ.
+  // Chỉ chấp nhận gọi bằng service_role (pg_cron trong README đã gửi khóa này).
+  const bearer = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
+  if (!serviceKey || bearer !== serviceKey) return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+  const admin = createClient(url, serviceKey)
   webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT')!, Deno.env.get('VAPID_PUBLIC_KEY')!, Deno.env.get('VAPID_PRIVATE_KEY')!)
   const vn = new Date(Date.now() + 7 * 36e5)                // giờ Việt Nam (UTC+7)
   const today = new Date(Date.UTC(vn.getUTCFullYear(), vn.getUTCMonth(), vn.getUTCDate()))
@@ -40,13 +52,17 @@ Deno.serve(async () => {
     if (!subs?.length) continue
     const { data: sd } = await admin.from('special_dates').select('name,on_date,yearly').eq('space_id', sp.id)
     const notes: string[] = []
-    for (const off of [0, 1]) {
-      const day = addDays(today, off), key = ymd(day), md = key.slice(5), when = off ? 'Ngày mai' : 'Hôm nay'
-      for (const s of sd ?? []) if (s.yearly ? s.on_date.slice(5) === md : s.on_date === key) notes.push(`${when}: ${s.name}`)
+    for (const off of REMIND) {
+      const day = addDays(today, off), key = ymd(day), when = off === 0 ? 'Hôm nay' : off === 1 ? 'Ngày mai' : `Còn ${off} ngày nữa`
+      for (const s of sd ?? []) if (s.yearly ? sameYearly(s.on_date, day) : s.on_date === key) notes.push(`${when}: ${s.name}`)
       if (sp.start_date) {
-        const n = Math.round((+day - +new Date(sp.start_date + 'T00:00:00Z')) / 864e5) + 1
+        const start = new Date(sp.start_date + 'T00:00:00Z')
+        const n = Math.round((+day - +start) / 864e5) + 1
         if (MS.includes(n)) notes.push(`${when}: ngày thứ ${n} bên nhau`)
-        if (sp.start_date.slice(5) === md && +day > +new Date(sp.start_date + 'T00:00:00Z')) notes.push(`${when}: kỷ niệm ${day.getUTCFullYear() - +sp.start_date.slice(0, 4)} năm yêu nhau`)
+        // Kỷ niệm tháng/năm: bắt đầu yêu ngày 29-31 thì kẹp về ngày cuối tháng (T3)
+        const dom = Math.min(start.getUTCDate(), lastDom(day))
+        const months = (day.getUTCFullYear() - start.getUTCFullYear()) * 12 + day.getUTCMonth() - start.getUTCMonth()
+        if (months > 0 && day.getUTCDate() === dom) notes.push(`${when}: kỷ niệm ${months % 12 ? `${months} tháng` : `${months / 12} năm`} yêu nhau`)
       }
     }
     if (notes.length) await push(subs, { kind: 'anniv', title: 'tdlove', body: notes.join('\n'), url: '/special', tag: 'anniv' })

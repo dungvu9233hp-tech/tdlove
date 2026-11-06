@@ -7,6 +7,7 @@ import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import Head from '@/components/Head'
 import { sign } from '@/lib/media'
+import { LOC_CHANGED } from '@/components/LocShare'
 import TripPanel, { type Route } from '@/components/TripPanel'
 import PlacePicker from '@/components/PlacePicker'
 import { loadPoints } from '@/lib/trip'
@@ -57,6 +58,8 @@ function addDays(date: Date, days: number): Date {
   return d
 }
 
+// T11d: ngày yyyy-mm-dd theo giờ máy (toISOString đổi sang UTC nên lệch 1 ngày ở Việt Nam)
+const ymdLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 function getChipDate(key: string, startDate: string | null): Date | null {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -200,8 +203,8 @@ export default function MapPage() {
       const to = new Date()
       to.setHours(23, 59, 59, 999)
       const { data, error } = await sb.rpc('memory_places', {
-        p_from: from?.toISOString().slice(0, 10) || null,
-        p_to: to.toISOString().slice(0, 10)
+        p_from: from ? ymdLocal(from) : null,
+        p_to: ymdLocal(to)
       })
       if (error) throw new Error(error.message)
       setMemories(data ?? [])
@@ -318,15 +321,9 @@ export default function MapPage() {
       }).addTo(memoryLayer.current)
 
       // Popup
-      marker.bindPopup(async () => {
-        let thumbUrl = ''
-        if (pin.source === 'moment') {
-          const { data } = await sb.from('media').select('thumb_path').eq('moment_id', pin.ref_id).eq('kind', 'image').order('sort').limit(1)
-          if (data?.[0]?.thumb_path) {
-            const urls = await sign([data[0].thumb_path])
-            thumbUrl = urls[data[0].thumb_path] || ''
-          }
-        }
+      // Leaflet gọi hàm này rồi appendChild kết quả nên PHẢI trả về Element đồng bộ (không phải Promise).
+      // Ảnh xem trước được tải sau rồi thay vào ô giữ chỗ.
+      marker.bindPopup(() => {
         const sourceLabels: Record<string, string> = {
           moment: '📷 Khoảnh khắc',
           journal: '📓 Nhật ký',
@@ -335,17 +332,26 @@ export default function MapPage() {
         }
         const box = document.createElement('div')
         box.style.minWidth = '200px'
-        if (thumbUrl) {
-          const img = document.createElement('img')
-          img.src = thumbUrl
-          img.alt = ''
-          img.style.cssText = 'width:100%;height:120px;object-fit:cover;border-radius:8px;margin-bottom:8px'
-          box.appendChild(img)
-        } else {
-          const ph = document.createElement('div')
-          ph.style.cssText = 'width:100%;height:120px;background:linear-gradient(135deg,'+START_COLOR+','+END_COLOR+');border-radius:8px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:24px'
-          ph.textContent = '📍'
-          box.appendChild(ph)
+        const ph = document.createElement('div')
+        ph.style.cssText = 'width:100%;height:120px;background:linear-gradient(135deg,'+START_COLOR+','+END_COLOR+');border-radius:8px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:24px'
+        ph.textContent = '📍'
+        box.appendChild(ph)
+        if (pin.source === 'moment') {
+          void (async () => {
+            try {
+              const { data } = await sb.from('media').select('thumb_path').eq('moment_id', pin.ref_id).eq('kind', 'image').order('sort').limit(1)
+              const tp = data?.[0]?.thumb_path
+              if (!tp) return
+              const urls = await sign([tp])
+              const url = urls[tp]
+              if (!url || !ph.isConnected) return
+              const img = document.createElement('img')
+              img.src = url
+              img.alt = ''
+              img.style.cssText = 'width:100%;height:120px;object-fit:cover;border-radius:8px;margin-bottom:8px'
+              ph.replaceWith(img)
+            } catch { /* giữ ô giữ chỗ nếu tải ảnh lỗi */ }
+          })()
         }
         const title = document.createElement('b')
         title.textContent = pin.title
@@ -539,14 +545,10 @@ export default function MapPage() {
     const { error } = await sb.from('locations').upsert(row)
     if (error) return setErr(`Không lưu được vị trí: ${error.message}`)
     setLocs(a => ({ ...a, [me.id]: row }))
+    window.dispatchEvent(new Event(LOC_CHANGED))
   }
 
-  useEffect(() => {
-    if (!sharing) return
-    let last = 0
-    const id = navigator.geolocation.watchPosition(p => { if (Date.now() - last < 8000) return; last = Date.now(); push(p, mine.share_until) }, () => {}, { enableHighAccuracy: true, maximumAge: 5000 })
-    return () => navigator.geolocation.clearWatch(id)
-  }, [sharing])
+  // Việc cập nhật vị trí liên tục đã chuyển sang components/LocShare.tsx (chạy ở mọi màn hình).
 
   const start = (h: number) => {
     const su = new Date(); h ? su.setTime(Date.now() + h * 36e5) : su.setHours(23, 59, 59, 0)
@@ -557,6 +559,7 @@ export default function MapPage() {
     const { error } = await sb.from('locations').delete().eq('user_id', me.id)
     if (error) return setErr(`Không tắt được chia sẻ: ${error.message}`)
     setLocs(a => { const n = { ...a }; delete n[me.id]; return n })
+    window.dispatchEvent(new Event(LOC_CHANGED))
   }
 
   // Spots from plans
@@ -686,7 +689,7 @@ export default function MapPage() {
             <button className="pill" onClick={stop}>Tắt chia sẻ</button>
           </> : <>
             <b>Chia sẻ vị trí của mình</b>
-            <div className="s">Chỉ cập nhật khi app đang mở</div>
+            <div className="s">Vị trí được cập nhật khi app đang mở, kể cả khi bạn sang màn hình khác trong app</div>
             <div className="row">{([['1 giờ', 1], ['4 giờ', 4], ['Hết hôm nay', 0]] as [string, number][]).map(([l, h]) => <button key={l} className="pill" onClick={() => start(h)}>{l}</button>)}</div>
           </>}
         </div>
@@ -744,7 +747,7 @@ export default function MapPage() {
           </div>
           {processedPins.map((pin, idx) => (
             <MemoryListItem
-              key={pin.ref_id}
+              key={`${pin.source}:${pin.ref_id}:${pin.is_start_point === false ? 'end' : 'start'}`}
               pin={pin}
               idx={idx}
               isVisible={idx <= timelineIndex}

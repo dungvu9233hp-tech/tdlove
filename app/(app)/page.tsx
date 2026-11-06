@@ -6,9 +6,11 @@ import { useApp } from '@/lib/ctx'
 import Head, { Heart } from '@/components/Head'
 import Avatar from '@/components/Avatar'
 import LoveHeart from '@/components/LoveHeart'
-import { daysTogether, ok } from '@/lib/util'
+import { daysTogether, ok, MILESTONES, nextMonthAnniv, nextYearlyDate } from '@/lib/util'
+import { startDateError, todayStr } from '@/lib/profile'
 
-const MILESTONES = [100, 200, 365, 500, 1000, 1500, 2000]
+const DAY = 864e5
+const midnight = () => { const t = new Date(); t.setHours(0, 0, 0, 0); return t }
 
 export default function Home() {
   const { me, space, partner, reload } = useApp()
@@ -18,7 +20,17 @@ export default function Home() {
   }, [me.id])
   const [plan, setPlan] = useState<any>(null)
   useEffect(() => {
-    sb.from('plans').select('id,name,start_date').in('status', ['Ý tưởng', 'Đã chốt']).gte('end_date', new Date().toISOString().slice(0, 10)).order('start_date').limit(1).then(r => setPlan(r.data?.[0] ?? null))
+    sb.from('plans').select('id,name,start_date').in('status', ['Ý tưởng', 'Đã chốt']).gte('end_date', todayStr()).order('start_date').limit(1).then(r => setPlan(r.data?.[0] ?? null))
+  }, [])
+  const [latest, setLatest] = useState<any>(null)
+  useEffect(() => {
+    // HOME-01: Moment mới nhất
+    sb.from('moments').select('id,title,taken_on,place').is('deleted_at', null).order('taken_on', { ascending: false }).order('created_at', { ascending: false }).limit(1).then(r => { if (!r.error) setLatest(r.data?.[0] ?? null) })
+  }, [])
+  const [specials, setSpecials] = useState<any[]>([])
+  useEffect(() => {
+    // ANNIV-04: ngày đặc biệt tự đặt cũng hiện ở Trang chủ
+    sb.from('special_dates').select('name,on_date,yearly').then(r => { if (!r.error) setSpecials(r.data ?? []) })
   }, [])
   const [memo, setMemo] = useState<any[]>([])
   useEffect(() => {
@@ -41,10 +53,24 @@ export default function Home() {
     sb.from('clips').select('id', { count: 'exact', head: true }).neq('sender', me.id).is('seen_at', null).then(r => { if (!r.error) setFun(r.count ?? 0) })
   }, [me.id])
   const day = space.start_date ? daysTogether(space.start_date) : null
-  const next = day ? MILESTONES.find(m => m > day) : null
+  // Mốc/kỷ niệm gần nhất (kể cả hôm nay): mốc ngày, kỷ niệm tháng/năm và ngày đặc biệt tự đặt
+  const next = (() => {
+    const t0 = midnight(), c: { t: string; n: number }[] = []
+    if (space.start_date && day) {
+      const m = MILESTONES.find(m => m >= day); if (m) c.push({ t: `Ngày thứ ${m}`, n: m - day })
+      const ma = nextMonthAnniv(space.start_date)
+      if (ma) c.push({ t: ma.months % 12 ? `Kỷ niệm ${ma.months} tháng` : `Kỷ niệm ${ma.months / 12} năm`, n: Math.round((+ma.date - +t0) / DAY) })
+    }
+    for (const s of specials) {
+      const [y, mo, d] = s.on_date.split('-').map(Number)
+      const dt = s.yearly ? nextYearlyDate(s.on_date) : new Date(y, mo - 1, d)
+      const n = Math.round((+dt - +t0) / DAY); if (n >= 0) c.push({ t: s.name, n })
+    }
+    return c.sort((a, b) => a.n - b.n)[0] ?? null
+  })()
   const expired = !!space.invite_expires && new Date(space.invite_expires).getTime() < Date.now()
   const renew = async () => { const { error } = await sb.rpc('renew_invite'); if (error) alert(error.message); else reload() }
-  const setDate = async (v: string) => { if (await ok(sb.from('spaces').update({ start_date: v }).eq('id', space.id), 'Không lưu được ngày bắt đầu')) reload() }
+  const setDate = async (v: string) => { const bad = startDateError(v); if (bad) { alert(bad); return }; if (await ok(sb.from('spaces').update({ start_date: v }).eq('id', space.id), 'Không lưu được ngày bắt đầu')) reload() }
 
   return <>
     <Head t="tdlove"><Link href="/settings" className="pill">Cài đặt</Link></Head>
@@ -55,8 +81,9 @@ export default function Home() {
       {partner && <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 'none' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Avatar p={me} size={48} on /><Heart size={24} /><Avatar p={partner} size={48} /></div>
         <div className="s">{me.display_name} & {partner.display_name}</div></div>}
-      {!space.start_date && <label className="k li"><b>Hai đứa bắt đầu yêu từ ngày nào?</b><input type="date" onChange={e => e.target.value && setDate(e.target.value)} /></label>}
-      {next && day && <div className="k pk"><b>Mốc kế tiếp: {next} ngày</b><div className="s">Còn {next - day} ngày nữa</div></div>}
+      {!space.start_date && <label className="k li"><b>Hai đứa bắt đầu yêu từ ngày nào?</b><input type="date" min="1950-01-01" max={todayStr()} onChange={e => e.target.value && setDate(e.target.value)} /></label>}
+      {next && <Link href="/special" className="k pk"><b>{next.n === 0 ? `Hôm nay: ${next.t} 🎉` : `Sắp tới: ${next.t}`}</b><div className="s">{next.n === 0 ? 'Chúc mừng hai đứa!' : `Còn ${next.n} ngày nữa`}</div></Link>}
+      {latest && <Link href={`/moments?open=${latest.id}`} className="k li"><b>Moment mới nhất: {latest.title}</b><div className="s">{new Date(latest.taken_on + 'T00:00:00').toLocaleDateString('vi-VN')}{latest.place ? ` · ${latest.place}` : ''}</div></Link>}
       {plan && <Link href={`/plan/${plan.id}`} className="k pe"><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></Link>}
       {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map(m => <Link key={m.kind + m.id} href={m.kind === 'diary' ? `/diary?month=${m.day.slice(0, 7)}` : `/moments?open=${m.id}`} className="s" style={{ display: 'block' }}>{m.kind === 'diary' ? (m.is_private ? '🔒' : '📓') : '📷'} {m.day.slice(0, 4)}: {m.title}</Link>)}{memo.some(m => m.kind === 'moment') && <Link href="/moments?memories=1" className="pill on">▶ Xem lại ảnh</Link>}</div>}
       <div className="row"><Link href="/diary" className="k pk"><b>Nhật ký</b><div className="s">Viết cho nhau</div></Link><Link href="/special" className="k pe"><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></Link></div>

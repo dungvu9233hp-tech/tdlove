@@ -65,8 +65,10 @@ export default function Wishlist() {
             <button className={`pill ${w.visited ? 'on' : ''}`} onClick={() => toggleVisited(w)}>{w.visited ? 'Đã đến' : 'Chưa đến'}</button>
             {w.visited && <button className="pill on" onClick={() => setRev(w)}>{w.review || ph.length ? 'Sửa đánh giá / ảnh' : 'Viết đánh giá, thêm ảnh'}</button>}
             <button className="pill" onClick={async () => {
+              // T10: xóa tệp ảnh trước (policy Storage còn thấy dòng tham chiếu nên người không phải chủ tệp cũng xóa được), rồi mới xóa quán
+              const files = Array.from(new Set(ph.flatMap((m: any) => [m.path, m.thumb_path]).filter(Boolean))) as string[]
+              if (files.length) { const { error } = await sb.storage.from('media').remove(files); if (error) return alert('Không xóa được ảnh của quán: ' + error.message) }
               if (!await ok(sb.from('wishlist_places').delete().eq('id', w.id), 'Không xóa được')) return
-              const files = ph.flatMap((m: any) => [m.path, m.thumb_path].filter(Boolean)); if (files.length) sb.storage.from('media').remove(files)   // dọn tệp ảnh của quán đã xóa
               load()
             }}>Xóa</button>
           </div>

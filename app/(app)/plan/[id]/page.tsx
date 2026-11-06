@@ -5,13 +5,14 @@ import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import { shrink, km, coords, ok, safeUrl } from '@/lib/util'
 import Head from '@/components/Head'
+import { todayStr } from '@/lib/profile'
 
 const ST = ['Ý tưởng', 'Đã chốt', 'Đã đi', 'Hủy']
 const TY = ['Ăn', 'Uống', 'Tham quan', 'Di chuyển', 'Lưu trú', 'Khác']
 const vnd = (n: number) => Math.round(n).toLocaleString('vi-VN') + 'đ'
 const sum = (a: any[], k: string) => a.reduce((t, s) => t + (Number(s[k]) || 0), 0)
 const mins = (t: string) => +t.slice(0, 2) * 60 + +t.slice(3, 5)
-const empty = { name: '', time: '', type: 'Ăn', est: '', address: '', link: '', hours: '', phone: '', review: '', note: '' }
+const empty = { name: '', time: '', end: '', day: 1, type: 'Ăn', est: '', address: '', link: '', hours: '', phone: '', review: '', note: '' }
 const votes = (s: any, v: number) => Object.values(s.likes ?? {}).filter(x => x === v).length
 
 // Cảnh báo giữa hai điểm dừng liền kề: ngược giờ, trùng giờ, không kịp di chuyển
@@ -30,6 +31,8 @@ export default function PlanPage() {
   const [p, setP] = useState<any>(null); const [stops, setStops] = useState<any[]>([]); const [items, setItems] = useState<any[]>([])
   const [wish, setWish] = useState<any[]>([]); const [cover, setCover] = useState(''); const [wx, setWx] = useState<any>(null)
   const [day, setDay] = useState(1); const [add, setAdd] = useState(false); const [f, setF] = useState(empty); const [todo, setTodo] = useState('')
+  const [editId, setEditId] = useState<string | null>(null)                                   // T15: đang sửa điểm dừng nào (null = thêm mới)
+  const [pEdit, setPEdit] = useState(false); const [pf, setPf] = useState({ name: '', start: '', end: '', area: '' })   // T15: sửa thông tin kế hoạch
 
   const load = useCallback(async () => {
     const [a, b, c, d] = await Promise.all([
@@ -76,15 +79,47 @@ export default function PlanPage() {
     const e = x.error ?? y.error; if (e) alert('Không đổi được thứ tự: ' + e.message)
     load()
   }
-  const vote = (s: any, v: number) => { const l = { ...(s.likes ?? {}) }; l[me.id] = l[me.id] === v ? 0 : v; upd(s.id, { likes: l }) }
-  async function addStop() {
+  // L3: ghi riêng phiếu của mình bằng hàm phía server, không đọc rồi ghi đè cả cột likes (phase23.sql)
+  const vote = async (s: any, v: number) => { await ok(sb.rpc('set_stop_vote', { p_stop: s.id, p_vote: s.likes?.[me.id] === v ? 0 : v })); load() }
+  async function saveStop() {
     if (!f.name.trim()) return
     // Link chỉ nhận http(s): chặn javascript:... đi qua dữ liệu chia sẻ giữa hai người
     const link = safeUrl(f.link), review = safeUrl(f.review)
     if (f.link.trim() && !link) return alert('Link Google Maps không hợp lệ')
     if (f.review.trim() && !review) return alert('Link review không hợp lệ')
-    if (!await ok(sb.from('stops').insert({ plan_id: id, space_id: space.id, day, start_time: f.time || null, type: f.type, name: f.name, address: f.address, est_cost: Number(f.est) || 0, link: link ?? '', hours: f.hours, phone: f.phone, review_url: review ?? '', note: f.note, ...coords(link ?? '') }), 'Không thêm được điểm dừng')) return
-    setF(empty); setAdd(false); load()
+    if (f.time && f.end && f.end <= f.time) return alert('Giờ kết thúc phải sau giờ bắt đầu')
+    const row = { start_time: f.time || null, end_time: f.end || null, type: f.type, name: f.name.trim(), address: f.address, est_cost: Number(f.est) || 0, link: link ?? '', hours: f.hours, phone: f.phone, review_url: review ?? '', note: f.note }
+    if (editId) {
+      const old = stops.find(x => x.id === editId)
+      const patch: any = { ...row, day: f.day }
+      if ((link ?? '') !== (old?.link ?? '')) { const c = coords(link ?? '') as { lat?: number; lng?: number }; patch.lat = c.lat ?? null; patch.lng = c.lng ?? null }   // đổi link thì cập nhật tọa độ
+      if (!await ok(sb.from('stops').update(patch).eq('id', editId), 'Không lưu được điểm dừng')) return
+      setDay(f.day)
+    } else if (!await ok(sb.from('stops').insert({ plan_id: id, space_id: space.id, day, ...row, ...coords(link ?? '') }), 'Không thêm được điểm dừng')) return
+    setF(empty); setEditId(null); setAdd(false); load()
+  }
+  const startEdit = (s: any) => {
+    setF({ name: s.name ?? '', time: s.start_time?.slice(0, 5) ?? '', end: s.end_time?.slice(0, 5) ?? '', day: s.day ?? 1, type: s.type ?? 'Khác', est: s.est_cost ? String(s.est_cost) : '', address: s.address ?? '', link: s.link ?? '', hours: s.hours ?? '', phone: s.phone ?? '', review: s.review_url ?? '', note: s.note ?? '' })
+    setEditId(s.id); setAdd(true)
+    setTimeout(() => document.getElementById('stop-form')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50)
+  }
+  const cancelStop = () => { setF(empty); setEditId(null); setAdd(false) }
+  // T15: sửa tên/ngày/khu vực của kế hoạch, và xóa hẳn kế hoạch
+  const startPlanEdit = () => { setPf({ name: p.name ?? '', start: p.start_date ?? '', end: p.end_date ?? '', area: p.area ?? '' }); setPEdit(true) }
+  async function savePlan() {
+    const name = pf.name.trim(); if (!name) return alert('Hãy nhập tên kế hoạch')
+    if (pf.start && pf.end && pf.end < pf.start) return alert('Ngày kết thúc phải từ ngày bắt đầu trở đi')
+    const end = pf.end || pf.start || null
+    const days = pf.start && end ? Math.round((+new Date(end) - +new Date(pf.start)) / 864e5) + 1 : 1
+    const maxDay = Math.max(1, ...stops.map(x => x.day ?? 1))
+    if (maxDay > days && !confirm(`Có điểm dừng ở ngày ${maxDay} nhưng kế hoạch mới chỉ còn ${days} ngày. Các điểm đó sẽ không hiện cho tới khi bạn kéo dài lại kế hoạch hoặc chuyển ngày. Vẫn lưu?`)) return
+    if (await ok(sb.from('plans').update({ name, start_date: pf.start || null, end_date: end, area: pf.area.trim() }).eq('id', id), 'Không lưu được kế hoạch')) { setPEdit(false); setDay(1); load() }
+  }
+  async function delPlan() {
+    if (!confirm(`Xóa kế hoạch "${p.name}"? Toàn bộ điểm dừng và danh sách chuẩn bị sẽ mất. Khoảnh khắc và nhật ký đã gắn với kế hoạch vẫn được giữ.`)) return
+    // xóa ảnh bìa trước khi xóa dòng (xem T10)
+    if (p.cover_path) { const { error } = await sb.storage.from('media').remove([p.cover_path]); if (error) return alert('Không xóa được ảnh bìa: ' + error.message) }
+    if (await ok(sb.from('plans').delete().eq('id', id), 'Không xóa được kế hoạch')) r.replace('/plan')
   }
   const fromWish = (wid: string) => { const w = wish.find(x => x.id === wid); if (w) setF({ ...f, name: w.name, address: w.area ?? '', link: w.link ?? '', note: w.dish ?? '', type: 'Ăn' }) }
   async function setCoverFile(file?: File) {
@@ -96,7 +131,7 @@ export default function PlanPage() {
   }
   const addTodo = async () => { if (!todo.trim()) return; if (!await ok(sb.from('checklist_items').insert({ plan_id: id, space_id: space.id, text: todo }))) return; setTodo(''); load() }
   async function toMoment() {
-    const { data, error } = await sb.from('moments').insert({ space_id: space.id, title: p.name, taken_on: p.end_date ?? p.start_date ?? new Date().toISOString().slice(0, 10), place: p.area, plan_id: id }).select('id').single()
+    const { data, error } = await sb.from('moments').insert({ space_id: space.id, title: p.name, taken_on: p.end_date ?? p.start_date ?? todayStr(), place: p.area, plan_id: id }).select('id').single()
     if (error || !data) return alert('Không tạo được khoảnh khắc: ' + (error?.message ?? ''))
     r.push('/moments?edit=' + data.id)   // mở sẵn form sửa để thêm ảnh/video
   }
@@ -118,6 +153,15 @@ export default function PlanPage() {
     <div className="b">
       {cover && <img src={cover} alt={p.name} style={{ flex: 'none', width: '100%', height: 150, objectFit: 'cover', borderRadius: 22, border: '2.5px solid var(--ink)' }} />}
       <div className="row" style={{ flex: 'none', flexWrap: 'wrap' }}>{ST.map(s => <button key={s} className={`pill ${p.status === s ? 'on' : ''}`} onClick={() => setStatus(s)}>{s}</button>)}</div>
+      <div className="row" style={{ flex: 'none', flexWrap: 'wrap' }}><button className="pill" onClick={() => pEdit ? setPEdit(false) : startPlanEdit()}>{pEdit ? 'Đóng' : 'Sửa kế hoạch'}</button><button className="pill" onClick={delPlan}>Xóa kế hoạch</button></div>
+      {pEdit && <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <b>Sửa kế hoạch</b>
+        <input placeholder="Tên chuyến đi" value={pf.name} onChange={e => setPf({ ...pf, name: e.target.value })} />
+        <label className="s">Từ ngày<input type="date" value={pf.start} onChange={e => setPf({ ...pf, start: e.target.value })} /></label>
+        <label className="s">Đến ngày<input type="date" value={pf.end} onChange={e => setPf({ ...pf, end: e.target.value })} /></label>
+        <input placeholder="Khu vực" value={pf.area} onChange={e => setPf({ ...pf, area: e.target.value })} />
+        <button className="btn" onClick={savePlan}>Lưu</button>
+      </div>}
       <div className="k pk">
         <b>Ngân sách dự kiến {vnd(est)}</b>
         {byType.length > 0 && <div className="s">{byType.map(([t, v]) => `${t} ${vnd(v as number)}`).join(', ')}</div>}
@@ -129,7 +173,7 @@ export default function PlanPage() {
       {today.map((s, i) => <div key={s.id}>
         {i > 0 && warn(today[i - 1], s) && <div className="s" style={{ textAlign: 'center', margin: '0 0 8px' }}>{warn(today[i - 1], s)}</div>}
         <div className="k">
-          <div className="row"><span className="pill on" style={{ flex: 'none' }}>{s.start_time?.slice(0, 5) ?? '--:--'}</span><div><b>{s.name}</b><div className="s">{s.type}, dự kiến {vnd(s.est_cost)}</div></div>
+          <div className="row"><span className="pill on" style={{ flex: 'none' }}>{s.start_time?.slice(0, 5) ?? '--:--'}{s.end_time ? `–${s.end_time.slice(0, 5)}` : ''}</span><div><b>{s.name}</b><div className="s">{s.type}, dự kiến {vnd(s.est_cost)}</div></div>
             <span className="rb" style={{ display: 'flex', flexDirection: 'column', gap: 4, border: 0, background: 'none', width: 'auto', height: 'auto' }}>
               <button className="pill" onClick={() => mv(i, -1)} aria-label="Đưa lên">▲</button><button className="pill" onClick={() => mv(i, 1)} aria-label="Đưa xuống">▼</button></span></div>
           {s.address && <div className="s">{s.address}</div>}
@@ -143,19 +187,22 @@ export default function PlanPage() {
             <button className={`pill ${s.likes?.[me.id] === -1 ? 'on' : ''}`} onClick={() => vote(s, -1)}>Không {votes(s, -1)}</button>
           </div>
           <div className="row" style={{ marginTop: 8 }}>
-            <input type="number" inputMode="numeric" placeholder="Thực tế (đ)" defaultValue={s.actual_cost ?? ''} onBlur={e => upd(s.id, { actual_cost: e.target.value === '' ? null : Number(e.target.value) })} />
+            <input key={s.actual_cost ?? 'none'} type="number" inputMode="numeric" placeholder="Thực tế (đ)" defaultValue={s.actual_cost ?? ''} onBlur={e => upd(s.id, { actual_cost: e.target.value === '' ? null : Number(e.target.value) })} />
             <select aria-label="Ai trả" value={s.paid_by ?? ''} onChange={e => upd(s.id, { paid_by: e.target.value || null })}>
               <option value="">Ai trả?</option><option value={me.id}>Bạn</option>{partner && <option value={partner.id}>{pn}</option>}
             </select>
+            <button className="pill" style={{ flex: 'none' }} onClick={() => startEdit(s)}>Sửa</button>
             <button className="pill" style={{ flex: 'none' }} onClick={() => del(s.id)}>Xóa</button>
           </div>
         </div>
       </div>)}
-      {add ? <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <b>Điểm dừng mới (ngày {day})</b>
-        {wish.length > 0 && <select style={{ maxWidth: 'none' }} defaultValue="" onChange={e => fromWish(e.target.value)}><option value="">Chọn từ quán muốn thử</option>{wish.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>}
+      {add ? <div id="stop-form" className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <b>{editId ? 'Sửa điểm dừng' : `Điểm dừng mới (ngày ${day})`}</b>
+        {editId && <label className="s">Ngày<select value={f.day} onChange={e => setF({ ...f, day: Number(e.target.value) })} style={{ maxWidth: 'none' }}>{Array.from({ length: Math.max(nDays, f.day) }, (_, i) => <option key={i} value={i + 1}>Ngày {i + 1}</option>)}</select></label>}
+        {!editId && wish.length > 0 && <select style={{ maxWidth: 'none' }} defaultValue="" onChange={e => fromWish(e.target.value)}><option value="">Chọn từ quán muốn thử</option>{wish.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>}
         <input placeholder="Tên, ví dụ: Quán lẩu gà lá é" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
-        <input type="time" value={f.time} onChange={e => setF({ ...f, time: e.target.value })} />
+        <label className="s">Giờ bắt đầu<input type="time" value={f.time} onChange={e => setF({ ...f, time: e.target.value })} /></label>
+        <label className="s">Giờ kết thúc (không bắt buộc)<input type="time" value={f.end} onChange={e => setF({ ...f, end: e.target.value })} /></label>
         <select value={f.type} onChange={e => setF({ ...f, type: e.target.value })} style={{ maxWidth: 'none' }}>{TY.map(t => <option key={t}>{t}</option>)}</select>
         <input type="number" inputMode="numeric" placeholder="Chi phí dự kiến (đ)" value={f.est} onChange={e => setF({ ...f, est: e.target.value })} />
         <input placeholder="Địa chỉ" value={f.address} onChange={e => setF({ ...f, address: e.target.value })} />
@@ -164,8 +211,9 @@ export default function PlanPage() {
         <input type="tel" placeholder="Số điện thoại" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} />
         <input placeholder="Link review" value={f.review} onChange={e => setF({ ...f, review: e.target.value })} />
         <textarea rows={2} placeholder="Ghi chú" value={f.note} onChange={e => setF({ ...f, note: e.target.value })} />
-        <button className="btn" onClick={addStop}>Thêm điểm dừng</button>
-      </div> : <button className="btn" onClick={() => setAdd(true)}>+ Thêm điểm dừng</button>}
+        <button className="btn" onClick={saveStop}>{editId ? 'Lưu điểm dừng' : 'Thêm điểm dừng'}</button>
+        {editId && <button className="pill" onClick={cancelStop}>Hủy sửa</button>}
+      </div> : <button className="btn" onClick={() => { setF({ ...empty, day }); setAdd(true) }}>+ Thêm điểm dừng</button>}
       <div className="k"><b>Chuẩn bị</b>
         {items.map(c => <div key={c.id} className="row" style={{ margin: '6px 0' }}>
           <label className="row" style={{ justifyContent: 'flex-start' }}><input type="checkbox" style={{ width: 22, flex: 'none' }} checked={c.done} onChange={async e => { await ok(sb.from('checklist_items').update({ done: e.target.checked }).eq('id', c.id)); load() }} /><span style={{ textDecoration: c.done ? 'line-through' : 'none' }}>{c.text}</span></label>

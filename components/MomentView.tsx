@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { sb } from '@/lib/supabase'
 import { sign, TAG_EMOJI } from '@/lib/media'
@@ -18,6 +18,17 @@ export default function MomentView({ m, me, partner, plan, albumNames, onClose, 
   const name = (id: string) => id === me.id ? 'Mình' : partner?.display_name ?? 'Người ấy'
 
   useEffect(() => { sign(media.flatMap((x: any) => [x.path, x.thumb_path])).then(setUrl) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [m.id])
+  // T13: link ký sống 5 phút nên để mở lâu rồi mới bấm thì đã chết. Ký lại lúc bấm xem ảnh lớn/video (TTL 1 giờ),
+  // và ký lại khi ảnh nhỏ báo lỗi (tối đa một lần mỗi 20 giây để không lặp vô hạn).
+  const lastFix = useRef(0)
+  const allPaths = () => media.flatMap((x: any) => [x.path, x.thumb_path])
+  const refresh = async () => { if (Date.now() - lastFix.current < 20000) return; lastFix.current = Date.now(); setUrl(await sign(allPaths(), 300, true)) }
+  const openLb = async (x: any) => {
+    const u = await sign(media.map((m: any) => m.path), 3600, true)
+    setUrl(a => ({ ...a, ...u }))
+    const k = media.filter((m: any) => u[m.path]).findIndex((m: any) => m.id === x.id)
+    if (k >= 0) setLb(k)
+  }
   const load = useCallback(async () => {
     const [h, c] = await Promise.all([
       sb.from('moment_hearts').select('user_id').eq('moment_id', m.id),
@@ -54,8 +65,8 @@ export default function MomentView({ m, me, partner, plan, albumNames, onClose, 
     {media.length > 0 && <div className="mgrid" style={{ gridTemplateColumns: media.length === 1 ? '1fr' : 'repeat(3,1fr)' }}>
       {media.map((x: any, i: number) => {
         const t = url[x.thumb_path ?? (x.kind === 'image' ? x.path : '')]
-        return <button key={x.id} className="th" onClick={() => url[x.path] && setLb(lbItems.findIndex((l: any) => l.url === url[x.path]))} aria-label={`Xem ${x.kind === 'video' ? 'video' : 'ảnh'} ${i + 1}`} style={media.length === 1 ? { aspectRatio: '4/3' } : undefined}>
-          {t ? <img src={t} alt="" /> : x.kind === 'video' ? '🎬' : '🖼️'}
+        return <button key={x.id} className="th" onClick={() => openLb(x)} aria-label={`Xem ${x.kind === 'video' ? 'video' : 'ảnh'} ${i + 1}`} style={media.length === 1 ? { aspectRatio: '4/3' } : undefined}>
+          {t ? <img src={t} alt="" onError={refresh} /> : x.kind === 'video' ? '🎬' : '🖼️'}
           {x.kind === 'video' && t && <span style={{ position: 'absolute', fontSize: 34 }}>▶️</span>}
         </button>
       })}

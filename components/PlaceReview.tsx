@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { sb } from '@/lib/supabase'
-import { MAX_IMG, MB, localDay, processImage, sign, uploadBlob } from '@/lib/media'
+import { MAX_IMG, MB, localDay, processImage, sign, uploadBlob, dropMedia } from '@/lib/media'
 
 export const PLACE_MAX_PHOTOS = 10   // khớp trigger wishlist_media_limit trong phase9.sql
 
@@ -74,11 +74,10 @@ export default function PlaceReview({ space, place, onClose, onDone }: {
         visited: true, stars: f.stars || null, review: f.review.trim() || null, visited_on: f.date || today,
       }).eq('id', place.id)
       if (error) return alert('Không lưu được đánh giá: ' + error.message)
-      // gỡ ảnh cũ đã bỏ (xóa dòng trước, tệp sau)
+      // gỡ ảnh cũ đã bỏ (xóa tệp trước, dòng sau)
       if (gone.length) {
         const rm = old.filter((m: any) => gone.includes(m.id))
-        const { error } = await sb.from('wishlist_media').delete().in('id', gone)
-        if (!error) { sb.storage.from('media').remove(rm.flatMap((m: any) => [m.path, m.thumb_path].filter(Boolean))); setOld(o => o.filter((m: any) => !gone.includes(m.id))); setGone([]) }
+        if (await dropMedia('wishlist_media', rm)) { setOld(o => o.filter((m: any) => !gone.includes(m.id))); setGone([]) }
       }
       // tải ảnh mới lên lần lượt; ảnh nào xong rồi thì bỏ qua (cho phép thử lại ảnh lỗi)
       let sort = Math.max(-1, ...old.map((m: any) => m.sort)) + 1, fail = 0

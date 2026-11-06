@@ -22,7 +22,7 @@ const permMsg = () => window.isSecureContext && navigator.mediaDevices
   ? 'Không mở được micro/camera. Hãy cho phép quyền truy cập trong trình duyệt.'
   : 'Trình duyệt này không cho dùng micro/camera. Hãy mở app bằng địa chỉ https.'
 
-// Cuộc gọi 1-1 qua WebRTC; tín hiệu đi qua Supabase Realtime (broadcast). Gọi đến chỉ hiện khi app đang mở.
+// Cuộc gọi 1-1 qua WebRTC; tín hiệu đi qua Supabase Realtime (broadcast). Gọi đến hiện khi app đang mở; nếu app đang đóng thì thông báo đẩy mở app và app hỏi bảng calls (phase21.sql).
 export default function Call() {
   const { me, space, partner } = useApp()
   const [st, setSt] = useState<St>('idle'); const [video, setVideo] = useState(true)
@@ -30,9 +30,15 @@ export default function Call() {
   const [spk, setSpk] = useState(false); const [lost, setLost] = useState(false); const [msg, setMsg] = useState('')
   const ch = useRef<any>(null), pc = useRef<RTCPeerConnection | null>(null), local = useRef<MediaStream | null>(null), pend = useRef<RTCIceCandidateInit[]>([])
   const lv = useRef<HTMLVideoElement>(null), rv = useRef<HTMLVideoElement>(null)
-  const S = useRef<any>({ st: 'idle', caller: false, video: true, t0: 0, tick: 0, face: 'user', busy: false, yielded: false, flip: false, ring: 0, conn: 0, lost: 0, note: 0 })
+  const S = useRef<any>({ st: 'idle', caller: false, video: true, t0: 0, tick: 0, face: 'user', busy: false, yielded: false, flip: false, ring: 0, conn: 0, lost: 0, note: 0, callP: null as Promise<string | null> | null })
   const send = (event: string, data: any = {}) => ch.current?.send({ type: 'broadcast', event, payload: { from: me.id, ...data } })
   const go = (s: St) => { S.current.st = s; setSt(s); if (s !== 'incoming') navigator.vibrate?.(0) }
+  // T7: người gọi ghi/đóng dòng trong bảng calls để bên nhận đang đóng app vẫn thấy cuộc gọi khi mở app
+  const closeCall = (status: 'accepted' | 'ended') => {
+    const p = S.current.callP; if (!p) return
+    if (status === 'ended') S.current.callP = null
+    p.then((id: string | null) => { if (id) sb.from('calls').update({ status }).eq('id', id).then(() => { }, () => { }) })
+  }
   const flash = (t: string) => { setMsg(t); clearTimeout(S.current.note); S.current.note = setTimeout(() => setMsg(''), 5000) }
 
   useEffect(() => { if (lv.current) lv.current.srcObject = local.current }, [st])
@@ -76,6 +82,7 @@ export default function Call() {
     const s = S.current
     if (s.st === 'idle') return
     if (notify) send('hangup')
+    if (s.caller) closeCall('ended')
     const dur = s.t0 ? Math.round((Date.now() - s.t0) / 1000) : 0
     if (s.caller) { // người gọi ghi lại vào chat: thời lượng, nhỡ, bị từ chối hoặc không kết nối được
       const body = dur ? `Cuộc gọi ${s.video ? 'video' : 'thoại'} ${clock(dur)}` : reason === 'rejected' ? 'Cuộc gọi bị từ chối' : reason === 'failed' ? 'Cuộc gọi không kết nối được' : 'Cuộc gọi nhỡ'
@@ -87,6 +94,18 @@ export default function Call() {
     else if (!dur && !s.caller && !notify) flash('Bạn vừa lỡ một cuộc gọi.')
   }
 
+  // T7: có cuộc gọi đang đổ chuông mà lời mời broadcast đã lỡ (bên nhận vừa mở app từ thông báo đẩy)
+  async function checkRinging() {
+    const s = S.current
+    if (s.st !== 'idle' || s.busy) return
+    const { data, error } = await sb.rpc('ringing_call')
+    const c = (data as { id: string; video: boolean; left_ms: number }[] | null)?.[0]
+    if (error || !c || S.current.st !== 'idle') return
+    s.video = !!c.video; s.caller = false; setVideo(s.video); go('incoming')
+    navigator.vibrate?.([400, 200, 400, 200, 400])
+    clearTimeout(s.ring); s.ring = setTimeout(() => end(false, 'missed'), c.left_ms + 3000)
+  }
+
   // CALL-01: người gọi bấm Gọi/Video
   async function start(v: boolean) {
     const s = S.current
@@ -96,7 +115,8 @@ export default function Call() {
     try { m = await media(v) } catch { s.busy = false; return flash(permMsg()) }
     s.busy = false
     if (s.yielded || s.st !== 'idle') return stopStream(m) // hai người gọi cùng lúc và mình đã nhường
-    local.current = m; go('calling'); send('invite', { video: v }); notifyPartner('call') // CALL-05: báo cả khi bên kia đang đóng app
+    local.current = m; go('calling'); send('invite', { video: v }); notifyPartner('call')
+    s.callP = Promise.resolve(sb.from('calls').insert({ video: v }).select('id').single()).then((r: any) => r.data?.id ?? null, () => null) // CALL-05: báo cả khi bên kia đang đóng app
     s.ring = setTimeout(() => end(true, 'missed'), RING)
   }
   // CALL-02: người nhận bấm Nhận
@@ -129,7 +149,7 @@ export default function Call() {
     })).on('broadcast', { event: 'accept' }, safe(async () => {
       const s = S.current
       if (s.st !== 'calling' || pc.current) return
-      clearTimeout(s.ring); go('live'); s.conn = setTimeout(() => end(true, 'failed'), CONNECT)
+      clearTimeout(s.ring); go('live'); closeCall('accepted'); s.conn = setTimeout(() => end(true, 'failed'), CONNECT)
       const p = makePc(); const o = await p.createOffer(); await p.setLocalDescription(o); send('offer', { sdp: o })
     })).on('broadcast', { event: 'offer' }, safe(async p => {
       if (S.current.st !== 'live' || pc.current) return
@@ -142,12 +162,13 @@ export default function Call() {
       if (pc.current?.remoteDescription) await pc.current.addIceCandidate(p.c); else if (S.current.st !== 'idle') pend.current.push(p.c)
     })).on('broadcast', { event: 'reject' }, safe(() => end(false, 'rejected')))
       .on('broadcast', { event: 'hangup' }, safe(() => end(false)))
-      .subscribe((status: string, err?: Error) => { if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') console.error('Kênh cuộc gọi lỗi (đã chạy phase4.sql chưa?)', status, err?.message) })
+      .subscribe((status: string, err?: Error) => { if (status === 'SUBSCRIBED') checkRinging(); if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') console.error('Kênh cuộc gọi lỗi (đã chạy phase4.sql chưa?)', status, err?.message) })
     const onStart = (e: any) => start(!!e.detail?.video)
     const onLeave = () => { if (S.current.st !== 'idle') send('hangup') } // đóng tab giữa cuộc gọi: báo cho bên kia
-    window.addEventListener('tdlove-call', onStart); window.addEventListener('pagehide', onLeave)
+    const onVis = () => { if (document.visibilityState === 'visible') checkRinging() }
+    window.addEventListener('tdlove-call', onStart); window.addEventListener('pagehide', onLeave); document.addEventListener('visibilitychange', onVis)
     if (!turn) console.warn('Chưa cấu hình NEXT_PUBLIC_TURN_URL: gọi qua 4G có thể không kết nối được (CALL-04).')
-    return () => { window.removeEventListener('tdlove-call', onStart); window.removeEventListener('pagehide', onLeave); sb.removeChannel(c); stopAll() }
+    return () => { window.removeEventListener('tdlove-call', onStart); window.removeEventListener('pagehide', onLeave); document.removeEventListener('visibilitychange', onVis); sb.removeChannel(c); stopAll() }
   }, [space.id])
 
   // CALL-03: bật/tắt mic, camera
