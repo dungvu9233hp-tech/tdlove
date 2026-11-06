@@ -129,7 +129,7 @@ export default function Chat() {
         const vid = f.type.startsWith('video/')
         if (!vid && !f.type.startsWith('image/')) { alert(`${f.name}: chỉ gửi được ảnh hoặc video`); continue }
         if (vid && f.size > MAX_VIDEO) { alert(`${f.name}: video lớn hơn 50 MB (giới hạn của gói Supabase miễn phí)`); continue }
-        const path = `${space.id}/${crypto.randomUUID()}.${vid ? (f.name.split('.').pop() || 'mp4').toLowerCase() : 'jpg'}`
+        const path = `${space.id}/${me.id}/${crypto.randomUUID()}.${vid ? (f.name.split('.').pop() || 'mp4').toLowerCase() : 'jpg'}`
         const { error } = await sb.storage.from('media').upload(path, vid ? f : await shrink(f), { contentType: vid ? f.type : 'image/jpeg' })
         if (error) { alert(`Không tải ${f.name} lên được: ${error.message}`); continue }
         if (!await post({ kind: vid ? 'video' : 'image', media_path: path })) { await sb.storage.from('media').remove([path]); break }
@@ -152,7 +152,7 @@ export default function Chat() {
         const secs = Math.max(1, Math.round((Date.now() - t0) / 1000))
         if (cancelled.current || !chunks.current.length) return
         const type = r.mimeType || mime || 'audio/webm', ext = type.includes('mp4') || type.includes('aac') ? 'm4a' : 'webm'
-        const path = `${space.id}/${crypto.randomUUID()}.${ext}`
+        const path = `${space.id}/${me.id}/${crypto.randomUUID()}.${ext}`
         setBusy('Đang gửi tin nhắn thoại…')
         const { error } = await sb.storage.from('media').upload(path, new Blob(chunks.current, { type }), { contentType: type })
         if (error) alert('Không tải tin nhắn thoại lên được: ' + error.message)

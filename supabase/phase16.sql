@@ -115,9 +115,14 @@ language sql stable security invoker set search_path = public as $$
     limit 1
   ) s on true
   where p.space_id = my_space()
-    and p.status = 'Đã chốt'
     and p.end_date is not null
-    and p.end_date <= (current_date at time zone 'UTC+7')  -- so sánh theo múi giờ VN
+    and (
+      p.status = 'Đã đi'
+      or (
+        p.status = 'Đã chốt'
+        and p.end_date <= (now() at time zone 'Asia/Ho_Chi_Minh')::date
+      )
+    )
     and (p_from is null or p.end_date >= p_from)
     and (p_to is null or p.end_date <= p_to)
 

@@ -79,8 +79,11 @@ export default function MomentForm({ space, moment, plans, albums, onClose, onDo
 
   async function uploadOne(it: Item, sort: number) {
     patch(it.id, { status: 'up', p: 0, err: undefined })
-    const base = `${space.id}/${uid()}`, made: string[] = []
+    const made: string[] = []
     try {
+      const { data: { user } } = await sb.auth.getUser()
+      if (!user) throw new Error('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.')
+      const base = `${space.id}/${user.id}/${uid()}`
       let row: any
       if (it.kind === 'image') {
         const { full, thumb, width, height } = await processImage(it.file)

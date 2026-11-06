@@ -23,7 +23,7 @@ export default function WheelPage() {
   const [name, setName] = useState(''); const [rot, setRot] = useState(0); const [ms, setMs] = useState(0)
   const [frozen, setFrozen] = useState<string[] | null>(null)   // đang quay thì giữ nguyên các ô, kể cả khi người kia thêm/xóa món
   const [spinning, setSpinning] = useState(false); const [result, setResult] = useState<string | null>(null)
-  const timer = useRef<ReturnType<typeof setTimeout>>()
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {
     const [a, b, c] = await Promise.all([
@@ -41,7 +41,9 @@ export default function WheelPage() {
     ch.subscribe()
     return () => { sb.removeChannel(ch) }
   }, [space.id, load])
-  useEffect(() => () => clearTimeout(timer.current), [])
+  useEffect(() => () => {
+  if (timer.current !== null) clearTimeout(timer.current)
+}, [])
 
   const names = opts.map(o => o.name as string)
   const shown = frozen ?? names

@@ -1,6 +1,6 @@
 # tdlove v1 (giai đoạn 1)
 
-1. Tạo project tại supabase.com, chạy `supabase/schema.sql` trong SQL Editor, rồi lần lượt `phase2.sql`, `phase2b.sql`, `phase3.sql`, `phase4.sql` (bản vá bảo mật, bắt buộc), `phase5.sql` (hoàn thiện Chat), `phase6.sql` (Khoảnh khắc: media, album, tim, bình luận), `phase7.sql` (Nhật ký), `phase8.sql` (Nhật ký riêng tư).
+1. Tạo project tại supabase.com, chạy `supabase/schema.sql` trong SQL Editor, rồi lần lượt `phase2.sql`, `phase2b.sql`, `phase3.sql`, `phase4.sql` (bản vá bảo mật, bắt buộc), `phase5.sql` (hoàn thiện Chat), `phase6.sql` (Khoảnh khắc: media, album, tim, bình luận), `phase7.sql` (Nhật ký), `phase8_trc.sql` (Nhật ký riêng tư).
 2. Auth > Providers > Email: tắt "Confirm email" (bản đầu, chỉ hai người dùng).
 3. `cp .env.example .env.local`, điền URL và anon key (Project Settings > API).
 4. `npm install && npm run dev`, mở http://localhost:3000.
@@ -33,7 +33,7 @@
 
 ## Đánh giá và ảnh cho Quán muốn thử (WISH-01..02)
 
-- Chạy `supabase/phase9.sql` (SAU `phase8.sql`, chạy lại vẫn an toàn) **trước khi** đưa bản app mới lên Vercel. Thêm cột `review`, `visited_on` cho `wishlist_places` và bảng `wishlist_media` (ảnh của quán).
+- Chạy `supabase/phase9.sql` (SAU `phase8_trc.sql`, chạy lại vẫn an toàn) **trước khi** đưa bản app mới lên Vercel. Thêm cột `review`, `visited_on` cho `wishlist_places` và bảng `wishlist_media` (ảnh của quán).
 - Luồng: thêm quán vào danh sách → đi ăn → bấm "Chưa đến" (đổi thành "Đã đến") → form đánh giá tự mở: chọn ngày, chấm 1–5 sao, viết đánh giá, tải ảnh. Sau đó bấm "Sửa đánh giá / ảnh" để chỉnh lại bất cứ lúc nào.
 - Ảnh: tối đa 10 ảnh mỗi quán, mỗi ảnh gốc ≤ 15 MB, tự resize 1600px + thumbnail 480px, dùng chung bucket `media` với Khoảnh khắc và Nhật ký. Bấm ảnh để xem toàn màn hình.
 - Danh sách quán là chung của hai người nên cả hai đều viết/sửa đánh giá và thêm/gỡ ảnh được. Xóa quán thì ảnh của quán cũng bị xóa khỏi Storage.
@@ -47,10 +47,10 @@
 
 ## Nhật ký riêng tư (DIARY-04)
 
-- Chạy `supabase/phase8.sql` (SAU `phase7.sql`, chạy lại vẫn an toàn) **trước khi** đưa bản app mới lên Vercel, rồi `supabase functions deploy anniversary`.
+- Chạy `supabase/phase8_trc.sql` (SAU `phase7.sql`, chạy lại vẫn an toàn) **trước khi** đưa bản app mới lên Vercel, rồi `supabase functions deploy anniversary`.
 - Trong form viết/sửa có công tắc "🔒 Chỉ mình tôi xem". Bài riêng tư và ảnh đính kèm bị ẩn khỏi người kia ngay ở cơ sở dữ liệu (RLS), không chỉ ở giao diện; chỉ tác giả bật/tắt được.
 - Bài riêng tư không bao giờ được đẩy vào thông báo "Ngày này năm trước" của người kia; tác giả vẫn thấy nó ở Trang chủ của mình.
-- Giới hạn: tệp ảnh nằm chung bucket `media` của Space nên về kỹ thuật người kia vẫn liệt kê được tên tệp trong Storage nếu cố tình, nhưng không biết tệp nào thuộc bài nào và không có đường dẫn từ nhật ký. Nếu cần kín hơn, phải tách bucket riêng cho ảnh riêng tư.
+- Bản vá `phase17.sql` khóa quyền đọc bucket `media` theo bản ghi metadata còn nhìn thấy được. Ảnh nhật ký riêng tư không còn được liệt kê/ký URL bởi thành viên còn lại; URL mới có TTL mặc định 5 phút và cache tách theo tài khoản. URL đã phát hành bởi phiên bản cũ có thể còn hiệu lực tới hết hạn cũ (tối đa 1 giờ).
 
 ## Đăng xuất, đổi mật khẩu, quên mật khẩu (AUTH-04)
 
@@ -146,3 +146,11 @@ Cách test với hai máy: thả cảm xúc ở máy A, máy B thấy cảm xúc
 Cài đặt: chạy `supabase/phase15.sql` trong SQL Editor (sau phase14.sql, chạy lại vẫn an toàn) **trước khi** đưa bản app mới lên Vercel.
 
 Cách test với hai máy: máy A chọn nhân vật, máy B vào là thấy mình đã có nhân vật còn lại. Gửi ảnh trong chat thì điểm tăng ở cả hai máy. Mua một món ở A, B thấy nhân vật đổi đồ ngay. Đã kiểm tra logic SQL trên Postgres thật (mua đủ/thiếu điểm, thiếu cấp, hai người tiêu cùng lúc) và dựng 3D thử bằng trình duyệt headless; chưa chạy trên Supabase thật.
+
+
+## Bản vá bảo mật và Bản đồ Kỷ niệm (phase17)
+
+- Sau khi đã chạy `supabase/phase16.sql`, chạy `supabase/phase17.sql` trong Supabase SQL Editor **trước khi deploy frontend**. Migration thay policy Storage rộng `media_all` bằng quyền đọc theo bản ghi đang được phép xem; quyền cập nhật/xóa được giới hạn theo tác giả hoặc nội dung dùng chung.
+- Ảnh upload mới được đặt dưới `space_id/user_id/...`. Quyền sửa/xóa đối chiếu `owner_id` của Storage, thư mục user và bản ghi metadata (khi còn tồn tại), nên vẫn hỗ trợ các tệp cũ và giữ nguyên thứ tự xóa hiện tại. Cache URL ký được tách theo user để không dùng nhầm URL giữa hai phiên đăng nhập trên cùng trình duyệt.
+- Bản đồ Kỷ niệm hiển thị cả kế hoạch có trạng thái `Đã đi`, ngoài kế hoạch `Đã chốt` có ngày kết thúc đã qua.
+- Cập nhật framework: Next.js `15.5.29`, React/React DOM `19.3.1` và typings React `19.3.0`. Sau khi áp dụng mã nguồn, chạy `npm install` để đồng bộ `package-lock.json`, rồi `npm run build`.
