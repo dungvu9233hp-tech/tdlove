@@ -1,0 +1,241 @@
+diff --git a/app/(app)/map/map-ui.css b/app/(app)/map/map-ui.css
+new file mode 100644
+--- /dev/null
++++ b/app/(app)/map/map-ui.css
+@@ -0,0 +1,56 @@
++.map-page{gap:16px;padding-top:8px}
++.memory-hero{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px 18px;border:1px solid #f2bfd3;border-radius:24px;background:linear-gradient(128deg,#fff 0%,#ffe6ef 62%,#f1e9ff 100%);box-shadow:0 9px 22px rgba(91,31,58,.08);overflow:hidden}
++.memory-hero-copy{min-width:0}
++.memory-eyebrow,.moments-eyebrow{display:block;margin-bottom:5px;color:#a45375;font-size:10px;font-weight:900;letter-spacing:.16em}
++.memory-hero h2,.moments-hero h2{font:800 24px/1.08 var(--f1),var(--f2),sans-serif;color:var(--ink);margin:0 0 6px}
++.memory-hero p,.moments-hero p{font-size:12px;line-height:1.45;font-weight:700;color:#90506c;max-width:250px}
++.memory-total{width:76px;height:76px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;border:1px solid rgba(91,31,58,.12);border-radius:22px;background:rgba(255,255,255,.76);box-shadow:0 4px 12px rgba(91,31,58,.06)}
++.memory-total strong{font:800 29px/1 var(--f1),sans-serif;color:var(--ink)}
++.memory-total span{margin-top:3px;color:#94516e;font-size:10px;font-weight:800}
++.map-page .mapbox{height:340px;border:1px solid #efbfd2;border-radius:24px;box-shadow:0 9px 22px rgba(91,31,58,.10);background:#f8e8ef}
++.map-page.is-memory .mapbox{height:390px;min-height:330px}
++.map-page .leaflet-container{font-family:var(--f2),sans-serif;background:#f8e8ef}
++.map-page .leaflet-popup-content-wrapper{border:1px solid #f0c4d5;border-radius:16px;box-shadow:0 8px 24px rgba(91,31,58,.14)}
++.map-page .leaflet-popup-content{margin:13px 15px;font-family:var(--f2),sans-serif;line-height:1.45}
++.map-page .leaflet-popup-content b{font-size:15px}
++.map-mode-tabs{display:grid!important;grid-template-columns:1fr 1fr;gap:8px!important;padding:6px!important;border:1px solid #f0c5d6!important;border-radius:18px!important;background:#fff!important;box-shadow:0 5px 16px rgba(91,31,58,.06)!important}
++.map-mode-tabs .pill{padding:9px 12px;border:1px solid transparent;font:800 14px var(--f1),sans-serif;transition:background .18s ease,transform .18s ease}
++.map-mode-tabs .pill:not(.on){background:#fff7fa;color:#93536d}
++.map-mode-tabs .pill.on{background:#ffb8d0;border-color:#ef9fbd;box-shadow:inset 0 0 0 1px rgba(255,255,255,.45)}
++.memory-dashboard{display:flex;flex-direction:column;gap:13px}
++.memory-filters{display:flex;flex-wrap:wrap;gap:8px!important;padding:12px!important;border:1px solid #efc6d6!important;border-radius:20px!important;background:#fff!important;box-shadow:0 5px 16px rgba(91,31,58,.05)!important}
++.memory-filter-chip{flex:1 1 auto;min-height:38px;padding:7px 12px;border:1px solid #f0d3df;background:#fff8fb;font-size:12px;white-space:nowrap}
++.memory-filter-chip.on{border-color:#e99bb8;background:#ffe0eb;color:#6e2d49}
++.memory-filter-chip:disabled{opacity:.48;cursor:not-allowed}
++.memory-loading,.memory-empty{padding:24px 16px!important;border:1px solid #edcada!important;border-radius:22px!important;box-shadow:0 7px 18px rgba(91,31,58,.06)!important}
++.memory-empty{background:linear-gradient(135deg,#fff,#f7efff)!important;color:#64334e}
++.memory-empty>div:first-child{font:800 17px var(--f1),sans-serif}
++.memory-timeline{padding:14px!important;border:1px solid #efc1d4!important;border-radius:20px!important;box-shadow:0 6px 18px rgba(91,31,58,.06)!important}
++.memory-timeline>div:first-child{gap:10px!important}
++.memory-timeline .pill{flex:none;padding:7px 12px;border:1px solid #eaa8c1;font-size:12px}
++.memory-timeline input[type=range]{accent-color:#a94370;min-width:70px}
++.memory-timeline .s{font-size:11px;line-height:1.45}
++.memory-list-panel{max-height:min(68vh,680px)!important;overflow:auto!important;padding:15px!important;border:1px solid #eec4d5!important;border-radius:23px!important;background:linear-gradient(180deg,#fff 0%,#fff9fc 100%)!important;box-shadow:0 8px 22px rgba(91,31,58,.07)!important;scrollbar-width:thin;scrollbar-color:#e8a9c2 transparent}
++.memory-list-heading{position:sticky;top:-15px;z-index:3;margin:-2px -2px 10px!important;padding:9px 2px 12px;background:linear-gradient(180deg,#fff 84%,rgba(255,255,255,0))}
++.memory-list-heading b{font-size:17px}
++.memory-list-heading .s{font-size:10px;text-align:right}
++.memory-list-item{display:flex;flex-direction:column;gap:7px;margin:0 0 9px;padding:12px 13px;border:1px solid #f0d6e1;border-radius:17px;background:#fff;box-shadow:0 3px 10px rgba(91,31,58,.045);cursor:pointer;transition:border-color .18s ease,background .18s ease,box-shadow .18s ease,transform .18s ease}
++.memory-list-item:last-child{margin-bottom:0}
++.memory-list-item:hover{border-color:#e9a7bf;background:#fff9fc;box-shadow:0 5px 14px rgba(91,31,58,.08)}
++.memory-list-item.is-active{border:1.5px solid #a94370;background:#fff0f6;box-shadow:0 0 0 3px rgba(255,143,184,.18)}
++.memory-list-item.is-future{opacity:.42}
++.memory-list-item>div:first-child{display:flex;align-items:center;gap:9px;min-width:0}
++.memory-list-item>div:first-child>span:first-child{display:grid;place-items:center;min-width:30px;height:30px;border-radius:10px;background:#ffe3ed;color:#7e3454;font:800 13px var(--f1),sans-serif}
++.memory-list-item>div:first-child>span:nth-child(2){font-size:17px}
++.memory-list-item>div:first-child>div{min-width:0}
++.memory-list-item>div:first-child>div>div:first-child{font-size:13px;font-weight:800;color:#60304a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
++.memory-list-item>div:first-child>div>.s{font-size:10px;font-weight:700;color:#a0647f}
++.memory-list-item .s{font-size:10px}
++.memory-list-item .pin-merge{font-size:10px!important}
++.memory-list-subitem{display:block;width:100%;padding:9px 11px!important;border:1px solid #f1d4df!important;border-radius:12px!important;background:#fff9fc!important;color:var(--ink);text-align:left;font:600 12px var(--f2),sans-serif;cursor:pointer}
++.memory-list-subitem+.memory-list-subitem{margin-top:6px}
++.memory-list-subitem .s{font-size:10px}
++.map-page .fab{z-index:10}
++@media(min-width:600px){.map-page.is-memory .mapbox{height:420px}.memory-hero{padding:20px 22px}.memory-list-panel{max-height:620px!important}}
++@media(max-width:380px){.memory-hero{padding:15px}.memory-hero h2{font-size:21px}.memory-total{width:66px;height:66px}.memory-total strong{font-size:25px}.memory-filter-chip{padding:7px 9px;font-size:11px}}
++@media(prefers-reduced-motion:reduce){.map-mode-tabs .pill,.memory-list-item{transition:none}}
+diff --git a/app/(app)/map/page.tsx b/app/(app)/map/page.tsx
+--- a/app/(app)/map/page.tsx
++++ b/app/(app)/map/page.tsx
+@@ -2,2 +2,3 @@
+ import 'leaflet/dist/leaflet.css'
++import './map-ui.css'
+ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+@@ -643,3 +644,14 @@ import { sb } from '@/lib/supabase'
+     </Head>
+-    <div className="b">
++    <div className={`b map-page ${mode === 'memory' ? 'is-memory' : 'is-live'}`}>
++      {mode === 'memory' && <section className="memory-hero" aria-label="Tổng quan bản đồ kỷ niệm">
++        <div className="memory-hero-copy">
++          <span className="memory-eyebrow">OUR LITTLE STORY</span>
++          <h2>Bản đồ kỷ niệm</h2>
++          <p>Mỗi dấu ghim là một nơi hai đứa đã cùng đi qua.</p>
++        </div>
++        <div className="memory-total">
++          <strong>{processedPins.length}</strong>
++          <span>địa điểm</span>
++        </div>
++      </section>
+       <div ref={el} className="mapbox" />
+@@ -649,3 +661,3 @@ import { sb } from '@/lib/supabase'
+       {/* Mode tabs */}
+-      <div className="k pk" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
++      <div className="k pk map-mode-tabs" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+         <button className={'pill' + (mode === 'live' ? ' on' : '')} onClick={() => setMode('live')}>Trực tiếp</button>
+@@ -676,5 +688,5 @@ import { sb } from '@/lib/supabase'
+       {/* Memory mode UI */}
+-      {mode === 'memory' && <>
++      {mode === 'memory' && <section className="memory-dashboard">
+         {/* Time range chips */}
+-        <div className="k" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
++        <div className="k memory-filters" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+           {CHIP_LABELS.map(chip => {
+@@ -683,3 +695,3 @@ import { sb } from '@/lib/supabase'
+               key={chip.key}
+-              className={'pill' + (selectedChip === chip.key ? ' on' : '') + (disabled ? ' disabled' : '')}
++              className={'pill memory-filter-chip' + (selectedChip === chip.key ? ' on' : '') + (disabled ? ' disabled' : '')}
+               onClick={() => !disabled && setSelectedChip(chip.key)}
+@@ -695,4 +707,4 @@ import { sb } from '@/lib/supabase'
+         {/* Loading/empty state */}
+-        {loadingMemories && <div className="k s" style={{textAlign:'center',padding:20}}>Đang tải ký ức…</div>}
+-        {!loadingMemories && !processedPins.length && <div className="k li" style={{textAlign:'center',padding:20}}>
++        {loadingMemories && <div className="k s memory-loading" style={{textAlign:'center',padding:20}}>Đang tải ký ức…</div>}
++        {!loadingMemories && !processedPins.length && <div className="k li memory-empty" style={{textAlign:'center',padding:20}}>
+           <div>Chưa có kỷ niệm nào trong khoảng này</div>
+@@ -702,3 +714,3 @@ import { sb } from '@/lib/supabase'
+         {/* Timeline slider */}
+-        {processedPins.length > 1 && !loadingMemories && <div className="k pk" style={{marginTop:12}}>
++        {processedPins.length > 1 && !loadingMemories && <div className="k pk memory-timeline" style={{marginTop:12}}>
+           <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:8}}>
+@@ -714,4 +726,4 @@ import { sb } from '@/lib/supabase'
+         {/* Synced list */}
+-        {processedPins.length > 0 && !loadingMemories && <div className="k li" style={{marginTop:12, maxHeight: 400, overflow: 'auto'}}>
+-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
++        {processedPins.length > 0 && !loadingMemories && <div className="k li memory-list-panel" style={{marginTop:12, maxHeight: 400, overflow: 'auto'}}>
++          <div className="memory-list-heading" style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+             <b>Danh sách kỷ niệm ({processedPins.length})</b>
+@@ -762,3 +774,3 @@ import { sb } from '@/lib/supabase'
+         )}
+-      </>}
++      </section>}
+     </div>
+@@ -783,11 +795,3 @@ import { sb } from '@/lib/supabase'
+     id={`memory-list-${pin.ref_id}`}
+-    className={'k s' + (!isVisible ? ' disabled' : '') + (pin.merged ? ' merged' : '')}
+-    style={{
+-      display: 'flex', flexDirection: 'column', gap: 4,
+-      borderRadius: 8, cursor: 'pointer',
+-      background: isVisible ? 'rgba(91,31,58,0.05)' : 'transparent',
+-      opacity: isVisible ? 1 : 0.4,
+-      border: isActive ? '2px solid #5B1F3A' : 'none',
+-      padding: '8px 10px'
+-    }}
++    className={'memory-list-item' + (!isVisible ? ' is-future' : '') + (isActive ? ' is-active' : '') + (pin.merged ? ' has-merged' : '')}
+     onClick={pin.merged ? () => setShowMergedDates(!showMergedDates) : onClick}
+@@ -805,3 +809,3 @@ import { sb } from '@/lib/supabase'
+         {pin.merged!.map((mp, mi) => (
+-          <button key={mi} className="k s" style={{textAlign:'left',padding:'6px 8px',borderRadius:6,background:'#fff',border:'1px solid #FFD9E8',cursor:'pointer',width:'100%'}}
++          <button key={mi} className="memory-list-subitem" style={{textAlign:'left',padding:'6px 8px',borderRadius:6,background:'#fff',border:'1px solid #FFD9E8',cursor:'pointer',width:'100%'}}
+             onClick={(e) => { e.stopPropagation(); onClick(); }}
+diff --git a/app/(app)/moments/moments-ui.css b/app/(app)/moments/moments-ui.css
+new file mode 100644
+--- /dev/null
++++ b/app/(app)/moments/moments-ui.css
+@@ -0,0 +1,40 @@
++.moments-page{gap:15px;padding-top:8px}
++.moments-hero{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:19px 18px;border:1px solid #efc0d3;border-radius:24px;background:linear-gradient(128deg,#fff 0%,#ffe7ef 64%,#f0e8ff 100%);box-shadow:0 9px 22px rgba(91,31,58,.08)}
++.moments-hero-copy{min-width:0}
++.moments-hero h2{max-width:230px}
++.moments-hero p{max-width:235px}
++.moments-hero-count{width:68px;height:68px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;border:1px solid rgba(91,31,58,.12);border-radius:20px;background:rgba(255,255,255,.78)}
++.moments-hero-count strong{font:800 27px/1 var(--f1),sans-serif;color:var(--ink)}
++.moments-hero-count span{margin-top:4px;color:#92536e;font-size:10px;font-weight:800}
++.moments-page>.k.li{padding:13px 15px;border:1px solid #e8c7d6;border-radius:19px;box-shadow:0 5px 15px rgba(91,31,58,.055)}
++.moments-toolbar{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px!important}
++.moments-toolbar>*{min-width:0;display:flex;align-items:center;justify-content:center;padding:9px 5px!important;border:1px solid #edc5d5!important;border-radius:14px!important;background:#fff!important;box-shadow:0 3px 9px rgba(91,31,58,.045);font-size:11px!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
++.moments-toolbar>*:first-child{background:#ffe1ec!important}
++.moments-toolbar>*:disabled{opacity:.55}
++.moments-filter-panel{padding:14px!important;border:1px solid #efc7d7!important;border-radius:19px!important;box-shadow:0 6px 16px rgba(91,31,58,.055)!important}
++.moments-filter-panel label{display:flex;flex-direction:column;gap:5px}
++.moments-filter-panel select{min-height:39px;border:1px solid #edc6d6;border-radius:12px;padding:6px 10px;background:#fff9fc;font-size:13px}
++.moments-albums{gap:7px;padding:2px 1px 5px;scrollbar-width:none}
++.moments-albums::-webkit-scrollbar{display:none}
++.moments-albums .pill{flex:none;padding:7px 13px;border:1px solid #ebc7d7;background:#fff;font-size:11px;white-space:nowrap}
++.moments-albums .pill.on{background:#ffdce9;border-color:#e9a6bf}
++.moment-day{gap:10px!important}
++.moment-day-label{position:sticky;top:0;z-index:2;align-self:flex-start;padding:6px 12px!important;border:1px solid #f0c6d7;border-radius:999px;background:rgba(255,255,255,.92)!important;box-shadow:0 3px 9px rgba(91,31,58,.045);color:#8d4c68!important;font-size:11px!important;font-weight:800;letter-spacing:.02em;backdrop-filter:blur(8px)}
++.moment-card{display:block;width:100%;padding:13px!important;border:1px solid #edc7d7!important;border-radius:21px!important;background:#fff!important;box-shadow:0 6px 17px rgba(91,31,58,.065)!important;text-align:left;line-height:1.5;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
++.moment-card:hover{transform:translateY(-2px);border-color:#e5a4bd!important;box-shadow:0 10px 22px rgba(91,31,58,.10)!important}
++.moment-card:focus-visible{outline:3px solid #a34c72;outline-offset:3px}
++.moment-card>b{margin:8px 0 5px;font-size:17px;line-height:1.25;color:#5b1f3a}
++.moment-card>div:not(.moment-media-grid){font-size:13px;font-weight:600;color:#684058}
++.moment-card>.s{margin-top:6px;color:#98617b;font-size:10px;font-weight:700;line-height:1.55}
++.moment-media-grid{gap:7px!important;margin-bottom:9px!important}
++.moment-media-grid .th{border:0!important;border-radius:14px!important;background:#f7e6ed;box-shadow:inset 0 0 0 1px rgba(91,31,58,.07)}
++.moment-media-grid .th img{transition:transform .3s ease}
++.moment-card:hover .moment-media-grid .th img{transform:scale(1.025)}
++.moment-media-grid .more{border-radius:14px;font:800 21px var(--f1),sans-serif}
++.moments-empty{padding:22px 17px!important;border:1px solid #efc6d7!important;border-radius:21px!important;background:linear-gradient(135deg,#fff,#f5edff)!important;box-shadow:0 7px 18px rgba(91,31,58,.06)!important}
++.moments-empty b{font-size:17px}
++.moments-page>.s:last-child{text-align:center;padding:8px 0 12px;color:#9b6680;font-size:11px}
++.moments-page .fab{z-index:10;box-shadow:0 6px 18px rgba(91,31,58,.18)}
++@media(min-width:600px){.moments-hero{padding:21px 22px}.moment-card{padding:15px!important}.moments-hero-count{width:76px;height:76px}}
++@media(max-width:380px){.moments-hero{padding:15px}.moments-hero h2{font-size:21px}.moments-toolbar>*{font-size:10px!important}.moment-card{padding:11px!important}}
++@media(prefers-reduced-motion:reduce){.moment-card,.moment-media-grid .th img{transition:none}}
+diff --git a/app/(app)/moments/page.tsx b/app/(app)/moments/page.tsx
+--- a/app/(app)/moments/page.tsx
++++ b/app/(app)/moments/page.tsx
+@@ -1,2 +1,3 @@
+ 'use client'
++import './moments-ui.css'
+ import { useCallback, useEffect, useRef, useState } from 'react'
+@@ -140,3 +141,11 @@ import { sb } from '@/lib/supabase'
+     <Head t="Khoảnh khắc"><Link href="/map?layer=moments" className="pill">Bản đồ</Link></Head>
+-    <div className="b">
++    <div className="b moments-page">
++      <section className="moments-hero" aria-label="Kho lưu niệm">
++        <div className="moments-hero-copy">
++          <span className="moments-eyebrow">A LITTLE TIME CAPSULE</span>
++          <h2>Những ngày mình nhớ</h2>
++          <p>Lưu lại những khoảnh khắc nhỏ, để sau này cùng mở ra.</p>
++        </div>
++        <div className="moments-hero-count"><strong>{list.length}</strong><span>đã tải</span></div>
++      </section>
+       {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map(m => <div key={m.id} className="s">{m.taken_on.slice(0, 4)}: {m.title}</div>)}
+@@ -144,3 +153,3 @@ import { sb } from '@/lib/supabase'
+ 
+-      <div className="row" style={{ flex: 'none' }}>
++      <div className="row moments-toolbar" style={{ flex: 'none' }}>
+         <button className={'pill' + (nf ? ' on' : '')} onClick={() => setShowF(!showF)} aria-expanded={showF}>Lọc{nf ? ` (${nf})` : ''}</button>
+@@ -149,3 +158,3 @@ import { sb } from '@/lib/supabase'
+       </div>
+-      {showF && <div className="k" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++      {showF && <div className="k moments-filter-panel" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+         <div className="row"><label className="s">Năm<select value={flt.year} onChange={e => set('year', e.target.value)} style={{ maxWidth: '100%', width: '100%' }}><option value="">Tất cả</option>{opts.years.map(y => <option key={y}>{y}</option>)}</select></label>
+@@ -156,3 +165,3 @@ import { sb } from '@/lib/supabase'
+ 
+-      <div className="days" aria-label="Album">
++      <div className="days moments-albums" aria-label="Album">
+         <button className={'pill' + (!flt.album ? ' on' : '')} onClick={() => set('album', '')}>Tất cả</button>
+@@ -162,6 +171,6 @@ import { sb } from '@/lib/supabase'
+ 
+-      {!list.length && !loading && <div className="k pe"><b>{nf || flt.album ? 'Không có khoảnh khắc nào khớp' : 'Chưa có khoảnh khắc nào'}</b><div className="s">{nf || flt.album ? 'Thử bỏ bớt bộ lọc nhé.' : 'Bấm dấu + để lưu kỷ niệm đầu tiên của hai đứa.'}</div></div>}
++      {!list.length && !loading && <div className="k pe moments-empty"><b>{nf || flt.album ? 'Không có khoảnh khắc nào khớp' : 'Chưa có khoảnh khắc nào'}</b><div className="s">{nf || flt.album ? 'Thử bỏ bớt bộ lọc nhé.' : 'Bấm dấu + để lưu kỷ niệm đầu tiên của hai đứa.'}</div></div>}
+ 
+-      {groups.map(([d, ms]) => <div key={d} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+-        <div className="s" style={{ position: 'sticky', top: 0, background: '#FFF0F6', padding: '2px 0', zIndex: 1 }}>{dayLabel(d)}</div>
++      {groups.map(([d, ms]) => <div key={d} className="moment-day" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++        <div className="s moment-day-label" style={{ position: 'sticky', top: 0, background: '#FFF0F6', padding: '2px 0', zIndex: 1 }}>{dayLabel(d)}</div>
+         {ms.map(m => {
+@@ -169,4 +178,4 @@ import { sb } from '@/lib/supabase'
+           const myHeart = (m.moment_hearts ?? []).some((h: any) => h.user_id === me.id)
+-          return <button key={m.id} className="k" style={{ textAlign: 'left', width: '100%', font: 'inherit', color: 'inherit', cursor: 'pointer' }} onClick={() => setView(m)}>
+-            {md.length > 0 && <div className="mgrid" style={{ gridTemplateColumns: md.length === 1 ? '1fr' : 'repeat(2,1fr)' }}>
++          return <button key={m.id} className="k moment-card" style={{ textAlign: 'left', width: '100%', font: 'inherit', color: 'inherit', cursor: 'pointer' }} onClick={() => setView(m)}>
++            {md.length > 0 && <div className="mgrid moment-media-grid" style={{ gridTemplateColumns: md.length === 1 ? '1fr' : 'repeat(2,1fr)' }}>
+               {md.slice(0, 4).map((x: any, i: number) => {
