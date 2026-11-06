@@ -58,6 +58,8 @@ function addDays(date: Date, days: number): Date {
   return d
 }
 
+// T11d: ngày yyyy-mm-dd theo giờ máy (toISOString đổi sang UTC nên lệch 1 ngày ở Việt Nam)
+const ymdLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 function getChipDate(key: string, startDate: string | null): Date | null {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -201,8 +203,8 @@ export default function MapPage() {
       const to = new Date()
       to.setHours(23, 59, 59, 999)
       const { data, error } = await sb.rpc('memory_places', {
-        p_from: from?.toISOString().slice(0, 10) || null,
-        p_to: to.toISOString().slice(0, 10)
+        p_from: from ? ymdLocal(from) : null,
+        p_to: ymdLocal(to)
       })
       if (error) throw new Error(error.message)
       setMemories(data ?? [])
@@ -745,7 +747,7 @@ export default function MapPage() {
           </div>
           {processedPins.map((pin, idx) => (
             <MemoryListItem
-              key={pin.ref_id}
+              key={`${pin.source}:${pin.ref_id}:${pin.is_start_point === false ? 'end' : 'start'}`}
               pin={pin}
               idx={idx}
               isVisible={idx <= timelineIndex}

@@ -158,3 +158,14 @@ Cách test với hai máy: máy A chọn nhân vật, máy B vào là thấy mì
 ## Vá C2: ảnh bìa kế hoạch (phase19)
 
 - Sau `supabase/phase18.sql`, chạy `supabase/phase19.sql` trong Supabase SQL Editor. Migration thêm điều kiện `plans.cover_path` vào policy đọc/sửa/xóa Storage để người còn lại xem được ảnh bìa kế hoạch. Có thể chạy lại an toàn.
+
+## Vá lỗi mức trung bình (phase20 đến phase23)
+
+Chạy lần lượt trong Supabase SQL Editor, **sau `phase19.sql`**, rồi deploy frontend và Edge Functions. Tất cả đều chạy lại an toàn.
+
+- `phase20.sql` (T4, T9): `spaces` chỉ còn sửa được cột `name` và `start_date`; trigger chặn ngày bắt đầu yêu ngoài khoảng 01/01/1950 đến hôm nay; `create_space` từ chối khi người gọi đã ở trong một Space.
+- `phase21.sql` (T7): bảng `calls` và hàm `ringing_call()`, để bên nhận đang đóng app vẫn thấy cuộc gọi khi mở app từ thông báo đẩy.
+- `phase22.sql` (T11b): `memory_places` không còn lặp toàn bộ đường đi ở dòng điểm cuối của hành trình.
+- `phase23.sql` (T15, L3): cột `stops.end_time` và hàm `set_stop_vote` (bình chọn Thích/Không không ghi đè nhau).
+- Deploy lại hàm: `supabase functions deploy anniversary`. Hàm này giờ **chỉ nhận khóa service_role** trong header `Authorization` (T8); lịch `pg_cron` ở `supabase/functions/README.md` đã gửi đúng khóa này. Nhắc thêm 7 ngày, kỷ niệm tháng và 29/02 (T2) cũng nằm trong hàm này.
+- T9, bước làm tay: khi cả hai đã vào Space, vào Supabase > Authentication > Providers > Email và tắt **Allow new users to sign up**. Không có bước này thì ai biết địa chỉ site vẫn tạo được tài khoản mới.

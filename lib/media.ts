@@ -131,11 +131,12 @@ export const uploadBlob = (path: string, b: Blob, type: string, onP: (p: number)
 
 // ---------- Link ký có thời hạn, có nhớ tạm (NFR-02) ----------
 const cache = new Map<string, { u: string; exp: number }>()
-export async function sign(paths: (string | null | undefined)[], ttl = 300): Promise<Record<string, string>> {
+// fresh = true: bỏ qua bộ nhớ tạm, ký lại ngay (T13: ký lúc người dùng bấm xem ảnh lớn/video, kèm TTL dài hơn)
+export async function sign(paths: (string | null | undefined)[], ttl = 300, fresh = false): Promise<Record<string, string>> {
   const { data: { session } } = await sb.auth.getSession()
   const cacheScope = session?.user.id ?? 'anon'
   const want = Array.from(new Set(paths.filter(Boolean) as string[])), out: Record<string, string> = {}, now = Date.now(), miss: string[] = []
-  for (const p of want) { const c = cache.get(`${cacheScope}:${p}`); if (c && c.exp > now + 60000) out[p] = c.u; else miss.push(p) }
+  for (const p of want) { const c = fresh ? undefined : cache.get(`${cacheScope}:${p}`); if (c && c.exp > now + 60000) out[p] = c.u; else miss.push(p) }
   if (miss.length) {
     const { data } = await sb.storage.from('media').createSignedUrls(miss, ttl)
     for (const x of data ?? []) if (x.path && x.signedUrl) { out[x.path] = x.signedUrl; cache.set(`${cacheScope}:${x.path}`, { u: x.signedUrl, exp: now + ttl * 1000 }) }
@@ -144,21 +145,31 @@ export async function sign(paths: (string | null | undefined)[], ttl = 300): Pro
 }
 
 // ---------- Nén zip để tải về (MOM-09) ----------
+// T14: mọi chunk của một zip nằm trong RAM cho tới khi lưu, nên chia thành nhiều tệp, mỗi phần tối đa ZIP_PART_BYTES
+// (máy yếu như Oppo F5 có thể sập tab nếu gom vài trăm MB vào một Blob). Chỉ có một phần thì giữ nguyên tên tệp.
+export const ZIP_PART_BYTES = 250 * 1048576
 export async function zipDownload(files: { name: string; path: string }[], zipName: string, onP: (done: number, total: number) => void) {
-  const urls = await sign(files.map(f => f.path), 3600 * 2), chunks: BlobPart[] = []
-  let fail: Error | null = null
-  const zip = new Zip((err, chunk) => { if (err) fail = err; else chunks.push(chunk) })
-  let n = 0
-  for (const f of files) {
-    const u = urls[f.path]; if (!u) { n++; continue }
-    const r = await fetch(u); if (!r.ok) throw new Error(`Không tải được ${f.name}`)
-    const e = new ZipPassThrough(f.name); zip.add(e); e.push(new Uint8Array(await r.arrayBuffer()), true)   // ảnh/video đã nén sẵn, không nén lại
-    onP(++n, files.length)
+  const urls = await sign(files.map(f => f.path), 3600 * 2)
+  let chunks: BlobPart[] = [], bytes = 0, part = 0, fail: Error | null = null, zip: Zip
+  const fresh = () => { chunks = []; bytes = 0; zip = new Zip((err, chunk) => { if (err) fail = err; else chunks.push(chunk) }) }
+  const save = (multi: boolean) => {
+    zip.end()
+    if (fail) throw fail
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type: 'application/zip' }))
+    a.download = multi ? zipName.replace(/\.zip$/i, '') + `-phan-${++part}.zip` : zipName
+    document.body.appendChild(a); a.click(); a.remove(); const href = a.href; setTimeout(() => URL.revokeObjectURL(href), 60000)
   }
-  zip.end()
-  if (fail) throw fail
-  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type: 'application/zip' })); a.download = zipName
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000)
+  fresh()
+  let n = 0, saved = false
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i], u = urls[f.path]; if (!u) { n++; continue }
+    const r = await fetch(u); if (!r.ok) throw new Error(`Không tải được ${f.name}`)
+    const buf = new Uint8Array(await r.arrayBuffer())
+    const e = new ZipPassThrough(f.name); zip!.add(e); e.push(buf, true)   // ảnh/video đã nén sẵn, không nén lại
+    bytes += buf.byteLength; onP(++n, files.length)
+    if (bytes >= ZIP_PART_BYTES && i < files.length - 1) { save(true); saved = true; await new Promise(res => setTimeout(res, 800)); fresh() }   // còn tệp: lưu phần này, sang phần mới
+  }
+  if (bytes > 0 || !saved) save(saved)
 }
 
 // ---------- Tìm địa điểm bằng OpenStreetMap Nominatim (MOM-01) ----------
@@ -178,3 +189,18 @@ export async function reverse(lat: number, lng: number): Promise<string> {
 
 export const TAGS = ['Vui vẻ', 'Ngọt ngào', 'Háo hức', 'Bình yên', 'Nhớ mãi', 'Cười xỉu', 'Xúc động', 'Hơi mệt']
 export const TAG_EMOJI: Record<string, string> = { 'Vui vẻ': '😆', 'Ngọt ngào': '🥰', 'Háo hức': '🤩', 'Bình yên': '😌', 'Nhớ mãi': '🥹', 'Cười xỉu': '🤣', 'Xúc động': '😭', 'Hơi mệt': '😴' }
+
+// T10: gỡ tệp đính kèm theo đúng thứ tự "xóa tệp trước, xóa dòng sau". Policy xóa Storage (phase17/19) chỉ cho người không phải
+// chủ tệp xóa khi tệp CÒN được dòng dữ liệu tham chiếu; xóa dòng trước thì ảnh do người kia tải lên bị từ chối và mồ côi trong Storage.
+// Trả về true khi cả tệp lẫn dòng đã xóa; lỗi thì báo người dùng và không xóa dòng (ảnh vẫn còn nguyên, thử lại được).
+export async function dropMedia(table: 'media' | 'diary_media' | 'wishlist_media', rows: { id: string; path?: string | null; thumb_path?: string | null }[]): Promise<boolean> {
+  if (!rows.length) return true
+  const paths = Array.from(new Set(rows.flatMap(m => [m.path, m.thumb_path]).filter((x): x is string => !!x)))
+  if (paths.length) {
+    const { error } = await sb.storage.from('media').remove(paths)
+    if (error) { alert('Không xóa được tệp ảnh: ' + error.message); return false }
+  }
+  const { error } = await sb.from(table).delete().in('id', rows.map(r => r.id))
+  if (error) { alert('Không xóa được: ' + error.message); return false }
+  return true
+}

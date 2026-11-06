@@ -1,5 +1,7 @@
 # Thông báo đẩy (Web Push): CHAT-04, CALL-05, ANNIV-04
 
+Cuộc gọi khi app đóng (CALL-05) cần thêm `supabase/phase21.sql`: thông báo đẩy mở app, rồi app hỏi bảng `calls` để hiện cuộc gọi đang đổ chuông.
+
 Phần này **chưa được chạy thử trên Supabase thật**; làm theo từng bước và thử bằng hai máy.
 
 1. Tạo khóa VAPID (một lần): `npx web-push generate-vapid-keys`
@@ -16,5 +18,6 @@ Phần này **chưa được chạy thử trên Supabase thật**; làm theo t�
        headers := jsonb_build_object('Authorization', 'Bearer <SERVICE_ROLE_KEY>', 'Content-Type', 'application/json'),
        body := '{}'::jsonb) $$);
    ```
-   (Khóa service_role chỉ dán vào SQL Editor, không đưa vào mã nguồn.)
+   (Khóa service_role chỉ dán vào SQL Editor, không đưa vào mã nguồn. Hàm `anniversary` từ chối mọi lời gọi không mang đúng khóa này, nên anon key trong trình duyệt không kích hoạt được nó.)
+   Nhắc ngày đặc biệt: đúng ngày, trước 1 ngày và trước 7 ngày; có cả kỷ niệm tháng.
 6. Mỗi người mở **Cài đặt > Bật thông báo** trên máy của mình. iPhone: phải "Thêm vào Màn hình chính" trước, iOS 16.4 trở lên.
