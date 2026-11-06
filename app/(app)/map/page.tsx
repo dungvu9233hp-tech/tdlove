@@ -717,63 +717,24 @@ export default function MapPage() {
             <b>Danh sách kỷ niệm ({processedPins.length})</b>
             <span className="s">{timelineIndex >= 0 ? `Đã xem ${timelineIndex + 1} / ${processedPins.length}` : 'Kéo thanh thời gian để lọc'}</span>
           </div>
-          {processedPins.map((pin, idx) => {
-            const isVisible = idx <= timelineIndex
-            const sourceLabels: Record<string, string> = {
-              moment: '📷', journal: '📓', plan: '🗓️', journey: '🛤️'
-            }
-            const handleClick = () => {
-              setTimelineIndex(idx)
-              map.current?.flyTo([pin.lat, pin.lng], 16)
-              // Trigger popup manually
-              const markers = Object.values((memoryLayer.current as any)?._layers || {})
-              markers.forEach((m: any) => {
-                if (m._latlng?.lat === pin.lat && m._latlng?.lng === pin.lng) m.openPopup()
-              })
-              // Scroll list item into view
-              const el = document.getElementById(`memory-list-${pin.ref_id}`)
-              el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            }
-            // For merged pins, show expandable date list
-            const [showMergedDates, setShowMergedDates] = useState(false)
-            return <div
+          {processedPins.map((pin, idx) => (
+            <MemoryListItem
               key={pin.ref_id}
-              id={`memory-list-${pin.ref_id}`}
-              className={'k s' + (!isVisible ? ' disabled' : '') + (pin.merged ? ' merged' : '')}
-              style={{
-                display: 'flex', flexDirection: 'column', gap: 4,
-                borderRadius: 8, cursor: 'pointer',
-                background: isVisible ? 'rgba(91,31,58,0.05)' : 'transparent',
-                opacity: isVisible ? 1 : 0.4,
-                border: idx === timelineIndex ? '2px solid #5B1F3A' : 'none',
-                padding: '8px 10px'
+              pin={pin}
+              idx={idx}
+              isVisible={idx <= timelineIndex}
+              isActive={idx === timelineIndex}
+              timelineIndex={timelineIndex}
+              onClick={() => {
+                setTimelineIndex(idx)
+                map.current?.flyTo([pin.lat, pin.lng], 16)
+                const markers = Object.values((memoryLayer.current as any)?._layers || {})
+                markers.forEach((m: any) => {
+                  if (m._latlng?.lat === pin.lat && m._latlng?.lng === pin.lng) m.openPopup()
+                })
               }}
-              onClick={pin.merged ? () => setShowMergedDates(!showMergedDates) : handleClick}
-            >
-              <div style={{display:'flex',alignItems:'center',gap:8}}>
-                <span style={{fontWeight:'bold',color:'#5B1F3A',minWidth:28}}>#{pin.order}</span>
-                {pin.merged && <span className="pin-merge" style={{fontSize:12,background:'#FFB3CF',color:'#5B1F3A',padding:'2px 6px',borderRadius:999}}>×{pin.merged.length + 1}</span>}
-                <span style={{fontSize:16}}>{sourceLabels[pin.source] || '📍'}</span>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontWeight:500,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{pin.title}</div>
-                  <div className="s" style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{new Date(pin.visited_on).toLocaleDateString('vi-VN')} · {pin.source}</div>
-                </div>
-                {pin.merged && <span className="s" style={{color:'#888'}}>{showMergedDates ? '▲ Thu gọn' : '▼ Xem các ngày'}</span>}
-              </div>
-              {pin.merged && showMergedDates && (
-                <div style={{marginLeft:36,display:'flex',flexDirection:'column',gap:4,paddingTop:4,borderTop:'1px dashed #FFB3CF'}}>
-                  {pin.merged!.map((mp, mi) => (
-                    <button key={mi} className="k s" style={{textAlign:'left',padding:'6px 8px',borderRadius:6,background:'#fff',border:'1px solid #FFD9E8',cursor:'pointer',width:'100%'}}
-                      onClick={(e) => { e.stopPropagation(); handleClick(); }}
-                    >
-                      <div style={{fontWeight:500}}>{mp.title}</div>
-                      <div className="s">{new Date(mp.visited_on).toLocaleDateString('vi-VN')} · {sourceLabels[mp.source] || mp.source}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          })}
+            />
+          ))}
         </div>}
 
         {/* Missing moments modal/list */}
@@ -802,4 +763,56 @@ export default function MapPage() {
       </>}
     </div>
   </>
+}
+
+// MemoryListItem component - extracted to avoid useState in map loop
+function MemoryListItem({ pin, idx, isVisible, isActive, timelineIndex, onClick }: {
+  pin: PinData
+  idx: number
+  isVisible: boolean
+  isActive: boolean
+  timelineIndex: number
+  onClick: () => void
+}) {
+  const [showMergedDates, setShowMergedDates] = useState(false)
+  const sourceLabels: Record<string, string> = {
+    moment: '📷', journal: '📓', plan: '🗓️', journey: '🛤️'
+  }
+
+  return <div
+    id={`memory-list-${pin.ref_id}`}
+    className={'k s' + (!isVisible ? ' disabled' : '') + (pin.merged ? ' merged' : '')}
+    style={{
+      display: 'flex', flexDirection: 'column', gap: 4,
+      borderRadius: 8, cursor: 'pointer',
+      background: isVisible ? 'rgba(91,31,58,0.05)' : 'transparent',
+      opacity: isVisible ? 1 : 0.4,
+      border: isActive ? '2px solid #5B1F3A' : 'none',
+      padding: '8px 10px'
+    }}
+    onClick={pin.merged ? () => setShowMergedDates(!showMergedDates) : onClick}
+  >
+    <div style={{display:'flex',alignItems:'center',gap:8}}>
+      <span style={{fontWeight:'bold',color:'#5B1F3A',minWidth:28}}>#{pin.order}</span>
+      {pin.merged && <span className="pin-merge" style={{fontSize:12,background:'#FFB3CF',color:'#5B1F3A',padding:'2px 6px',borderRadius:999}}>×{pin.merged.length + 1}</span>}
+      <span style={{fontSize:16}}>{sourceLabels[pin.source] || '📍'}</span>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:500,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{pin.title}</div>
+        <div className="s" style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{new Date(pin.visited_on).toLocaleDateString('vi-VN')} · {pin.source}</div>
+      </div>
+      {pin.merged && <span className="s" style={{color:'#888'}}>{showMergedDates ? '▲ Thu gọn' : '▼ Xem các ngày'}</span>}
+    </div>
+    {pin.merged && showMergedDates && (
+      <div style={{marginLeft:36,display:'flex',flexDirection:'column',gap:4,paddingTop:4,borderTop:'1px dashed #FFB3CF'}}>
+        {pin.merged!.map((mp, mi) => (
+          <button key={mi} className="k s" style={{textAlign:'left',padding:'6px 8px',borderRadius:6,background:'#fff',border:'1px solid #FFD9E8',cursor:'pointer',width:'100%'}}
+            onClick={(e) => { e.stopPropagation(); onClick(); }}
+          >
+            <div style={{fontWeight:500}}>{mp.title}</div>
+            <div className="s">{new Date(mp.visited_on).toLocaleDateString('vi-VN')} · {sourceLabels[mp.source] || mp.source}</div>
+          </button>
+        ))}
+      </div>
+    )}
+  </div>
 }
