@@ -12,6 +12,13 @@ export type Look = {
   hairStyle: 'long' | 'short'
   top: number; bottom: number; shoe: number
   face: Face; body: Body
+  // Phần mở rộng cho Cửa hàng (đều tùy chọn, bỏ trống = dáng mặc định)
+  botKind?: 'skirt' | 'pants' | 'shorts'      // mặc định: nữ váy xòe, nam quần dài
+  sleeve?: 'short' | 'long'
+  blush?: number                              // hệ số độ đậm của má hồng
+  glasses?: { shape: 'round' | 'square'; color: number }
+  hat?: { kind: 'cap' | 'beanie' | 'crown'; color: number }
+  neck?: { kind: 'heart' | 'scarf' | 'pearl'; color: number }
 }
 export const DEF_FACE: Face = { width: 1, jaw: 1, eyeSize: 1, eyeGap: 1, noseLen: 1, noseWidth: 1, lipFull: 1, brow: 1, cheek: 1 }
 export const DEF_BODY: Body = { shoulder: 1, chest: 1, waist: 1, hip: 1, thigh: 1, arm: 1 }
@@ -139,9 +146,15 @@ export function buildHuman(look: Look, arms: { l: Arm; r: Arm }): Human {
     const fo = new THREE.Mesh(limbGeo(E.distanceTo(W), foP), skin); place(fo, E, W); add(slots.body, fo)
     add(slots.body, ball(.045 * as, skin, S)); add(slots.body, ball(.036 * as, skin, E)); add(slots.body, ball(.021 * as, skin, W))
     // tay áo ngắn thuộc slot top
-    const se = E.clone().sub(S).multiplyScalar(f ? .5 : .56).add(S)
-    const sl = new THREE.Mesh(limbGeo(S.distanceTo(se), [[0, .0505 * as], [1, .048 * as]], 1, .002), sleeveM); place(sl, S, se); add(slots.top, sl)
+    const longSl = look.sleeve === 'long'
+    const se = longSl ? E.clone() : E.clone().sub(S).multiplyScalar(f ? .5 : .56).add(S)
+    const sl = new THREE.Mesh(limbGeo(S.distanceTo(se), [[0, .0505 * as], [1, (longSl ? .0385 : .048) * as]], 1, .002), sleeveM); place(sl, S, se); add(slots.top, sl)
     add(slots.top, ball(.0495 * as * (f ? 1.03 : 1.04), sleeveM, S))
+    if (longSl) { // tay áo dài: phủ tiếp cẳng tay đến gần cổ tay
+      const wp = E.clone().add(W.clone().sub(E).multiplyScalar(.9))
+      const s2 = new THREE.Mesh(limbGeo(E.distanceTo(wp), [[0, .0395 * as], [.25, .0405 * as], [1, .0305 * as]], 1, .002), sleeveM); place(s2, E, wp); add(slots.top, s2)
+      add(slots.top, ball(.0405 * as, sleeveM, E))
+    }
     armsOut.push(W)
     // bàn tay
     const hand = makeHand(skin, k * (f ? 1.12 : 1.18), a.curl ?? 0, a.thumb ?? side)
@@ -151,15 +164,22 @@ export function buildHuman(look: Look, arms: { l: Arm; r: Arm }): Human {
   // ---- Quần áo (slot top / bottom) ----
   const topM = M(look.top, .85, { side: THREE.DoubleSide }), botM = M(look.bottom, .8, { side: THREE.DoubleSide })
   const band = (y0: number, y1: number, off: number, n = 14) => Array.from({ length: n }, (_, i) => { const y = lerp(y0, y1, i / (n - 1)), r = at(y); return { y, rx: r.rx + off, rz: r.rz + off, ox: 0, oz: r.oz } })
-  add(slots.top, new THREE.Mesh(loft(band((f ? 1.0 : .93) * k, (f ? 1.372 : 1.468) * k, .007 * k), 56, false), topM))
-  if (f) { // váy xòe
+  add(slots.top, new THREE.Mesh(loft(band((f ? 1.0 : .93) * k, (f ? 1.372 : 1.468) * k, (f ? .007 : .013) * k), 56, false), topM))
+  const botKind = look.botKind ?? (f ? 'skirt' : 'pants')
+  if (botKind === 'skirt') { // váy xòe
     const y0 = 1.02 * k, y1 = .53 * k, rings = Array.from({ length: 18 }, (_, i) => { const t = i / 17, y = lerp(y0, y1, t), r = at(Math.max(y, .84 * k)), fl = Math.pow(sstep(.25, 1, t), 1.1); return { y, rx: Math.max(r.rx + .014, lerp(r.rx + .014, .255 * k * bd.hip, fl)), rz: Math.max(r.rz + .009, lerp(r.rz + .009, .2 * k, fl)), ox: 0, oz: lerp(r.oz, 0, fl) } })
     add(slots.bottom, new THREE.Mesh(loft(rings, 56, false), botM))
-  } else { // quần jean
-    const pel = ringsOf([[.735 * k, .02 * k, .045 * k, 0], [.775 * k, .075 * k, .075 * k, 0], [.82 * k, .13 * k, .092 * k, -.003], [.86 * k, .165 * k, .102 * k, -.004], [.9 * k, at(.9 * k).rx + .009 * k, at(.9 * k).rz + .009 * k, -.004]], 12).concat(band(.92 * k, 1.12 * k, .008 * k, 10))
+  } else { // quần dài / quần short
+    const shorts = botKind === 'shorts'
+    const pel = f ? band(.73 * k, 1.0 * k, .006 * k, 16) : ringsOf([[.735 * k, .02 * k, .045 * k, 0], [.775 * k, .075 * k, .075 * k, 0], [.82 * k, .13 * k, .092 * k, -.003], [.86 * k, .165 * k, .102 * k, -.004], [.9 * k, at(.9 * k).rx + .009 * k, at(.9 * k).rz + .009 * k, -.004]], 12).concat(band(.92 * k, .985 * k, .008 * k, 5))
     add(slots.bottom, new THREE.Mesh(loft(pel, 56, false), botM)); add(slots.bottom, new THREE.Mesh(loft(pel.slice(0, 4), 56, true), botM))
     for (const s of [1, -1]) {
       const hp = V(s * hipX, hipY, 0), kn = V(s * (hipX + .004), kneeY, .006), an = V(s * (hipX + .004), ankY + .01, -.004)
+      if (shorts) { // ống ngắn: dừng ở khoảng 72% đùi, bán kính theo đúng đường cong của đùi để da không lòi ra
+        const sp = [[0, .079 * ts], [.278, .082 * ts], [1, .0595 * ts]]
+        const a1 = new THREE.Mesh(limbGeo(hp.distanceTo(kn) * .72, sp, 1, .009 * k), botM); place(a1, hp, kn); add(slots.bottom, a1)
+        continue
+      }
       const a1 = new THREE.Mesh(limbGeo(hp.distanceTo(kn), thighP, 1, .009 * k), botM); place(a1, hp, kn); add(slots.bottom, a1)
       const a2 = new THREE.Mesh(limbGeo(kn.distanceTo(an), calfP.map(p => [p[0], p[1] * 1.0]), 1.05, .01 * k), botM); place(a2, kn, an); add(slots.bottom, a2)
       add(slots.bottom, ball(.052 * ts + .009 * k, botM, kn))
@@ -188,7 +208,7 @@ export function buildHuman(look: Look, arms: { l: Arm; r: Arm }): Human {
     // tai
     const ey = .45 * HH, ear = ball(1, skin, V(s * (fz(ey, 0).rx - .002), ey, -.012), .0065, .024, .017); ear.rotation.z = s * -.12; head.add(ear)
     // má hồng
-    const bl = new THREE.Mesh(new THREE.CircleGeometry(.0165 * fc.cheek, 20), new THREE.MeshBasicMaterial({ color: f ? 0xff7e90 : 0xe8806f, transparent: true, opacity: f ? .26 : .12, depthWrite: false }))
+    const bl = new THREE.Mesh(new THREE.CircleGeometry(.0165 * fc.cheek, 20), new THREE.MeshBasicMaterial({ color: f ? 0xff7e90 : 0xe8806f, transparent: true, opacity: Math.min(.7, (f ? .26 : .12) * (look.blush ?? 1)), depthWrite: false }))
     const bx = s * .041, by2 = .335 * HH; bl.position.set(bx, by2, fz(by2, bx).z + .0008); bl.rotation.y = s * .65; head.add(bl)
   }
   // mũi
@@ -223,6 +243,58 @@ export function buildHuman(look: Look, arms: { l: Arm; r: Arm }): Human {
   } else {
     const q = ball(1, hairM, V(.004, .198, .034), .068, .03, .074); q.rotation.z = -.1; head.add(q)
     for (const s of [1, -1]) head.add(new THREE.Mesh(sweep([V(s * .069, .115, .016), V(s * .071, .095, .022), V(s * .07, .078, .026)], () => .0055, .7, 6, 6), hairM))
+  }
+  // ---- Phụ kiện (Cửa hàng): kính + mũ gắn vào đầu, dây chuyền/khăn gắn vào cổ ----
+  const headAcc = new THREE.Group(); head.add(headAcc)
+  const rod = (a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Material) => { const L = a.distanceTo(b), geo = new THREE.CylinderGeometry(r, r, L, 8); geo.translate(0, L / 2, 0); const m = new THREE.Mesh(geo, mat); place(m, a, b); return m }
+  if (look.glasses) {
+    const gm = M(look.glasses.color, .35, { metalness: .3 }), lensM = new THREE.MeshStandardMaterial({ color: 0xcfe8ff, roughness: .05, transparent: true, opacity: .14, side: THREE.DoubleSide, depthWrite: false })
+    const sq = look.glasses.shape === 'square', R = .0195, half = sq ? .018 : R, yaw = .4, zc = fz(eyeY, eyeX).z + .013
+    for (const s of [1, -1]) {
+      const ring = new THREE.Group(); ring.position.set(s * eyeX, eyeY, zc); ring.rotation.y = s * yaw
+      if (sq) {
+        const w = .036, h = .027, t = .0028
+        for (const [bw, bh, bx, by] of [[w, t, 0, h / 2], [w, t, 0, -h / 2], [t, h, w / 2, 0], [t, h, -w / 2, 0]]) { const b = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, .003), gm); b.position.set(bx, by, 0); ring.add(b) }
+        ring.add(new THREE.Mesh(new THREE.PlaneGeometry(w, h), lensM))
+      } else { ring.add(new THREE.Mesh(new THREE.TorusGeometry(R, .0016, 8, 28), gm)); ring.add(new THREE.Mesh(new THREE.CircleGeometry(R, 24), lensM)) }
+      headAcc.add(ring)
+      // gọng ôm ra sau tai
+      headAcc.add(rod(V(s * (eyeX + half * Math.cos(yaw)), eyeY + .003, zc - half * Math.sin(yaw)), V(s * (fz(eyeY, 0).rx + .004), eyeY + .002, -.02), .0013, gm))
+    }
+    const inner = (s: number) => V(s * (eyeX - half * Math.cos(yaw)), eyeY + .004, zc + half * Math.sin(yaw))
+    headAcc.add(rod(inner(1), inner(-1), .0013, gm))   // cầu kính
+  }
+  if (look.hat) {
+    const kind = look.hat.kind, hm = M(look.hat.color, kind === 'crown' ? .3 : .75, { side: THREE.DoubleSide, ...(kind === 'crown' ? { metalness: .65 } : {}) })
+    const dome = (cy: number, sx: number, sy: number, sz: number) => { const m = new THREE.Mesh(new THREE.SphereGeometry(1, 36, 18, 0, Math.PI * 2, 0, Math.PI / 2), hm); m.position.set(0, cy, -.012); m.scale.set(sx, sy, sz); return m }
+    const band = (y0: number, y1: number, rx: number, rz: number) => new THREE.Mesh(loft([{ y: y0, rx, rz, ox: 0, oz: -.012 }, { y: y1, rx: rx + .001, rz: rz + .001, ox: 0, oz: -.012 }], 44, false), hm)
+    // vành mũ luôn nằm trên lông mày (y ~ 0,154) để không che mắt
+    if (kind === 'cap') {
+      headAcc.add(dome(.172, .102, .076, .136))
+      const brim = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, .004, 28, 1, false, -Math.PI / 2, Math.PI), hm); brim.scale.set(.078, 1, .15); brim.position.set(0, .17, .02); brim.rotation.x = .12; headAcc.add(brim)
+    } else if (kind === 'beanie') {
+      headAcc.add(dome(.168, .104, .098, .136)); headAcc.add(band(.165, .187, .108, .14)); headAcc.add(ball(.017, hm, V(0, .266, -.012)))
+    } else {
+      headAcc.add(band(.165, .19, .092, .114))
+      for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2, c = new THREE.Mesh(new THREE.ConeGeometry(.0095, .03, 6), hm); c.position.set(.092 * Math.sin(a), .205, -.012 + .114 * Math.cos(a)); headAcc.add(c) }
+    }
+  }
+  if (look.neck) {
+    const nk = look.neck, pearl = nk.kind === 'pearl', nm = M(nk.color, pearl ? .25 : .7)
+    const ny = ((f ? 1.38 : 1.485) + (nk.kind === 'scarf' ? .012 : .02)) * k, rn = neckR * 1.12   // ngay trên mép thân (đỉnh thân nữ 1,38 / nam 1,485)
+    const ring = (y: number, rad: number, tube: number) => { const m = new THREE.Mesh(new THREE.TorusGeometry(rad, tube, 8, 32), nm); m.rotation.x = Math.PI / 2; m.position.set(0, y, -.013); m.scale.set(1, .93, 1); add(slots.acc, m) }
+    if (pearl) {
+      for (let i = 0; i < 26; i++) { const a = i / 26 * Math.PI * 2; add(slots.acc, ball(.0042 * k, nm, V(rn * Math.sin(a), ny, -.013 + rn * .93 * Math.cos(a)))) }
+    } else if (nk.kind === 'heart') {
+      ring(ny, rn, .0026 * k)
+      const hs = new THREE.Shape(); hs.moveTo(0, -.5); hs.bezierCurveTo(-.9, .1, -.5, .8, 0, .35); hs.bezierCurveTo(.5, .8, .9, .1, 0, -.5)
+      const hg = new THREE.ExtrudeGeometry(hs, { depth: .2, bevelEnabled: false }); hg.translate(0, 0, -.1)
+      const hm2 = new THREE.Mesh(hg, nm); hm2.scale.setScalar(.026 * k); hm2.position.set(0, ny - .014 * k, -.013 + rn * .93 + .004); add(slots.acc, hm2)
+    } else {
+      ring(ny, rn + .006, .016 * k)
+      const yt = ny - .07 * k, rt = at(yt), tail = new THREE.Mesh(new THREE.BoxGeometry(.04 * k, .13 * k, .012 * k), nm)
+      tail.position.set(.032 * k, yt, rt.oz + rt.rz + .012 * k); tail.rotation.z = -.12; add(slots.acc, tail)
+    }
   }
   g.add(head)
   g.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true } })
@@ -280,7 +352,7 @@ export function mountCouple(canvas: HTMLCanvasElement, opt: { lf?: Look; lm?: Lo
   const fill = new THREE.DirectionalLight(0xdfe8ff, .55); fill.position.set(-3, 1.2, 2.5); scene.add(fill)
   const floor = new THREE.Mesh(new THREE.CircleGeometry(.8, 64), new THREE.MeshStandardMaterial({ color: 0xffd9e8, roughness: 1 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor)
   const edge = new THREE.Mesh(new THREE.TorusGeometry(.8, .012, 8, 96), new THREE.MeshStandardMaterial({ color: 0x5b1f3a, roughness: .7 })); edge.rotation.x = Math.PI / 2; scene.add(edge)
-  const c = buildCouple(opt.lf, opt.lm), pivot = new THREE.Group(); pivot.add(c.root); scene.add(pivot)
+  let c = buildCouple(opt.lf, opt.lm); const pivot = new THREE.Group(); pivot.add(c.root); scene.add(pivot)
   const reduce = !!opt.calm || (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches)
   let drag = false, lastX = 0, yaw = opt.view?.az ?? 0, vel = 0
   const down = (e: PointerEvent) => { drag = true; lastX = e.clientX; canvas.setPointerCapture(e.pointerId) }
@@ -290,6 +362,7 @@ export function mountCouple(canvas: HTMLCanvasElement, opt: { lf?: Look; lm?: Lo
   canvas.style.touchAction = 'pan-y'
   const size = () => { const w = canvas.clientWidth || 360, h = canvas.clientHeight || 420; r.setSize(w, h, false); cam.aspect = w / h; const d = opt.view?.dist ?? (w / h < .9 ? 5.3 : 4.8); const vx = opt.view?.x ?? 0, vy = opt.view?.y ?? .88; cam.position.set(vx, vy + .2 * (d / 4.9), d); cam.lookAt(vx, vy, 0); cam.updateProjectionMatrix() }
   size(); const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(size) : null; ro?.observe(canvas)
+  const free = (root: THREE.Object3D) => root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.geometry.dispose(); const mt = m.material; (Array.isArray(mt) ? mt : [mt]).forEach(x => x.dispose()) } })
   let raf = 0, t0 = performance.now()
   const loop = () => {
     raf = requestAnimationFrame(loop); if (document.hidden) return
@@ -300,7 +373,9 @@ export function mountCouple(canvas: HTMLCanvasElement, opt: { lf?: Look; lm?: Lo
   }
   loop()
   return {
-    renderOnce: () => { c.tick(0, true); r.render(scene, cam) }, setYaw: (v: number) => { yaw = v; pivot.rotation.y = v }, couple: c,
-    dispose: () => { cancelAnimationFrame(raf); ro?.disconnect(); canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move); canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up); scene.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.geometry.dispose(); const mt = m.material; (Array.isArray(mt) ? mt : [mt]).forEach(x => x.dispose()) } }); r.dispose() },
+    renderOnce: () => { c.tick(0, true); r.render(scene, cam) }, setYaw: (v: number) => { yaw = v; pivot.rotation.y = v }, get couple() { return c },
+    // Đổi đồ: bỏ cặp cũ (giải phóng bộ nhớ GPU) rồi dựng cặp mới, giữ nguyên góc xoay đang xem
+    setLooks: (lf?: Look, lm?: Look) => { pivot.remove(c.root); free(c.root); c = buildCouple(lf, lm); pivot.add(c.root) },
+    dispose: () => { cancelAnimationFrame(raf); ro?.disconnect(); canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move); canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up); free(scene); r.dispose() },
   }
 }

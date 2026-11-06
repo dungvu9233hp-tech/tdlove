@@ -110,3 +110,15 @@ select{font:inherit;border:2px solid var(--ink);border-radius:999px;padding:4px 
 @keyframes lhtw{0%,100%{transform:scale(.7) rotate(0);opacity:.55}50%{transform:scale(1.15) rotate(20deg);opacity:1}}
 }
 @media (prefers-reduced-motion:no-preference) and (hover:hover){.lh-link:hover .lh-press{transform:scale(1.03)}}
+/* Khu cấp độ (/level) */
+.lv-tabs{display:flex;gap:8px;flex:none}.lv-tabs .pill{flex:1;text-align:center;padding:8px 12px}
+.lv-bar{height:18px;border:2.5px solid var(--ink);border-radius:999px;background:#fff;overflow:hidden}.lv-bar>i{display:block;height:100%;background:var(--pink);border-radius:999px}
+.lv-chips{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px;flex:none}.lv-chips .pill{flex:none;white-space:nowrap}
+.lv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.lv-it{display:flex;flex-direction:column;gap:3px;text-align:left;min-height:84px;padding:10px 12px;background:#fff;border:2.5px solid var(--ink);border-radius:18px;box-shadow:3px 3px 0 var(--shadow);font:inherit;font-weight:700;color:var(--ink);cursor:pointer}
+.lv-it.sel{background:#FFD9E8}.lv-it.lock{opacity:.55}
+.lv-it:focus-visible,.lv-chips .pill:focus-visible{outline:3px solid var(--ink2);outline-offset:2px}
+.lv-sw{display:inline-block;width:16px;height:16px;border-radius:50%;border:2px solid var(--ink);vertical-align:-3px;margin-right:6px}
+.lv-act{position:sticky;bottom:0;display:flex;flex-direction:column;gap:6px;z-index:2}
+.lv-pts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center}
+.lv-pts .k{padding:8px 6px}.lv-pts .num{font-size:24px;display:block}

@@ -133,3 +133,16 @@ Cài đặt (theo thứ tự, **trước khi** đưa bản app mới lên Vercel
 2. Deploy lại hàm `push` vì đã thêm các loại thông báo mới: `supabase functions deploy push`. Hàm `clip` không đổi.
 
 Cách test với hai máy: thả cảm xúc ở máy A, máy B thấy cảm xúc hiện trên thẻ clip. Viết bình luận ở B, A thấy ngay. Bấm "Rủ xem cùng" ở A, B thấy thẻ lời rủ, bấm Tham gia, rồi bấm phát ở A và xem B có phát theo, thử tua và thử thả cảm xúc. **Chưa chạy thử trên máy thật**; phần đồng bộ phát/tạm dừng/tua phụ thuộc cách trình phát của TikTok báo sự kiện. Nếu trình duyệt (nhất là iPhone) chặn tự phát, máy nhận sẽ hiện dòng nhắc "Chạm vào video để phát"; chạm một lần là các lần sau theo kịp.
+
+
+## Khu cấp độ (bấm trái tim ở Trang chủ)
+
+- **Hai nhân vật 3D nắm tay** (kéo ngang để xoay). Lần đầu mỗi người chọn mình là nhân vật nữ (trái) hay nam (phải); người ấy tự nhận nhân vật còn lại. Chưa mua món nào thì có nút "Đổi chỗ hai nhân vật".
+- **Điểm chung + điểm riêng**: mỗi ngày bên nhau +10 điểm chung; mỗi ảnh gửi trong chat +2 điểm chung và +5 điểm riêng cho người gửi (tối đa 10 ảnh mỗi ngày mỗi người, tính theo giờ Việt Nam). Muốn đổi số thì sửa `level_rules()` trong `phase15.sql`, app tự hiển thị số mới.
+- **Cấp độ** tính theo tổng điểm đã kiếm của cả hai (cấp 2 = 100, cấp 3 = 300, cấp 4 = 600...), nên tiêu điểm không làm tụt cấp.
+- **Cửa hàng**: tóc, áo, quần/váy, giày, trang điểm, kính, mũ, dây chuyền/khăn. Bấm món để thử ngay trên nhân vật, bấm Mua để trả bằng điểm chung hoặc điểm riêng của mình; mua tặng người ấy được. Món cao cấp cần đủ cấp. Điểm, giá và cấp được server kiểm tra (không sửa được từ máy).
+- Danh mục đồ nằm ở bảng `shop_items` (thêm món: thêm một dòng SQL và một dòng hình 3D trong `lib/shop.ts`, cùng id).
+
+Cài đặt: chạy `supabase/phase15.sql` trong SQL Editor (sau phase14.sql, chạy lại vẫn an toàn) **trước khi** đưa bản app mới lên Vercel.
+
+Cách test với hai máy: máy A chọn nhân vật, máy B vào là thấy mình đã có nhân vật còn lại. Gửi ảnh trong chat thì điểm tăng ở cả hai máy. Mua một món ở A, B thấy nhân vật đổi đồ ngay. Đã kiểm tra logic SQL trên Postgres thật (mua đủ/thiếu điểm, thiếu cấp, hai người tiêu cùng lúc) và dựng 3D thử bằng trình duyệt headless; chưa chạy trên Supabase thật.

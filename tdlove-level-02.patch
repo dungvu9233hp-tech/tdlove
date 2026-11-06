@@ -1,0 +1,729 @@
+diff --git a/README.md b/README.md
+index c248aae..02cc968 100644
+--- a/README.md
++++ b/README.md
+@@ -133,3 +133,16 @@ Cài đặt (theo thứ tự, **trước khi** đưa bản app mới lên Vercel
+ 2. Deploy lại hàm `push` vì đã thêm các loại thông báo mới: `supabase functions deploy push`. Hàm `clip` không đổi.
+ 
+ Cách test với hai máy: thả cảm xúc ở máy A, máy B thấy cảm xúc hiện trên thẻ clip. Viết bình luận ở B, A thấy ngay. Bấm "Rủ xem cùng" ở A, B thấy thẻ lời rủ, bấm Tham gia, rồi bấm phát ở A và xem B có phát theo, thử tua và thử thả cảm xúc. **Chưa chạy thử trên máy thật**; phần đồng bộ phát/tạm dừng/tua phụ thuộc cách trình phát của TikTok báo sự kiện. Nếu trình duyệt (nhất là iPhone) chặn tự phát, máy nhận sẽ hiện dòng nhắc "Chạm vào video để phát"; chạm một lần là các lần sau theo kịp.
++
++
++## Khu cấp độ (bấm trái tim ở Trang chủ)
++
++- **Hai nhân vật 3D nắm tay** (kéo ngang để xoay). Lần đầu mỗi người chọn mình là nhân vật nữ (trái) hay nam (phải); người ấy tự nhận nhân vật còn lại. Chưa mua món nào thì có nút "Đổi chỗ hai nhân vật".
++- **Điểm chung + điểm riêng**: mỗi ngày bên nhau +10 điểm chung; mỗi ảnh gửi trong chat +2 điểm chung và +5 điểm riêng cho người gửi (tối đa 10 ảnh mỗi ngày mỗi người, tính theo giờ Việt Nam). Muốn đổi số thì sửa `level_rules()` trong `phase15.sql`, app tự hiển thị số mới.
++- **Cấp độ** tính theo tổng điểm đã kiếm của cả hai (cấp 2 = 100, cấp 3 = 300, cấp 4 = 600...), nên tiêu điểm không làm tụt cấp.
++- **Cửa hàng**: tóc, áo, quần/váy, giày, trang điểm, kính, mũ, dây chuyền/khăn. Bấm món để thử ngay trên nhân vật, bấm Mua để trả bằng điểm chung hoặc điểm riêng của mình; mua tặng người ấy được. Món cao cấp cần đủ cấp. Điểm, giá và cấp được server kiểm tra (không sửa được từ máy).
++- Danh mục đồ nằm ở bảng `shop_items` (thêm món: thêm một dòng SQL và một dòng hình 3D trong `lib/shop.ts`, cùng id).
++
++Cài đặt: chạy `supabase/phase15.sql` trong SQL Editor (sau phase14.sql, chạy lại vẫn an toàn) **trước khi** đưa bản app mới lên Vercel.
++
++Cách test với hai máy: máy A chọn nhân vật, máy B vào là thấy mình đã có nhân vật còn lại. Gửi ảnh trong chat thì điểm tăng ở cả hai máy. Mua một món ở A, B thấy nhân vật đổi đồ ngay. Đã kiểm tra logic SQL trên Postgres thật (mua đủ/thiếu điểm, thiếu cấp, hai người tiêu cùng lúc) và dựng 3D thử bằng trình duyệt headless; chưa chạy trên Supabase thật.
+diff --git a/app/(app)/level/page.tsx b/app/(app)/level/page.tsx
+index be2758a..5cc8c97 100644
+--- a/app/(app)/level/page.tsx
++++ b/app/(app)/level/page.tsx
+@@ -1,19 +1,163 @@
+ 'use client'
++import { useCallback, useEffect, useState } from 'react'
+ import Link from 'next/link'
++import { sb } from '@/lib/supabase'
+ import Head from '@/components/Head'
+ import Couple3D from '@/components/Couple3D'
+ import { useApp } from '@/lib/ctx'
+-import { daysTogether } from '@/lib/util'
++import { daysTogether, ok } from '@/lib/util'
++import { SLOTS, SLOT_LABEL, VISUAL, lookFor, pts, swatch, type Char, type Item, type Slot, type Stats } from '@/lib/shop'
+ 
+-// Khu cấp độ: bước 1 mới có hai nhân vật. Điểm, cấp độ và cửa hàng đồ sẽ làm ở các bước sau.
++type Buy = { for_user: string; item_id: string }
++
++// Khu cấp độ (bấm trái tim ở Trang chủ): hai nhân vật 3D nắm tay, điểm chung + điểm riêng, cấp độ, cửa hàng đồ.
++// Mọi con số điểm và giá do server tính (phase15.sql); trang này chỉ hiển thị và gọi hàm mua / mặc đồ.
+ export default function Level() {
+   const { me, partner, space } = useApp()
++  const [stats, setStats] = useState<Stats | null>(null)
++  const [chars, setChars] = useState<Char[] | null>(null)
++  const [buys, setBuys] = useState<Buy[]>([])
++  const [items, setItems] = useState<Item[]>([])
++  const [err, setErr] = useState('')
++  const [tab, setTab] = useState<'lv' | 'shop'>('lv')
++  const [slot, setSlot] = useState<Slot>('top')
++  const [target, setTarget] = useState(me.id)          // nhân vật đang được mặc đồ
++  const [from, setFrom] = useState<'shared' | 'mine'>('shared')   // trả bằng điểm chung hay điểm riêng của mình
++  const [sel, setSel] = useState<Item | null>(null)    // món đang thử (chưa mua cũng xem được trên nhân vật)
++  const [busy, setBusy] = useState(false)
++
++  const load = useCallback(async () => {
++    const [s, c, b, it] = await Promise.all([
++      sb.rpc('level_stats'), sb.from('level_chars').select('*'), sb.from('shop_buys').select('for_user,item_id'),
++      sb.from('shop_items').select('*').eq('active', true).order('sort'),
++    ])
++    const e = s.error ?? c.error ?? b.error ?? it.error
++    if (e) { setErr(e.message); return }
++    setErr(''); setStats(s.data as Stats); setChars(c.data as Char[]); setBuys((b.data ?? []) as Buy[])
++    setItems(((it.data ?? []) as Item[]).filter(i => VISUAL[i.id]))   // món chưa có hình 3D thì không bán
++  }, [])
++
++  useEffect(() => {
++    load()
++    // Người kia mua/đổi đồ, hoặc gửi ảnh (cộng điểm) thì máy này cập nhật ngay
++    const ch = sb.channel('level-' + space.id)
++      .on('postgres_changes', { event: '*', schema: 'public', table: 'level_chars', filter: `space_id=eq.${space.id}` }, () => load())
++      .on('postgres_changes', { event: '*', schema: 'public', table: 'shop_buys', filter: `space_id=eq.${space.id}` }, () => load())
++      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `space_id=eq.${space.id}` }, (p: any) => { if (p.new?.kind === 'image') load() })
++      .subscribe()
++    return () => { sb.removeChannel(ch) }
++  }, [space.id, load])
++
++  const mine = chars?.find(c => c.user_id === me.id) ?? null
++  const theirs = partner ? chars?.find(c => c.user_id === partner.id) ?? null : null
++  const tid = partner && theirs && target === partner.id ? partner.id : me.id
++  const tgt = tid === me.id ? mine : theirs
++  const fRow = chars?.find(c => c.sex === 'f') ?? null, mRow = chars?.find(c => c.sex === 'm') ?? null
++  const preview = (row: Char | null) => (tab === 'shop' && sel && row && row.user_id === tid ? sel : null)
++  const lf = lookFor('f', fRow?.outfit, preview(fRow)), lm = lookFor('m', mRow?.outfit, preview(mRow))
++
++  const myP = stats?.people[me.id], pP = partner ? stats?.people[partner.id] : undefined
+   const day = space.start_date ? daysTogether(space.start_date) : null
++  const bal = !stats ? 0 : from === 'shared' ? stats.shared.balance : myP?.balance ?? 0
++  const owns = (it: Item) => buys.some(b => b.for_user === tid && b.item_id === it.id)
++  const wearing = (it: Item) => tgt?.outfit?.[it.slot] === it.id
++  const locked = (it: Item) => !!stats && stats.level < it.min_level
++  const shown = items.filter(i => i.slot === slot && tgt && (i.sex === 'any' || i.sex === tgt.sex))
++
++  const run = async (fn: () => Promise<void>) => { if (busy) return; setBusy(true); try { await fn() } finally { setBusy(false) } }
++  const pick = (sex: 'f' | 'm') => run(async () => { if (await ok(sb.rpc('pick_char', { p_sex: sex }), 'Không chọn được nhân vật')) await load() })
++  const swap = () => run(async () => {
++    if (!confirm('Đổi chỗ hai nhân vật? Chỉ làm được khi chưa mua món nào.')) return
++    if (await ok(sb.rpc('swap_chars'), 'Không đổi chỗ được')) await load()
++  })
++  const act = () => run(async () => {
++    if (!sel || !tgt) return
++    const wear = (item: string | null, what: string) => ok(sb.rpc('set_outfit', { p_for: tid, p_slot: sel.slot, p_item: item }), what)
++    if (wearing(sel)) { if (await wear(null, 'Không cởi được')) setSel(null) }
++    else if (owns(sel)) await wear(sel.id, 'Không mặc được')
++    else {
++      if (!await ok(sb.rpc('buy_item', { p_item: sel.id, p_for: tid, p_from: from }), 'Không mua được')) { await load(); return }
++      await wear(sel.id, 'Đã mua rồi nhưng chưa mặc được')
++    }
++    await load()
++  })
++  const choose = (s: Slot) => { setSlot(s); setSel(null) }
++
++  const span = stats ? stats.level_to - stats.level_from : 1, got = stats ? stats.xp - stats.level_from : 0
++  const who = partner?.display_name ?? 'người ấy'
++  const need = sel && stats ? (locked(sel) ? `Cần lên cấp ${sel.min_level} (đang cấp ${stats.level})` : !owns(sel) && bal < sel.price ? `Còn thiếu ${pts(sel.price - bal)} điểm` : '') : ''
++
+   return <>
+     <Head t="Cấp độ"><Link href="/" className="pill">Trang chủ</Link></Head>
+-    <div className="b">
+-      <div className="k pk" style={{ padding: 0, overflow: 'hidden' }}><Couple3D height={440} /></div>
+-      <div className="s" style={{ textAlign: 'center' }}>{me.display_name} & {partner?.display_name ?? 'người ấy'}{day ? ` · ${day} ngày bên nhau` : ''}</div>
++    <div className="b" style={{ overflow: 'hidden' }}>
++      <div className="k pk" style={{ padding: 0, overflow: 'hidden', flex: 'none', position: 'relative' }}>
++        <Couple3D height="clamp(220px, 34dvh, 340px)" lf={lf} lm={lm} />
++        {stats && <span className="pill on" style={{ position: 'absolute', left: 10, top: 10, cursor: 'default' }}>Cấp {stats.level}</span>}
++      </div>
++      <div className="s" style={{ textAlign: 'center', flex: 'none' }}>{me.display_name} & {who}{day ? ` · ${day} ngày bên nhau` : ''}</div>
++
++      <div className="lv-tabs">
++        <button className={`pill ${tab === 'lv' ? 'on' : ''}`} aria-pressed={tab === 'lv'} onClick={() => { setTab('lv'); setSel(null) }}>Cấp độ</button>
++        <button className={`pill ${tab === 'shop' ? 'on' : ''}`} aria-pressed={tab === 'shop'} onClick={() => setTab('shop')}>Cửa hàng</button>
++      </div>
++
++      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14, padding: '2px 6px 8px 2px' }}>
++        {err && <div className="k pe"><b>Chưa mở được khu cấp độ</b><div className="s">Hãy chạy supabase/phase15.sql trong Supabase (sau phase14.sql) rồi thử lại.</div><div className="s" style={{ fontSize: 14 }}>{err}</div><button className="pill" onClick={load}>Thử lại</button></div>}
++        {!err && !stats && <div className="s">Đang tính điểm…</div>}
++
++        {chars && !mine && <div className="k pe"><b>Bạn là nhân vật nào?</b>
++          <div className="s">Nữ đứng bên trái, nam đứng bên phải.{theirs ? '' : ' Người ấy sẽ tự nhận nhân vật còn lại.'}</div>
++          <div className="row" style={{ marginTop: 8 }}>
++            <button className="btn" disabled={busy || theirs?.sex === 'f'} onClick={() => pick('f')}>Nhân vật nữ</button>
++            <button className="btn" disabled={busy || theirs?.sex === 'm'} onClick={() => pick('m')}>Nhân vật nam</button>
++          </div></div>}
++
++        {stats && tab === 'lv' && <>
++          <div className="k pk">
++            <div className="row"><b>Cấp {stats.level}</b><span className="s" style={{ textAlign: 'right' }}>{pts(stats.xp)} điểm đã kiếm</span></div>
++            <div className="lv-bar" role="progressbar" aria-label="Tiến độ lên cấp tiếp theo" aria-valuemin={0} aria-valuemax={span} aria-valuenow={got} style={{ margin: '8px 0' }}><i style={{ width: `${Math.min(100, Math.max(2, got / span * 100))}%` }} /></div>
++            <div className="s">Còn {pts(stats.level_to - stats.xp)} điểm nữa lên cấp {stats.level + 1}</div>
++          </div>
++          <div className="lv-pts" style={{ gridTemplateColumns: partner ? '1fr 1fr 1fr' : '1fr 1fr' }}>
++            <div className="k pk"><span className="num">{pts(stats.shared.balance)}</span><div className="s">Điểm chung</div></div>
++            <div className="k pe"><span className="num">{pts(myP?.balance ?? 0)}</span><div className="s">Của {me.display_name}</div></div>
++            {partner && <div className="k li"><span className="num">{pts(pP?.balance ?? 0)}</span><div className="s">Của {partner.display_name}</div></div>}
++          </div>
++          <div className="k li"><b>Cách kiếm điểm</b>
++            <div className="s">Mỗi ngày bên nhau: +{stats.rules.day_shared} điểm chung ({stats.days} ngày = {pts(stats.days * stats.rules.day_shared)} điểm).</div>
++            <div className="s">Mỗi ảnh gửi trong chat: +{stats.rules.img_shared} điểm chung và +{stats.rules.img_personal} điểm riêng cho người gửi, tối đa {stats.rules.img_daily_cap} ảnh mỗi ngày mỗi người. Đã tính: {me.display_name} {myP?.images ?? 0} ảnh{partner ? `, ${partner.display_name} ${pP?.images ?? 0} ảnh` : ''}.</div>
++            <div className="s">Cấp độ tính theo tổng điểm đã kiếm nên tiêu điểm không làm tụt cấp.</div>
++            {!space.start_date && <div className="s">Hai đứa chưa chọn ngày bắt đầu yêu: vào Trang chủ chọn ngày để tích điểm theo ngày.</div>}
++          </div>
++          {mine && theirs && buys.length === 0 && <button className="pill" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={swap}>Đổi chỗ hai nhân vật</button>}
++        </>}
++
++        {stats && tab === 'shop' && (!tgt ? <div className="k pe"><b>Chọn nhân vật trước nhé</b><div className="s">Bấm chọn nhân vật của bạn ở thẻ phía trên để mở cửa hàng.</div></div> : <>
++          {theirs && partner && <div className="row" style={{ flex: 'none' }}>
++            <span className="s" style={{ flex: 'none' }}>Mặc cho</span>
++            <button className={`pill ${tid === me.id ? 'on' : ''}`} aria-pressed={tid === me.id} onClick={() => { setTarget(me.id); setSel(null) }}>{me.display_name}</button>
++            <button className={`pill ${tid === partner.id ? 'on' : ''}`} aria-pressed={tid === partner.id} onClick={() => { setTarget(partner.id); setSel(null) }}>{partner.display_name}</button>
++          </div>}
++          <div className="row" style={{ flex: 'none' }}>
++            <button className={`pill ${from === 'shared' ? 'on' : ''}`} aria-pressed={from === 'shared'} onClick={() => setFrom('shared')}>Điểm chung · {pts(stats.shared.balance)}</button>
++            <button className={`pill ${from === 'mine' ? 'on' : ''}`} aria-pressed={from === 'mine'} onClick={() => setFrom('mine')}>Điểm của mình · {pts(myP?.balance ?? 0)}</button>
++          </div>
++          <div className="lv-chips" role="group" aria-label="Loại đồ">{SLOTS.map(s => <button key={s} className={`pill ${slot === s ? 'on' : ''}`} aria-pressed={slot === s} onClick={() => choose(s)}>{SLOT_LABEL[s]}</button>)}</div>
++          <div className="lv-grid">{shown.map(it => {
++            const w = wearing(it), o = owns(it), l = locked(it)
++            return <button key={it.id} className={`lv-it ${sel?.id === it.id ? 'sel' : ''} ${l && !o ? 'lock' : ''}`} aria-pressed={sel?.id === it.id} onClick={() => setSel(sel?.id === it.id ? null : it)}>
++              <span><i className="lv-sw" style={{ background: swatch(it.id) }} />{it.name}</span>
++              <span className="s">{w ? 'Đang mặc ✓' : o ? 'Đã có' : l ? `🔒 Cấp ${it.min_level}` : `${pts(it.price)} điểm`}</span>
++            </button>
++          })}</div>
++          {shown.length === 0 && <div className="s">Chưa có món nào ở mục này.</div>}
++          {sel && <div className="k pk lv-act">
++            <b>{sel.name}</b>
++            {need ? <div className="s">{need}</div> : !owns(sel) && <div className="s">Trả bằng {from === 'shared' ? 'điểm chung' : 'điểm của bạn'}{tid !== me.id ? `, tặng ${who}` : ''}</div>}
++            <button className="btn" disabled={busy || (!owns(sel) && !!need)} onClick={act}>{wearing(sel) ? 'Cởi ra' : owns(sel) ? 'Mặc' : `Mua · ${pts(sel.price)} điểm`}</button>
++          </div>}
++        </>)}
++      </div>
+     </div>
+   </>
+ }
+diff --git a/app/globals.css b/app/globals.css
+index ac52852..072deb1 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -110,3 +110,15 @@ select{font:inherit;border:2px solid var(--ink);border-radius:999px;padding:4px
+ @keyframes lhtw{0%,100%{transform:scale(.7) rotate(0);opacity:.55}50%{transform:scale(1.15) rotate(20deg);opacity:1}}
+ }
+ @media (prefers-reduced-motion:no-preference) and (hover:hover){.lh-link:hover .lh-press{transform:scale(1.03)}}
++/* Khu cấp độ (/level) */
++.lv-tabs{display:flex;gap:8px;flex:none}.lv-tabs .pill{flex:1;text-align:center;padding:8px 12px}
++.lv-bar{height:18px;border:2.5px solid var(--ink);border-radius:999px;background:#fff;overflow:hidden}.lv-bar>i{display:block;height:100%;background:var(--pink);border-radius:999px}
++.lv-chips{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px;flex:none}.lv-chips .pill{flex:none;white-space:nowrap}
++.lv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
++.lv-it{display:flex;flex-direction:column;gap:3px;text-align:left;min-height:84px;padding:10px 12px;background:#fff;border:2.5px solid var(--ink);border-radius:18px;box-shadow:3px 3px 0 var(--shadow);font:inherit;font-weight:700;color:var(--ink);cursor:pointer}
++.lv-it.sel{background:#FFD9E8}.lv-it.lock{opacity:.55}
++.lv-it:focus-visible,.lv-chips .pill:focus-visible{outline:3px solid var(--ink2);outline-offset:2px}
++.lv-sw{display:inline-block;width:16px;height:16px;border-radius:50%;border:2px solid var(--ink);vertical-align:-3px;margin-right:6px}
++.lv-act{position:sticky;bottom:0;display:flex;flex-direction:column;gap:6px;z-index:2}
++.lv-pts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center}
++.lv-pts .k{padding:8px 6px}.lv-pts .num{font-size:24px;display:block}
+diff --git a/components/Couple3D.tsx b/components/Couple3D.tsx
+index 7b8f687..0dc6a46 100644
+--- a/components/Couple3D.tsx
++++ b/components/Couple3D.tsx
+@@ -1,18 +1,26 @@
+ 'use client'
+ import { useEffect, useRef, useState } from 'react'
+-import { mountCouple } from '@/lib/human3d'
++import { mountCouple, type Look } from '@/lib/human3d'
+ 
+ // Hai nhân vật 3D nắm tay nhau. Kéo ngang để xoay. Máy không có WebGL thì báo thay vì để trống.
+-export default function Couple3D({ height = 420 }: { height?: number }) {
++// lf / lm là dáng nữ / nam (đồ đang mặc). Đổi dáng thì dựng lại hai nhân vật, không dựng lại cả khung 3D.
++export default function Couple3D({ height = 420, lf, lm }: { height?: number | string; lf?: Look; lm?: Look }) {
+   const ref = useRef<HTMLCanvasElement>(null)
++  const h = useRef<ReturnType<typeof mountCouple> | null>(null)
++  const first = useRef({ lf, lm }), shown = useRef(JSON.stringify([lf, lm]))
+   const [bad, setBad] = useState(false)
+   useEffect(() => {
+     const c = ref.current
+     if (!c) return
+-    let m: ReturnType<typeof mountCouple> | null = null
+-    try { m = mountCouple(c) } catch (e) { console.error('Couple3D', e); setBad(true) }
+-    return () => m?.dispose()
++    try { h.current = mountCouple(c, first.current) } catch (e) { console.error('Couple3D', e); setBad(true) }
++    return () => { h.current?.dispose(); h.current = null }
+   }, [])
++  const key = JSON.stringify([lf, lm])
++  useEffect(() => {
++    if (key === shown.current) return
++    shown.current = key
++    h.current?.setLooks(lf, lm)
++  }, [key, lf, lm])
+   if (bad) return <div className="s" style={{ height, display: 'grid', placeItems: 'center', padding: 18, textAlign: 'center' }}>Máy này chưa bật được đồ họa 3D (WebGL). Thử mở bằng Safari/Chrome bản mới.</div>
+   return <canvas ref={ref} role="img" aria-label="Hai nhân vật 3D đang nắm tay nhau, kéo ngang để xoay" style={{ width: '100%', height, display: 'block' }} />
+ }
+diff --git a/lib/human3d.ts b/lib/human3d.ts
+index 01e9e27..68883db 100644
+--- a/lib/human3d.ts
++++ b/lib/human3d.ts
+@@ -12,6 +12,13 @@ export type Look = {
+   hairStyle: 'long' | 'short'
+   top: number; bottom: number; shoe: number
+   face: Face; body: Body
++  // Phần mở rộng cho Cửa hàng (đều tùy chọn, bỏ trống = dáng mặc định)
++  botKind?: 'skirt' | 'pants' | 'shorts'      // mặc định: nữ váy xòe, nam quần dài
++  sleeve?: 'short' | 'long'
++  blush?: number                              // hệ số độ đậm của má hồng
++  glasses?: { shape: 'round' | 'square'; color: number }
++  hat?: { kind: 'cap' | 'beanie' | 'crown'; color: number }
++  neck?: { kind: 'heart' | 'scarf' | 'pearl'; color: number }
+ }
+ export const DEF_FACE: Face = { width: 1, jaw: 1, eyeSize: 1, eyeGap: 1, noseLen: 1, noseWidth: 1, lipFull: 1, brow: 1, cheek: 1 }
+ export const DEF_BODY: Body = { shoulder: 1, chest: 1, waist: 1, hip: 1, thigh: 1, arm: 1 }
+@@ -139,9 +146,15 @@ export function buildHuman(look: Look, arms: { l: Arm; r: Arm }): Human {
+     const fo = new THREE.Mesh(limbGeo(E.distanceTo(W), foP), skin); place(fo, E, W); add(slots.body, fo)
+     add(slots.body, ball(.045 * as, skin, S)); add(slots.body, ball(.036 * as, skin, E)); add(slots.body, ball(.021 * as, skin, W))
+     // tay áo ngắn thuộc slot top
+-    const se = E.clone().sub(S).multiplyScalar(f ? .5 : .56).add(S)
+-    const sl = new THREE.Mesh(limbGeo(S.distanceTo(se), [[0, .0505 * as], [1, .048 * as]], 1, .002), sleeveM); place(sl, S, se); add(slots.top, sl)
++    const longSl = look.sleeve === 'long'
++    const se = longSl ? E.clone() : E.clone().sub(S).multiplyScalar(f ? .5 : .56).add(S)
++    const sl = new THREE.Mesh(limbGeo(S.distanceTo(se), [[0, .0505 * as], [1, (longSl ? .0385 : .048) * as]], 1, .002), sleeveM); place(sl, S, se); add(slots.top, sl)
+     add(slots.top, ball(.0495 * as * (f ? 1.03 : 1.04), sleeveM, S))
++    if (longSl) { // tay áo dài: phủ tiếp cẳng tay đến gần cổ tay
++      const wp = E.clone().add(W.clone().sub(E).multiplyScalar(.9))
++      const s2 = new THREE.Mesh(limbGeo(E.distanceTo(wp), [[0, .0395 * as], [.25, .0405 * as], [1, .0305 * as]], 1, .002), sleeveM); place(s2, E, wp); add(slots.top, s2)
++      add(slots.top, ball(.0405 * as, sleeveM, E))
++    }
+     armsOut.push(W)
+     // bàn tay
+     const hand = makeHand(skin, k * (f ? 1.12 : 1.18), a.curl ?? 0, a.thumb ?? side)
+@@ -151,15 +164,22 @@ export function buildHuman(look: Look, arms: { l: Arm; r: Arm }): Human {
+   // ---- Quần áo (slot top / bottom) ----
+   const topM = M(look.top, .85, { side: THREE.DoubleSide }), botM = M(look.bottom, .8, { side: THREE.DoubleSide })
+   const band = (y0: number, y1: number, off: number, n = 14) => Array.from({ length: n }, (_, i) => { const y = lerp(y0, y1, i / (n - 1)), r = at(y); return { y, rx: r.rx + off, rz: r.rz + off, ox: 0, oz: r.oz } })
+-  add(slots.top, new THREE.Mesh(loft(band((f ? 1.0 : .93) * k, (f ? 1.372 : 1.468) * k, .007 * k), 56, false), topM))
+-  if (f) { // váy xòe
++  add(slots.top, new THREE.Mesh(loft(band((f ? 1.0 : .93) * k, (f ? 1.372 : 1.468) * k, (f ? .007 : .013) * k), 56, false), topM))
++  const botKind = look.botKind ?? (f ? 'skirt' : 'pants')
++  if (botKind === 'skirt') { // váy xòe
+     const y0 = 1.02 * k, y1 = .53 * k, rings = Array.from({ length: 18 }, (_, i) => { const t = i / 17, y = lerp(y0, y1, t), r = at(Math.max(y, .84 * k)), fl = Math.pow(sstep(.25, 1, t), 1.1); return { y, rx: Math.max(r.rx + .014, lerp(r.rx + .014, .255 * k * bd.hip, fl)), rz: Math.max(r.rz + .009, lerp(r.rz + .009, .2 * k, fl)), ox: 0, oz: lerp(r.oz, 0, fl) } })
+     add(slots.bottom, new THREE.Mesh(loft(rings, 56, false), botM))
+-  } else { // quần jean
+-    const pel = ringsOf([[.735 * k, .02 * k, .045 * k, 0], [.775 * k, .075 * k, .075 * k, 0], [.82 * k, .13 * k, .092 * k, -.003], [.86 * k, .165 * k, .102 * k, -.004], [.9 * k, at(.9 * k).rx + .009 * k, at(.9 * k).rz + .009 * k, -.004]], 12).concat(band(.92 * k, 1.12 * k, .008 * k, 10))
++  } else { // quần dài / quần short
++    const shorts = botKind === 'shorts'
++    const pel = f ? band(.73 * k, 1.0 * k, .006 * k, 16) : ringsOf([[.735 * k, .02 * k, .045 * k, 0], [.775 * k, .075 * k, .075 * k, 0], [.82 * k, .13 * k, .092 * k, -.003], [.86 * k, .165 * k, .102 * k, -.004], [.9 * k, at(.9 * k).rx + .009 * k, at(.9 * k).rz + .009 * k, -.004]], 12).concat(band(.92 * k, .985 * k, .008 * k, 5))
+     add(slots.bottom, new THREE.Mesh(loft(pel, 56, false), botM)); add(slots.bottom, new THREE.Mesh(loft(pel.slice(0, 4), 56, true), botM))
+     for (const s of [1, -1]) {
+       const hp = V(s * hipX, hipY, 0), kn = V(s * (hipX + .004), kneeY, .006), an = V(s * (hipX + .004), ankY + .01, -.004)
++      if (shorts) { // ống ngắn: dừng ở khoảng 72% đùi, bán kính theo đúng đường cong của đùi để da không lòi ra
++        const sp = [[0, .079 * ts], [.278, .082 * ts], [1, .0595 * ts]]
++        const a1 = new THREE.Mesh(limbGeo(hp.distanceTo(kn) * .72, sp, 1, .009 * k), botM); place(a1, hp, kn); add(slots.bottom, a1)
++        continue
++      }
+       const a1 = new THREE.Mesh(limbGeo(hp.distanceTo(kn), thighP, 1, .009 * k), botM); place(a1, hp, kn); add(slots.bottom, a1)
+       const a2 = new THREE.Mesh(limbGeo(kn.distanceTo(an), calfP.map(p => [p[0], p[1] * 1.0]), 1.05, .01 * k), botM); place(a2, kn, an); add(slots.bottom, a2)
+       add(slots.bottom, ball(.052 * ts + .009 * k, botM, kn))
+@@ -188,7 +208,7 @@ export function buildHuman(look: Look, arms: { l: Arm; r: Arm }): Human {
+     // tai
+     const ey = .45 * HH, ear = ball(1, skin, V(s * (fz(ey, 0).rx - .002), ey, -.012), .0065, .024, .017); ear.rotation.z = s * -.12; head.add(ear)
+     // má hồng
+-    const bl = new THREE.Mesh(new THREE.CircleGeometry(.0165 * fc.cheek, 20), new THREE.MeshBasicMaterial({ color: f ? 0xff7e90 : 0xe8806f, transparent: true, opacity: f ? .26 : .12, depthWrite: false }))
++    const bl = new THREE.Mesh(new THREE.CircleGeometry(.0165 * fc.cheek, 20), new THREE.MeshBasicMaterial({ color: f ? 0xff7e90 : 0xe8806f, transparent: true, opacity: Math.min(.7, (f ? .26 : .12) * (look.blush ?? 1)), depthWrite: false }))
+     const bx = s * .041, by2 = .335 * HH; bl.position.set(bx, by2, fz(by2, bx).z + .0008); bl.rotation.y = s * .65; head.add(bl)
+   }
+   // mũi
+@@ -224,6 +244,58 @@ export function buildHuman(look: Look, arms: { l: Arm; r: Arm }): Human {
+     const q = ball(1, hairM, V(.004, .198, .034), .068, .03, .074); q.rotation.z = -.1; head.add(q)
+     for (const s of [1, -1]) head.add(new THREE.Mesh(sweep([V(s * .069, .115, .016), V(s * .071, .095, .022), V(s * .07, .078, .026)], () => .0055, .7, 6, 6), hairM))
+   }
++  // ---- Phụ kiện (Cửa hàng): kính + mũ gắn vào đầu, dây chuyền/khăn gắn vào cổ ----
++  const headAcc = new THREE.Group(); head.add(headAcc)
++  const rod = (a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Material) => { const L = a.distanceTo(b), geo = new THREE.CylinderGeometry(r, r, L, 8); geo.translate(0, L / 2, 0); const m = new THREE.Mesh(geo, mat); place(m, a, b); return m }
++  if (look.glasses) {
++    const gm = M(look.glasses.color, .35, { metalness: .3 }), lensM = new THREE.MeshStandardMaterial({ color: 0xcfe8ff, roughness: .05, transparent: true, opacity: .14, side: THREE.DoubleSide, depthWrite: false })
++    const sq = look.glasses.shape === 'square', R = .0195, half = sq ? .018 : R, yaw = .4, zc = fz(eyeY, eyeX).z + .013
++    for (const s of [1, -1]) {
++      const ring = new THREE.Group(); ring.position.set(s * eyeX, eyeY, zc); ring.rotation.y = s * yaw
++      if (sq) {
++        const w = .036, h = .027, t = .0028
++        for (const [bw, bh, bx, by] of [[w, t, 0, h / 2], [w, t, 0, -h / 2], [t, h, w / 2, 0], [t, h, -w / 2, 0]]) { const b = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, .003), gm); b.position.set(bx, by, 0); ring.add(b) }
++        ring.add(new THREE.Mesh(new THREE.PlaneGeometry(w, h), lensM))
++      } else { ring.add(new THREE.Mesh(new THREE.TorusGeometry(R, .0016, 8, 28), gm)); ring.add(new THREE.Mesh(new THREE.CircleGeometry(R, 24), lensM)) }
++      headAcc.add(ring)
++      // gọng ôm ra sau tai
++      headAcc.add(rod(V(s * (eyeX + half * Math.cos(yaw)), eyeY + .003, zc - half * Math.sin(yaw)), V(s * (fz(eyeY, 0).rx + .004), eyeY + .002, -.02), .0013, gm))
++    }
++    const inner = (s: number) => V(s * (eyeX - half * Math.cos(yaw)), eyeY + .004, zc + half * Math.sin(yaw))
++    headAcc.add(rod(inner(1), inner(-1), .0013, gm))   // cầu kính
++  }
++  if (look.hat) {
++    const kind = look.hat.kind, hm = M(look.hat.color, kind === 'crown' ? .3 : .75, { side: THREE.DoubleSide, ...(kind === 'crown' ? { metalness: .65 } : {}) })
++    const dome = (cy: number, sx: number, sy: number, sz: number) => { const m = new THREE.Mesh(new THREE.SphereGeometry(1, 36, 18, 0, Math.PI * 2, 0, Math.PI / 2), hm); m.position.set(0, cy, -.012); m.scale.set(sx, sy, sz); return m }
++    const band = (y0: number, y1: number, rx: number, rz: number) => new THREE.Mesh(loft([{ y: y0, rx, rz, ox: 0, oz: -.012 }, { y: y1, rx: rx + .001, rz: rz + .001, ox: 0, oz: -.012 }], 44, false), hm)
++    // vành mũ luôn nằm trên lông mày (y ~ 0,154) để không che mắt
++    if (kind === 'cap') {
++      headAcc.add(dome(.172, .102, .076, .136))
++      const brim = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, .004, 28, 1, false, -Math.PI / 2, Math.PI), hm); brim.scale.set(.078, 1, .15); brim.position.set(0, .17, .02); brim.rotation.x = .12; headAcc.add(brim)
++    } else if (kind === 'beanie') {
++      headAcc.add(dome(.168, .104, .098, .136)); headAcc.add(band(.165, .187, .108, .14)); headAcc.add(ball(.017, hm, V(0, .266, -.012)))
++    } else {
++      headAcc.add(band(.165, .19, .092, .114))
++      for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2, c = new THREE.Mesh(new THREE.ConeGeometry(.0095, .03, 6), hm); c.position.set(.092 * Math.sin(a), .205, -.012 + .114 * Math.cos(a)); headAcc.add(c) }
++    }
++  }
++  if (look.neck) {
++    const nk = look.neck, pearl = nk.kind === 'pearl', nm = M(nk.color, pearl ? .25 : .7)
++    const ny = ((f ? 1.38 : 1.485) + (nk.kind === 'scarf' ? .012 : .02)) * k, rn = neckR * 1.12   // ngay trên mép thân (đỉnh thân nữ 1,38 / nam 1,485)
++    const ring = (y: number, rad: number, tube: number) => { const m = new THREE.Mesh(new THREE.TorusGeometry(rad, tube, 8, 32), nm); m.rotation.x = Math.PI / 2; m.position.set(0, y, -.013); m.scale.set(1, .93, 1); add(slots.acc, m) }
++    if (pearl) {
++      for (let i = 0; i < 26; i++) { const a = i / 26 * Math.PI * 2; add(slots.acc, ball(.0042 * k, nm, V(rn * Math.sin(a), ny, -.013 + rn * .93 * Math.cos(a)))) }
++    } else if (nk.kind === 'heart') {
++      ring(ny, rn, .0026 * k)
++      const hs = new THREE.Shape(); hs.moveTo(0, -.5); hs.bezierCurveTo(-.9, .1, -.5, .8, 0, .35); hs.bezierCurveTo(.5, .8, .9, .1, 0, -.5)
++      const hg = new THREE.ExtrudeGeometry(hs, { depth: .2, bevelEnabled: false }); hg.translate(0, 0, -.1)
++      const hm2 = new THREE.Mesh(hg, nm); hm2.scale.setScalar(.026 * k); hm2.position.set(0, ny - .014 * k, -.013 + rn * .93 + .004); add(slots.acc, hm2)
++    } else {
++      ring(ny, rn + .006, .016 * k)
++      const yt = ny - .07 * k, rt = at(yt), tail = new THREE.Mesh(new THREE.BoxGeometry(.04 * k, .13 * k, .012 * k), nm)
++      tail.position.set(.032 * k, yt, rt.oz + rt.rz + .012 * k); tail.rotation.z = -.12; add(slots.acc, tail)
++    }
++  }
+   g.add(head)
+   g.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true } })
+   return { group: g, head, lids, slots }
+@@ -280,7 +352,7 @@ export function mountCouple(canvas: HTMLCanvasElement, opt: { lf?: Look; lm?: Lo
+   const fill = new THREE.DirectionalLight(0xdfe8ff, .55); fill.position.set(-3, 1.2, 2.5); scene.add(fill)
+   const floor = new THREE.Mesh(new THREE.CircleGeometry(.8, 64), new THREE.MeshStandardMaterial({ color: 0xffd9e8, roughness: 1 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor)
+   const edge = new THREE.Mesh(new THREE.TorusGeometry(.8, .012, 8, 96), new THREE.MeshStandardMaterial({ color: 0x5b1f3a, roughness: .7 })); edge.rotation.x = Math.PI / 2; scene.add(edge)
+-  const c = buildCouple(opt.lf, opt.lm), pivot = new THREE.Group(); pivot.add(c.root); scene.add(pivot)
++  let c = buildCouple(opt.lf, opt.lm); const pivot = new THREE.Group(); pivot.add(c.root); scene.add(pivot)
+   const reduce = !!opt.calm || (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches)
+   let drag = false, lastX = 0, yaw = opt.view?.az ?? 0, vel = 0
+   const down = (e: PointerEvent) => { drag = true; lastX = e.clientX; canvas.setPointerCapture(e.pointerId) }
+@@ -290,6 +362,7 @@ export function mountCouple(canvas: HTMLCanvasElement, opt: { lf?: Look; lm?: Lo
+   canvas.style.touchAction = 'pan-y'
+   const size = () => { const w = canvas.clientWidth || 360, h = canvas.clientHeight || 420; r.setSize(w, h, false); cam.aspect = w / h; const d = opt.view?.dist ?? (w / h < .9 ? 5.3 : 4.8); const vx = opt.view?.x ?? 0, vy = opt.view?.y ?? .88; cam.position.set(vx, vy + .2 * (d / 4.9), d); cam.lookAt(vx, vy, 0); cam.updateProjectionMatrix() }
+   size(); const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(size) : null; ro?.observe(canvas)
++  const free = (root: THREE.Object3D) => root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.geometry.dispose(); const mt = m.material; (Array.isArray(mt) ? mt : [mt]).forEach(x => x.dispose()) } })
+   let raf = 0, t0 = performance.now()
+   const loop = () => {
+     raf = requestAnimationFrame(loop); if (document.hidden) return
+@@ -300,7 +373,9 @@ export function mountCouple(canvas: HTMLCanvasElement, opt: { lf?: Look; lm?: Lo
+   }
+   loop()
+   return {
+-    renderOnce: () => { c.tick(0, true); r.render(scene, cam) }, setYaw: (v: number) => { yaw = v; pivot.rotation.y = v }, couple: c,
+-    dispose: () => { cancelAnimationFrame(raf); ro?.disconnect(); canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move); canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up); scene.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.geometry.dispose(); const mt = m.material; (Array.isArray(mt) ? mt : [mt]).forEach(x => x.dispose()) } }); r.dispose() },
++    renderOnce: () => { c.tick(0, true); r.render(scene, cam) }, setYaw: (v: number) => { yaw = v; pivot.rotation.y = v }, get couple() { return c },
++    // Đổi đồ: bỏ cặp cũ (giải phóng bộ nhớ GPU) rồi dựng cặp mới, giữ nguyên góc xoay đang xem
++    setLooks: (lf?: Look, lm?: Look) => { pivot.remove(c.root); free(c.root); c = buildCouple(lf, lm); pivot.add(c.root) },
++    dispose: () => { cancelAnimationFrame(raf); ro?.disconnect(); canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move); canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up); free(scene); r.dispose() },
+   }
+ }
+diff --git a/lib/shop.ts b/lib/shop.ts
+new file mode 100644
+index 0000000..1fd0db1
+--- /dev/null
++++ b/lib/shop.ts
+@@ -0,0 +1,80 @@
++import { LOOK_F, LOOK_M, type Look } from '@/lib/human3d'
++
++// Cửa hàng đồ cho hai nhân vật (khu Cấp độ). Giá, cấp cần có và nữ/nam do server quyết định (bảng shop_items, phase15.sql).
++// File này chỉ giữ HÌNH DẠNG 3D của từng món, khớp theo id. Món có trong DB mà thiếu ở đây thì không hiện (không mặc được).
++export const SLOTS = ['hair', 'top', 'bottom', 'shoes', 'makeup', 'glasses', 'hat', 'neck'] as const
++export type Slot = typeof SLOTS[number]
++export const SLOT_LABEL: Record<Slot, string> = { hair: 'Tóc', top: 'Áo', bottom: 'Quần/váy', shoes: 'Giày', makeup: 'Trang điểm', glasses: 'Kính', hat: 'Mũ', neck: 'Cổ' }
++
++export type Item = { id: string; slot: Slot; name: string; price: number; sex: 'any' | 'f' | 'm'; min_level: number; sort: number }
++export type Outfit = Partial<Record<Slot, string>>
++
++export const VISUAL: Record<string, Partial<Look>> = {
++  hair_chestnut_long: { hair: 0x6b3f2a, hairStyle: 'long' },
++  hair_rose_long: { hair: 0xe79bb5, hairStyle: 'long' },
++  hair_lavender_long: { hair: 0xb59be0, hairStyle: 'long' },
++  hair_brown_short: { hair: 0x6b4630, hairStyle: 'short' },
++  hair_ash_short: { hair: 0x8d8a92, hairStyle: 'short' },
++  hair_teal_short: { hair: 0x2f9a93, hairStyle: 'short' },
++
++  top_white_tee: { top: 0xffffff },
++  top_mint_tee: { top: 0xb8e6d3 },
++  top_red_tee: { top: 0xf2767f },
++  top_yellow_hoodie: { top: 0xf8d56b, sleeve: 'long' },
++  top_black_long: { top: 0x2a2530, sleeve: 'long' },
++
++  bot_pink_skirt: { bottom: 0xffb3cf, botKind: 'skirt' },
++  bot_denim_skirt: { bottom: 0x5b7fb0, botKind: 'skirt' },
++  bot_black_pants_f: { bottom: 0x2a2530, botKind: 'pants' },
++  bot_black_pants_m: { bottom: 0x2a2530, botKind: 'pants' },
++  bot_khaki_pants: { bottom: 0xc9b48a, botKind: 'pants' },
++  bot_denim_shorts: { bottom: 0x5b7fb0, botKind: 'shorts' },
++
++  shoe_pink: { shoe: 0xffb3cf },
++  shoe_black: { shoe: 0x2a2530 },
++  shoe_red: { shoe: 0xe0525e },
++  shoe_gold: { shoe: 0xe8c26a },
++
++  mk_rose_lip: { lip: 0xe0707f },
++  mk_coral_lip: { lip: 0xf08a73 },
++  mk_blush: { blush: 2.4 },
++  mk_berry_lip: { lip: 0x9c3050 },
++
++  gl_round: { glasses: { shape: 'round', color: 0x3a2a2a } },
++  gl_square: { glasses: { shape: 'square', color: 0x1c1c24 } },
++  gl_gold_round: { glasses: { shape: 'round', color: 0xe8c26a } },
++
++  hat_cap: { hat: { kind: 'cap', color: 0xf2767f } },
++  hat_beanie: { hat: { kind: 'beanie', color: 0xa9d3f0 } },
++  hat_crown: { hat: { kind: 'crown', color: 0xf0c75e } },
++
++  neck_heart: { neck: { kind: 'heart', color: 0xff7fac } },
++  neck_scarf: { neck: { kind: 'scarf', color: 0xe05d66 } },
++  neck_pearl: { neck: { kind: 'pearl', color: 0xfaf3ea } },
++}
++
++// Dáng nhân vật = dáng mặc định + các món đang mặc. `preview` là món đang thử (chưa mua cũng xem được), thay cho món cùng ô.
++export function lookFor(sex: 'f' | 'm', outfit: Outfit | null | undefined, preview?: Item | null): Look {
++  const o: Outfit = { ...(outfit ?? {}) }
++  if (preview) o[preview.slot] = preview.id
++  let look: Look = { ...(sex === 'f' ? LOOK_F : LOOK_M) }
++  for (const s of SLOTS) { const v = o[s] && VISUAL[o[s]!]; if (v) look = { ...look, ...v } }
++  return look
++}
++
++// Màu đại diện của món, để vẽ chấm màu trên thẻ (cửa hàng chưa có ảnh minh họa)
++export function swatch(id: string): string {
++  const v = VISUAL[id]; if (!v) return '#ddd'
++  const n = v.top ?? v.bottom ?? v.shoe ?? v.hair ?? v.lip ?? v.glasses?.color ?? v.hat?.color ?? v.neck?.color ?? (v.blush ? 0xff8fb8 : 0xdddddd)
++  return '#' + n.toString(16).padStart(6, '0')
++}
++
++export type Char = { user_id: string; space_id: string; sex: 'f' | 'm'; outfit: Outfit }
++export type Person = { images: number; earned: number; spent: number; balance: number }
++export type Stats = {
++  rules: { day_shared: number; img_shared: number; img_personal: number; img_daily_cap: number }
++  days: number; xp: number; level: number; level_from: number; level_to: number
++  shared: { earned: number; spent: number; balance: number }
++  people: Record<string, Person>
++}
++export const pts = (n: number) => n.toLocaleString('vi-VN')
+diff --git a/supabase/phase15.sql b/supabase/phase15.sql
+new file mode 100644
+index 0000000..fcbcf36
+--- /dev/null
++++ b/supabase/phase15.sql
+@@ -0,0 +1,227 @@
++-- Giai đoạn 15: Khu cấp độ (bấm trái tim ở Trang chủ): điểm chung + điểm riêng, cấp độ, nhân vật 3D, cửa hàng đồ
++-- Chạy trong Supabase > SQL Editor, một lần, SAU phase14.sql. Chạy lại nhiều lần vẫn an toàn (không xóa dữ liệu đã mua).
++-- Điểm KHÔNG lưu thành số: luôn tính lại từ dữ liệu thật (số ngày bên nhau, tin nhắn ảnh) trừ đi những gì đã tiêu,
++-- nên không thể sửa điểm từ máy khách, và giá đồ do server quyết định.
++
++-- 1. Luật tính điểm (sửa số ở đây là xong, app tự hiển thị đúng số mới)
++--    Điểm CHUNG: +10 mỗi ngày bên nhau, +2 mỗi ảnh một trong hai người gửi trong chat.
++--    Điểm RIÊNG: +5 mỗi ảnh chính mình gửi trong chat.
++--    Mỗi người chỉ tính tối đa 10 ảnh mỗi ngày (giờ Việt Nam) để không gửi ảnh liên tục cho nhiều điểm.
++--    Cấp độ tính theo TỔNG điểm đã kiếm (chung + riêng của cả hai), nên tiêu điểm không làm tụt cấp.
++create or replace function level_rules() returns jsonb language sql immutable as $$
++  select jsonb_build_object('day_shared', 10, 'img_shared', 2, 'img_personal', 5, 'img_daily_cap', 10) $$;
++
++-- Cấp L cần 50*(L-1)*L điểm: cấp 2 = 100, cấp 3 = 300, cấp 4 = 600, cấp 5 = 1000...
++create or replace function level_of(xp int) returns int language plpgsql immutable as $$
++declare l int := 1;
++begin
++  while 50 * l * (l + 1) <= xp loop l := l + 1; end loop;
++  return l;
++end $$;
++
++-- 2. Nhân vật của từng người (nữ bên trái, nam bên phải) và đồ đang mặc
++create table if not exists level_chars(
++  user_id uuid primary key references auth.users on delete cascade,
++  space_id uuid not null references spaces on delete cascade,
++  sex text not null check (sex in ('f','m')),
++  outfit jsonb not null default '{}'::jsonb);        -- {"top":"top_red_tee","hat":"hat_cap"}: mỗi ô (slot) một món
++
++-- 3. Danh mục đồ (giá do server quyết định). Hình dạng 3D của từng món nằm ở lib/shop.ts, khớp theo id.
++create table if not exists shop_items(
++  id text primary key,
++  slot text not null check (slot in ('hair','top','bottom','shoes','makeup','glasses','hat','neck')),
++  name text not null,
++  price int not null check (price >= 0),
++  sex text not null default 'any' check (sex in ('any','f','m')),
++  min_level int not null default 1,
++  sort int not null default 0,
++  active boolean not null default true);
++
++-- 4. Đồ đã mua: mỗi nhân vật sở hữu riêng, mỗi món một lần
++create table if not exists shop_buys(
++  id uuid primary key default gen_random_uuid(),
++  space_id uuid not null references spaces on delete cascade,
++  buyer uuid not null references auth.users on delete cascade,
++  for_user uuid not null references auth.users on delete cascade,   -- nhân vật được tặng/mặc
++  item_id text not null references shop_items,
++  price int not null,
++  paid_from text not null check (paid_from in ('shared','mine')),
++  created_at timestamptz not null default now(),
++  unique (for_user, item_id));
++create index if not exists shop_buys_space on shop_buys(space_id);
++
++alter table level_chars enable row level security;
++alter table shop_items enable row level security;
++alter table shop_buys enable row level security;
++drop policy if exists lc_r on level_chars; drop policy if exists si_r on shop_items; drop policy if exists sb_r on shop_buys;
++create policy lc_r on level_chars for select using (space_id = my_space());
++create policy si_r on shop_items for select to authenticated using (true);
++create policy sb_r on shop_buys for select using (space_id = my_space());
++-- Chỉ đọc trực tiếp; mọi thao tác ghi đi qua các hàm bên dưới
++revoke insert, update, delete on level_chars, shop_items, shop_buys from authenticated, anon;
++revoke all on level_chars, shop_items, shop_buys from anon;
++
++-- 5. Điểm và cấp độ của Space mình (chỉ đọc, tính lại mỗi lần gọi)
++create or replace function level_stats() returns jsonb
++language plpgsql stable security definer set search_path=public as $$
++declare
++  sp uuid := my_space(); r jsonb := level_rules(); st date; d int := 0;
++  sh_earn int; sh_spent int; xp int; lv int; ppl jsonb := '{}'::jsonb; p record;
++  p_earn int; p_spent int; p_img int; img_all int := 0; pe_sum int := 0;
++begin
++  if auth.uid() is null or sp is null then raise exception 'Bạn chưa vào Space nào'; end if;
++  select start_date into st from spaces where id = sp;
++  if st is not null then d := greatest(0, ((now() at time zone 'Asia/Ho_Chi_Minh')::date - st) + 1); end if;
++
++  for p in select id from profiles where space_id = sp loop
++    -- ảnh của người này, mỗi ngày (giờ Việt Nam) tính tối đa img_daily_cap
++    select coalesce(sum(least(c, (r->>'img_daily_cap')::int)), 0)::int into p_img
++      from (select count(*) as c from messages
++            where space_id = sp and kind = 'image' and sender = p.id
++            group by (created_at at time zone 'Asia/Ho_Chi_Minh')::date) t;
++    p_earn := p_img * (r->>'img_personal')::int;
++    select coalesce(sum(price), 0)::int into p_spent from shop_buys where space_id = sp and buyer = p.id and paid_from = 'mine';
++    img_all := img_all + p_img; pe_sum := pe_sum + p_earn;
++    ppl := ppl || jsonb_build_object(p.id::text, jsonb_build_object('images', p_img, 'earned', p_earn, 'spent', p_spent, 'balance', p_earn - p_spent));
++  end loop;
++
++  sh_earn := d * (r->>'day_shared')::int + img_all * (r->>'img_shared')::int;
++  select coalesce(sum(price), 0)::int into sh_spent from shop_buys where space_id = sp and paid_from = 'shared';
++  xp := sh_earn + pe_sum;
++  lv := level_of(xp);
++  return jsonb_build_object(
++    'rules', r, 'days', d, 'xp', xp, 'level', lv,
++    'level_from', 50 * (lv - 1) * lv, 'level_to', 50 * lv * (lv + 1),
++    'shared', jsonb_build_object('earned', sh_earn, 'spent', sh_spent, 'balance', sh_earn - sh_spent),
++    'people', ppl);
++end $$;
++
++-- 6. Chọn nhân vật của mình. Người ấy chưa chọn thì tự nhận nhân vật còn lại.
++create or replace function pick_char(p_sex text) returns void
++language plpgsql security definer set search_path=public as $$
++declare sp uuid := my_space(); other uuid; oc level_chars; mine level_chars;
++begin
++  if auth.uid() is null or sp is null then raise exception 'Bạn chưa vào Space nào'; end if;
++  if p_sex not in ('f','m') then raise exception 'Nhân vật không hợp lệ'; end if;
++  perform pg_advisory_xact_lock(hashtextextended('level:' || sp::text, 0));
++  select * into mine from level_chars where user_id = auth.uid();
++  if found then raise exception 'Bạn đã chọn nhân vật rồi'; end if;
++  select id into other from profiles where space_id = sp and id <> auth.uid() limit 1;
++  if other is not null then
++    select * into oc from level_chars where user_id = other;
++    if found and oc.sex = p_sex then raise exception 'Người ấy đang là nhân vật này rồi, hãy chọn nhân vật còn lại'; end if;
++    if not found then insert into level_chars(user_id, space_id, sex) values (other, sp, case when p_sex = 'f' then 'm' else 'f' end); end if;
++  end if;
++  insert into level_chars(user_id, space_id, sex) values (auth.uid(), sp, p_sex);
++end $$;
++
++-- Đổi chỗ hai nhân vật. Chỉ làm được khi CHƯA mua món nào (đồ có phân nữ/nam nên đổi sau khi mua sẽ lệch).
++create or replace function swap_chars() returns void
++language plpgsql security definer set search_path=public as $$
++declare sp uuid := my_space();
++begin
++  if auth.uid() is null or sp is null then raise exception 'Bạn chưa vào Space nào'; end if;
++  perform pg_advisory_xact_lock(hashtextextended('level:' || sp::text, 0));
++  if exists (select 1 from shop_buys where space_id = sp) then raise exception 'Đã mua đồ rồi nên không đổi chỗ được nữa'; end if;
++  if (select count(*) from level_chars where space_id = sp) <> 2 then raise exception 'Cả hai người cần có nhân vật trước'; end if;
++  update level_chars set sex = case when sex = 'f' then 'm' else 'f' end, outfit = '{}'::jsonb where space_id = sp;
++end $$;
++
++-- 7. Mua đồ: p_for là nhân vật được mặc (mình hoặc người ấy), p_from = 'shared' (điểm chung) hoặc 'mine' (điểm riêng của mình)
++create or replace function buy_item(p_item text, p_for uuid, p_from text) returns void
++language plpgsql security definer set search_path=public as $$
++declare sp uuid := my_space(); it shop_items; ch level_chars; st jsonb; bal int;
++begin
++  if auth.uid() is null or sp is null then raise exception 'Bạn chưa vào Space nào'; end if;
++  if p_from not in ('shared','mine') then raise exception 'Nguồn điểm không hợp lệ'; end if;
++  perform pg_advisory_xact_lock(hashtextextended('level:' || sp::text, 0));   -- hai người cùng tiêu điểm chung không đè nhau
++  select * into it from shop_items where id = p_item and active;
++  if not found then raise exception 'Món này không có trong cửa hàng'; end if;
++  select * into ch from level_chars where user_id = p_for and space_id = sp;
++  if not found then raise exception 'Nhân vật này chưa được chọn'; end if;
++  if it.sex <> 'any' and it.sex <> ch.sex then raise exception 'Món này không dành cho nhân vật này'; end if;
++  if exists (select 1 from shop_buys where for_user = p_for and item_id = p_item) then raise exception 'Nhân vật đã có món này rồi'; end if;
++  st := level_stats();
++  if (st->>'level')::int < it.min_level then raise exception 'Cần lên cấp % để mua món này', it.min_level; end if;
++  bal := case when p_from = 'shared' then (st->'shared'->>'balance')::int else (st->'people'->(auth.uid()::text)->>'balance')::int end;
++  if coalesce(bal, 0) < it.price then raise exception 'Chưa đủ điểm (cần %, đang có %)', it.price, coalesce(bal, 0); end if;
++  insert into shop_buys(space_id, buyer, for_user, item_id, price, paid_from) values (sp, auth.uid(), p_for, it.id, it.price, p_from);
++end $$;
++
++-- 8. Mặc / cởi đồ đã có. p_item = null là cởi món đó ở ô p_slot (về dáng mặc định).
++create or replace function set_outfit(p_for uuid, p_slot text, p_item text) returns void
++language plpgsql security definer set search_path=public as $$
++declare sp uuid := my_space(); it shop_items;
++begin
++  if auth.uid() is null or sp is null then raise exception 'Bạn chưa vào Space nào'; end if;
++  if p_slot not in ('hair','top','bottom','shoes','makeup','glasses','hat','neck') then raise exception 'Ô đồ không hợp lệ'; end if;
++  perform 1 from level_chars where user_id = p_for and space_id = sp for update;
++  if not found then raise exception 'Nhân vật này chưa được chọn'; end if;
++  if p_item is null then
++    update level_chars set outfit = outfit - p_slot where user_id = p_for;
++  else
++    select * into it from shop_items where id = p_item;
++    if not found or it.slot <> p_slot then raise exception 'Món này không thuộc ô đã chọn'; end if;
++    if not exists (select 1 from shop_buys where for_user = p_for and item_id = p_item) then raise exception 'Nhân vật chưa có món này'; end if;
++    update level_chars set outfit = outfit || jsonb_build_object(p_slot, p_item) where user_id = p_for;
++  end if;
++end $$;
++
++revoke all on function level_rules(), level_of(int), level_stats(), pick_char(text), swap_chars(), buy_item(text, uuid, text), set_outfit(uuid, text, text) from public, anon;
++grant execute on function level_rules(), level_of(int), level_stats(), pick_char(text), swap_chars(), buy_item(text, uuid, text), set_outfit(uuid, text, text) to authenticated;
++
++-- 9. Danh mục đồ ban đầu. Chạy lại sẽ cập nhật tên/giá/cấp nhưng không đụng tới đồ đã mua (giá đã mua được lưu riêng).
++insert into shop_items(id, slot, name, price, sex, min_level, sort) values
++  -- tóc
++  ('hair_chestnut_long','hair','Tóc dài nâu hạt dẻ',40,'f',1,10),
++  ('hair_rose_long','hair','Tóc dài hồng pastel',150,'f',2,11),
++  ('hair_lavender_long','hair','Tóc dài tím oải hương',400,'f',4,12),
++  ('hair_brown_short','hair','Tóc ngắn nâu',40,'m',1,13),
++  ('hair_ash_short','hair','Tóc ngắn xám khói',150,'m',2,14),
++  ('hair_teal_short','hair','Tóc ngắn xanh ngọc',400,'m',4,15),
++  -- áo
++  ('top_white_tee','top','Áo thun trắng',30,'any',1,20),
++  ('top_mint_tee','top','Áo thun xanh bạc hà',30,'any',1,21),
++  ('top_red_tee','top','Áo thun đỏ san hô',60,'any',1,22),
++  ('top_yellow_hoodie','top','Áo hoodie vàng bơ',200,'any',3,23),
++  ('top_black_long','top','Áo dài tay đen',260,'any',3,24),
++  -- quần / váy
++  ('bot_pink_skirt','bottom','Váy xòe hồng',60,'f',1,30),
++  ('bot_denim_skirt','bottom','Váy jean xanh',120,'f',2,31),
++  ('bot_black_pants_f','bottom','Quần dài đen',180,'f',3,32),
++  ('bot_black_pants_m','bottom','Quần dài đen',60,'m',1,33),
++  ('bot_khaki_pants','bottom','Quần kaki',120,'m',2,34),
++  ('bot_denim_shorts','bottom','Quần short jean',150,'any',2,35),
++  -- giày
++  ('shoe_pink','shoes','Giày hồng',30,'any',1,40),
++  ('shoe_black','shoes','Giày đen',50,'any',1,41),
++  ('shoe_red','shoes','Giày đỏ',120,'any',2,42),
++  ('shoe_gold','shoes','Giày ánh vàng',500,'any',5,43),
++  -- trang điểm
++  ('mk_rose_lip','makeup','Son hồng cánh sen',40,'any',1,50),
++  ('mk_coral_lip','makeup','Son cam san hô',40,'any',1,51),
++  ('mk_blush','makeup','Má hồng đậm',80,'any',1,52),
++  ('mk_berry_lip','makeup','Son mận chín',120,'any',2,53),
++  -- kính
++  ('gl_round','glasses','Kính tròn',150,'any',2,60),
++  ('gl_square','glasses','Kính vuông',150,'any',2,61),
++  ('gl_gold_round','glasses','Kính tròn gọng vàng',350,'any',4,62),
++  -- mũ
++  ('hat_cap','hat','Mũ lưỡi trai',200,'any',3,70),
++  ('hat_beanie','hat','Mũ len',220,'any',3,71),
++  ('hat_crown','hat','Vương miện',1500,'any',8,72),
++  -- dây chuyền / khăn
++  ('neck_heart','neck','Dây chuyền trái tim',120,'any',2,80),
++  ('neck_scarf','neck','Khăn quàng cổ',250,'any',3,81),
++  ('neck_pearl','neck','Vòng ngọc trai',300,'any',4,82)
++on conflict (id) do update set slot = excluded.slot, name = excluded.name, price = excluded.price,
++  sex = excluded.sex, min_level = excluded.min_level, sort = excluded.sort;
++
++-- 10. Realtime: người kia đổi đồ hay mua đồ thì máy này thấy ngay
++do $$ declare t text; begin
++  foreach t in array array['level_chars','shop_buys'] loop
++    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
++      execute format('alter publication supabase_realtime add table %I', t);
++    end if;
++  end loop;
++end $$;
