@@ -156,7 +156,7 @@ export default function Fun() {
         const mine = c.sender === me.id
         return <button key={c.id} type="button" className={`k ${mine ? 'pk' : 'li'}`} onClick={() => open(c)}
           style={{ display: 'flex', gap: 12, alignItems: 'center', width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit', cursor: 'pointer' }}>
-          <span style={{ flex: 'none', width: 56, height: 72, borderRadius: 12, border: '2px solid var(--ink)', background: '#fff', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }} aria-hidden="true">
+          <span style={{ flex: 'none', width: 56, height: 72, borderRadius: 12, border: '1px solid var(--line2)', background: '#fff', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }} aria-hidden="true">
             {c.thumb_url && !bad[c.id] ? <img src={c.thumb_url} alt="" referrerPolicy="no-referrer" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={() => setBad(b => ({ ...b, [c.id]: true }))} /> : '▶'}
           </span>
           <span style={{ flex: 1, minWidth: 0 }}>

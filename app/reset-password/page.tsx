@@ -39,7 +39,7 @@ export default function ResetPassword() {
 
   return (
     <div className="p"><div className="b" style={{ justifyContent: 'center' }}>
-      <div style={{ textAlign: 'center' }}><Heart size={80} /><h1 className="num" style={{ fontSize: 36 }}>Đặt lại mật khẩu</h1></div>
+      <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}><Heart size={80} /><h1 className="num" style={{ fontSize: 34, letterSpacing: '-.02em' }}>Đặt lại mật khẩu</h1></div>
       {st === 'wait' && <div className="s" style={{ textAlign: 'center' }}>Đang kiểm tra link…</div>}
       {st === 'bad' && <>
         <div className="k pe s" role="alert">Link này đã hết hạn hoặc đã được dùng rồi. Hãy yêu cầu link mới nhé.</div>

@@ -28,7 +28,7 @@ export default function Trash() {
       {list && !list.length && <div className="k pe"><b>Thùng rác trống</b></div>}
       {list?.map(m => { const x = (m.media as any[])[0], u = x && t[x.thumb_path ?? (x.kind === 'image' ? x.path : '')]
         return <div key={m.id} className="k" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          {u ? <img src={u} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 12, border: '2px solid var(--ink)' }} /> : <span style={{ fontSize: 32 }}>🗑️</span>}
+          {u ? <img src={u} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 12, border: '1px solid var(--line2)' }} /> : <span style={{ fontSize: 32 }}>🗑️</span>}
           <div style={{ flex: 1, minWidth: 0 }}><b>{m.title}</b><div className="s">{new Date(m.taken_on).toLocaleDateString('vi-VN')} · còn {left(m.deleted_at)} ngày</div>
             <div className="row" style={{ marginTop: 6 }}><button className="pill on" onClick={() => restore(m)}>Khôi phục</button><button className="pill" onClick={() => kill(m)}>Xóa hẳn</button></div></div>
         </div> })}

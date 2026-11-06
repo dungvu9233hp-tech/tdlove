@@ -1,0 +1,1122 @@
+diff --git a/app/(app)/capsule/page.tsx b/app/(app)/capsule/page.tsx
+index 88aefc1..dad98ef 100644
+--- a/app/(app)/capsule/page.tsx
++++ b/app/(app)/capsule/page.tsx
+@@ -75,7 +75,7 @@ export default function Capsule() {
+ 
+   const letter = (c: Cap) => {
+     const s = shown[c.id]; if (!s) return null
+-    return <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '2px dashed var(--ink)', paddingTop: 10 }}>
++    return <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1.5px dashed var(--line2)', paddingTop: 10 }}>
+       {s.body && <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{s.body}</div>}
+       {s.urls.length > 0 && <div className="mgrid">{s.urls.map((u, i) => <button key={u} className="th" onClick={() => setLb({ items: s.urls.map(x => ({ kind: 'image' as const, url: x })), start: i })} aria-label={`Xem ảnh ${i + 1}`}><img src={u} alt="" /></button>)}</div>}
+       <button className="pill" style={{ alignSelf: 'flex-start' }} onClick={() => setShown(x => { const { [c.id]: _, ...rest } = x; return rest })}>Gấp thư lại</button>
+diff --git a/app/(app)/fun/page.tsx b/app/(app)/fun/page.tsx
+index 5ebbfe4..e0e8146 100644
+--- a/app/(app)/fun/page.tsx
++++ b/app/(app)/fun/page.tsx
+@@ -156,7 +156,7 @@ export default function Fun() {
+         const mine = c.sender === me.id
+         return <button key={c.id} type="button" className={`k ${mine ? 'pk' : 'li'}`} onClick={() => open(c)}
+           style={{ display: 'flex', gap: 12, alignItems: 'center', width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit', cursor: 'pointer' }}>
+-          <span style={{ flex: 'none', width: 56, height: 72, borderRadius: 12, border: '2px solid var(--ink)', background: '#fff', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }} aria-hidden="true">
++          <span style={{ flex: 'none', width: 56, height: 72, borderRadius: 12, border: '1px solid var(--line2)', background: '#fff', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }} aria-hidden="true">
+             {c.thumb_url && !bad[c.id] ? <img src={c.thumb_url} alt="" referrerPolicy="no-referrer" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={() => setBad(b => ({ ...b, [c.id]: true }))} /> : '▶'}
+           </span>
+           <span style={{ flex: 1, minWidth: 0 }}>
+diff --git a/app/(app)/map/map-ui.css b/app/(app)/map/map-ui.css
+index 391e30d..bc3e574 100644
+--- a/app/(app)/map/map-ui.css
++++ b/app/(app)/map/map-ui.css
+@@ -1,53 +1,53 @@
+ .map-page{gap:16px;padding-top:8px}
+-.memory-hero{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px 18px;border:1px solid #f2bfd3;border-radius:24px;background:linear-gradient(128deg,#fff 0%,#ffe6ef 62%,#f1e9ff 100%);box-shadow:0 9px 22px rgba(91,31,58,.08);overflow:hidden}
++.memory-hero{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px 18px;border:1px solid var(--line2);border-radius:24px;background:linear-gradient(135deg,#fffafb 0%,#ffe4ee 60%,#efe5fd 100%);box-shadow:var(--sh2);overflow:hidden}
+ .memory-hero-copy{min-width:0}
+-.memory-eyebrow,.moments-eyebrow{display:block;margin-bottom:5px;color:#a45375;font-size:10px;font-weight:900;letter-spacing:.16em}
+-.memory-hero h2,.moments-hero h2{font:800 24px/1.08 var(--f1),var(--f2),sans-serif;color:var(--ink);margin:0 0 6px}
++.memory-eyebrow,.moments-eyebrow{display:block;margin-bottom:6px;color:#8E6B2A;font-size:10px;font-weight:900;letter-spacing:.18em}
++.memory-hero h2,.moments-hero h2{font:600 25px/1.1 var(--f1);color:var(--ink);margin:0 0 6px}
+ .memory-hero p,.moments-hero p{font-size:12px;line-height:1.45;font-weight:700;color:#90506c;max-width:250px}
+ .memory-total{width:76px;height:76px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;border:1px solid rgba(91,31,58,.12);border-radius:22px;background:rgba(255,255,255,.76);box-shadow:0 4px 12px rgba(91,31,58,.06)}
+-.memory-total strong{font:800 29px/1 var(--f1),sans-serif;color:var(--ink)}
++.memory-total strong{font:600 29px/1 var(--f1);color:var(--ink)}
+ .memory-total span{margin-top:3px;color:#94516e;font-size:10px;font-weight:800}
+-.map-page .mapbox{height:340px;border:1px solid #efbfd2;border-radius:24px;box-shadow:0 9px 22px rgba(91,31,58,.10);background:#f8e8ef}
++.map-page .mapbox{height:340px;border:1px solid var(--line2);border-radius:24px;box-shadow:var(--sh2);background:#f8e8ef}
+ .map-page.is-memory .mapbox{height:390px;min-height:330px}
+ .map-page .leaflet-container{font-family:var(--f2),sans-serif;background:#f8e8ef}
+-.map-page .leaflet-popup-content-wrapper{border:1px solid #f0c4d5;border-radius:16px;box-shadow:0 8px 24px rgba(91,31,58,.14)}
++.map-page .leaflet-popup-content-wrapper{border:1px solid var(--line2);border-radius:16px;box-shadow:0 8px 24px rgba(91,31,58,.14)}
+ .map-page .leaflet-popup-content{margin:13px 15px;font-family:var(--f2),sans-serif;line-height:1.45}
+ .map-page .leaflet-popup-content b{font-size:15px}
+-.map-mode-tabs{display:grid!important;grid-template-columns:1fr 1fr;gap:8px!important;padding:6px!important;border:1px solid #f0c5d6!important;border-radius:18px!important;background:#fff!important;box-shadow:0 5px 16px rgba(91,31,58,.06)!important}
+-.map-mode-tabs .pill{padding:9px 12px;border:1px solid transparent;font:800 14px var(--f1),sans-serif;transition:background .18s ease,transform .18s ease}
++.map-mode-tabs{display:grid!important;grid-template-columns:1fr 1fr;gap:8px!important;padding:6px!important;border:1px solid var(--line2)!important;border-radius:18px!important;background:#fff!important;box-shadow:var(--sh1)!important}
++.map-mode-tabs .pill{padding:9px 12px;border:1px solid transparent;font:600 14px var(--f1);transition:background .18s ease,transform .18s ease}
+ .map-mode-tabs .pill:not(.on){background:#fff7fa;color:#93536d}
+-.map-mode-tabs .pill.on{background:#ffb8d0;border-color:#ef9fbd;box-shadow:inset 0 0 0 1px rgba(255,255,255,.45)}
++.map-mode-tabs .pill.on{background:#ffb8d0;border-color:var(--line2);box-shadow:inset 0 0 0 1px rgba(255,255,255,.45)}
+ .memory-dashboard{display:flex;flex-direction:column;gap:13px}
+-.memory-filters{display:flex;flex-wrap:wrap;gap:8px!important;padding:12px!important;border:1px solid #efc6d6!important;border-radius:20px!important;background:#fff!important;box-shadow:0 5px 16px rgba(91,31,58,.05)!important}
+-.memory-filter-chip{flex:1 1 auto;min-height:38px;padding:7px 12px;border:1px solid #f0d3df;background:#fff8fb;font-size:12px;white-space:nowrap}
+-.memory-filter-chip.on{border-color:#e99bb8;background:#ffe0eb;color:#6e2d49}
++.memory-filters{display:flex;flex-wrap:wrap;gap:8px!important;padding:12px!important;border:1px solid var(--line2)!important;border-radius:20px!important;background:#fff!important;box-shadow:var(--sh1)!important}
++.memory-filter-chip{flex:1 1 auto;min-height:38px;padding:7px 12px;border:1px solid var(--line2);background:#fff8fb;font-size:12px;white-space:nowrap}
++.memory-filter-chip.on{border-color:var(--line2);background:#ffe0eb;color:#6e2d49}
+ .memory-filter-chip:disabled{opacity:.48;cursor:not-allowed}
+-.memory-loading,.memory-empty{padding:24px 16px!important;border:1px solid #edcada!important;border-radius:22px!important;box-shadow:0 7px 18px rgba(91,31,58,.06)!important}
++.memory-loading,.memory-empty{padding:24px 16px!important;border:1px solid var(--line2)!important;border-radius:22px!important;box-shadow:var(--sh1)!important}
+ .memory-empty{background:linear-gradient(135deg,#fff,#f7efff)!important;color:#64334e}
+-.memory-empty>div:first-child{font:800 17px var(--f1),sans-serif}
+-.memory-timeline{padding:14px!important;border:1px solid #efc1d4!important;border-radius:20px!important;box-shadow:0 6px 18px rgba(91,31,58,.06)!important}
++.memory-empty>div:first-child{font:600 17px var(--f1)}
++.memory-timeline{padding:14px!important;border:1px solid var(--line2)!important;border-radius:20px!important;box-shadow:var(--sh1)!important}
+ .memory-timeline>div:first-child{gap:10px!important}
+-.memory-timeline .pill{flex:none;padding:7px 12px;border:1px solid #eaa8c1;font-size:12px}
++.memory-timeline .pill{flex:none;padding:7px 12px;border:1px solid var(--line2);font-size:12px}
+ .memory-timeline input[type=range]{accent-color:#a94370;min-width:70px}
+ .memory-timeline .s{font-size:11px;line-height:1.45}
+-.memory-list-panel{max-height:min(68vh,680px)!important;overflow:auto!important;padding:15px!important;border:1px solid #eec4d5!important;border-radius:23px!important;background:linear-gradient(180deg,#fff 0%,#fff9fc 100%)!important;box-shadow:0 8px 22px rgba(91,31,58,.07)!important;scrollbar-width:thin;scrollbar-color:#e8a9c2 transparent}
++.memory-list-panel{max-height:min(68vh,680px)!important;overflow:auto!important;padding:15px!important;border:1px solid var(--line2)!important;border-radius:23px!important;background:linear-gradient(180deg,#fff 0%,#fff9fc 100%)!important;box-shadow:var(--sh1)!important;scrollbar-width:thin;scrollbar-color:#e8a9c2 transparent}
+ .memory-list-heading{position:sticky;top:-15px;z-index:3;margin:-2px -2px 10px!important;padding:9px 2px 12px;background:linear-gradient(180deg,#fff 84%,rgba(255,255,255,0))}
+ .memory-list-heading b{font-size:17px}
+ .memory-list-heading .s{font-size:10px;text-align:right}
+-.memory-list-item{display:flex;flex-direction:column;gap:7px;margin:0 0 9px;padding:12px 13px;border:1px solid #f0d6e1;border-radius:17px;background:#fff;box-shadow:0 3px 10px rgba(91,31,58,.045);cursor:pointer;transition:border-color .18s ease,background .18s ease,box-shadow .18s ease,transform .18s ease}
++.memory-list-item{display:flex;flex-direction:column;gap:7px;margin:0 0 9px;padding:12px 13px;border:1px solid var(--line2);border-radius:17px;background:#fff;box-shadow:0 3px 10px rgba(91,31,58,.045);cursor:pointer;transition:border-color .18s ease,background .18s ease,box-shadow .18s ease,transform .18s ease}
+ .memory-list-item:last-child{margin-bottom:0}
+-.memory-list-item:hover{border-color:#e9a7bf;background:#fff9fc;box-shadow:0 5px 14px rgba(91,31,58,.08)}
+-.memory-list-item.is-active{border:1.5px solid #a94370;background:#fff0f6;box-shadow:0 0 0 3px rgba(255,143,184,.18)}
++.memory-list-item:hover{border-color:var(--line2);background:#fff9fc;box-shadow:0 5px 14px rgba(91,31,58,.08)}
++.memory-list-item.is-active{border:1.5px solid var(--line2);background:#fff0f6;box-shadow:0 0 0 3px rgba(255,143,184,.18)}
+ .memory-list-item.is-future{opacity:.42}
+ .memory-list-item>div:first-child{display:flex;align-items:center;gap:9px;min-width:0}
+-.memory-list-item>div:first-child>span:first-child{display:grid;place-items:center;min-width:30px;height:30px;border-radius:10px;background:#ffe3ed;color:#7e3454;font:800 13px var(--f1),sans-serif}
++.memory-list-item>div:first-child>span:first-child{display:grid;place-items:center;min-width:30px;height:30px;border-radius:10px;background:#ffe3ed;color:#7e3454;font:600 13px var(--f1)}
+ .memory-list-item>div:first-child>span:nth-child(2){font-size:17px}
+ .memory-list-item>div:first-child>div{min-width:0}
+ .memory-list-item>div:first-child>div>div:first-child{font-size:13px;font-weight:800;color:#60304a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .memory-list-item>div:first-child>div>.s{font-size:10px;font-weight:700;color:#a0647f}
+ .memory-list-item .s{font-size:10px}
+ .memory-list-item .pin-merge{font-size:10px!important}
+-.memory-list-subitem{display:block;width:100%;padding:9px 11px!important;border:1px solid #f1d4df!important;border-radius:12px!important;background:#fff9fc!important;color:var(--ink);text-align:left;font:600 12px var(--f2),sans-serif;cursor:pointer}
++.memory-list-subitem{display:block;width:100%;padding:9px 11px!important;border:1px solid var(--line2)!important;border-radius:12px!important;background:#fff9fc!important;color:var(--ink);text-align:left;font:600 12px var(--f2),sans-serif;cursor:pointer}
+ .memory-list-subitem+.memory-list-subitem{margin-top:6px}
+ .memory-list-subitem .s{font-size:10px}
+ .map-page .fab{z-index:10}
+diff --git a/app/(app)/map/page.tsx b/app/(app)/map/page.tsx
+index 77a4403..e5fc13b 100644
+--- a/app/(app)/map/page.tsx
++++ b/app/(app)/map/page.tsx
+@@ -396,7 +396,7 @@ export default function MapPage() {
+         const existing = journeyGroups.get(pin.ref_id)
+         if (!existing || (pin.is_start_point && !existing.pins.some(p => p.is_start_point))) {
+           // For the start point, use the full path; for end point, we already have it
+-          journeyGroups.set(pin.ref_id, { path, color: '#5B1F3A', pins: [pin] })
++          journeyGroups.set(pin.ref_id, { path, color: '#3A3396', pins: [pin] })
+         }
+       }
+     })
+@@ -405,17 +405,17 @@ export default function MapPage() {
+     journeyGroups.forEach(({ path }) => {
+       if (path.length >= 2) {
+         L.current.polyline(path, {
+-          color: '#5B1F3A',
+-          weight: 6,
+-          opacity: 0.8,
++          color: '#fff',
++          weight: 7,
++          opacity: 0.9,
+           lineJoin: 'round',
+           lineCap: 'round'
+         }).addTo(routeLayer.current)
+         // Inner highlight line
+         L.current.polyline(path, {
+-          color: '#FF8FB8',
+-          weight: 3,
+-          opacity: 0.9,
++          color: '#E0556B',
++          weight: 3.5,
++          opacity: 0.95,
+           lineJoin: 'round',
+           lineCap: 'round'
+         }).addTo(routeLayer.current)
+@@ -427,7 +427,7 @@ export default function MapPage() {
+     if (pins.length > 1) {
+       const linePoints = pins.map(p => [p.lat, p.lng] as [number, number])
+       L.current.polyline(linePoints, {
+-        color: '#5B1F3A',
++        color: '#3A3396',
+         weight: 2,
+         dashArray: '8, 6',
+         opacity: 0.7,
+@@ -568,7 +568,7 @@ export default function MapPage() {
+   useEffect(() => {
+     if (!ready || mode !== 'live') return
+     const g = L.current.layerGroup().addTo(map.current)
+-    spots.forEach(s => L.current.circleMarker([s.lat, s.lng], { radius: 8, color: '#5B1F3A', weight: 2.5, fillColor: '#FFB3CF', fillOpacity: 1 }).bindTooltip(s.name).addTo(g))
++    spots.forEach(s => L.current.circleMarker([s.lat, s.lng], { radius: 8, color: '#3A3396', weight: 2, fillColor: '#FFB3CF', fillOpacity: 1 }).bindTooltip(s.name).addTo(g))
+     return () => { g.remove() }
+   }, [ready, spots, mode])
+ 
+@@ -583,7 +583,7 @@ export default function MapPage() {
+       const t = document.createElement('b'); t.textContent = m.title; box.appendChild(t)
+       const d = document.createElement('div'); d.textContent = new Date(m.taken_on).toLocaleDateString('vi-VN') + (m.place ? ' · ' + m.place : ''); box.appendChild(d)
+       const bt = document.createElement('button'); bt.className = 'pill on'; bt.textContent = 'Xem khoảnh khắc'; bt.onclick = () => router.push('/moments?open=' + m.id); box.appendChild(bt)
+-      L.current.circleMarker([m.lat, m.lng], { radius: 10, color: '#5B1F3A', weight: 2.5, fillColor: '#EBDDFF', fillOpacity: 1 }).bindPopup(box).bindTooltip('♥ ' + m.title).addTo(g)
++      L.current.circleMarker([m.lat, m.lng], { radius: 10, color: '#3A3396', weight: 2, fillColor: '#EBDDFF', fillOpacity: 1 }).bindPopup(box).bindTooltip('♥ ' + m.title).addTo(g)
+     })
+     if (!fit.current && moms.length && !Object.keys(pins.current).length) { fit.current = true; map.current.fitBounds(moms.map(m => [m.lat, m.lng]), { padding: [50, 50], maxZoom: 15 }) }
+     return () => { g.remove() }
+@@ -594,10 +594,10 @@ export default function MapPage() {
+   useEffect(() => {
+     if (!ready || !route || mode !== 'live') return
+     const g = L.current.layerGroup().addTo(map.current), ll = route.points
+-    L.current.polyline(ll, { color: '#5B1F3A', weight: 8, opacity: 0.9, lineJoin: 'round' }).addTo(g)
+-    L.current.polyline(ll, { color: route.mine ? '#FF8FB8' : '#B58CF0', weight: 4, lineJoin: 'round' }).addTo(g)
+-    L.current.circleMarker(ll[0], { radius: 9, color: '#5B1F3A', weight: 2.5, fillColor: '#fff', fillOpacity: 1 }).bindTooltip('Điểm đầu · ' + route.name).addTo(g)
+-    L.current.circleMarker(ll[ll.length - 1], { radius: 9, color: '#5B1F3A', weight: 2.5, fillColor: '#FF8FB8', fillOpacity: 1 }).bindTooltip('Điểm cuối').addTo(g)
++    L.current.polyline(ll, { color: '#fff', weight: 8, opacity: 0.95, lineJoin: 'round' }).addTo(g)
++    L.current.polyline(ll, { color: route.mine ? '#E0556B' : '#9B72E0', weight: 4, lineJoin: 'round' }).addTo(g)
++    L.current.circleMarker(ll[0], { radius: 9, color: '#3A3396', weight: 2, fillColor: '#fff', fillOpacity: 1 }).bindTooltip('Điểm đầu · ' + route.name).addTo(g)
++    L.current.circleMarker(ll[ll.length - 1], { radius: 9, color: '#3A3396', weight: 2, fillColor: '#FF8FB8', fillOpacity: 1 }).bindTooltip('Điểm cuối').addTo(g)
+     fit.current = true; map.current.fitBounds(ll, { padding: [40, 40] })
+     return () => { g.remove() }
+   }, [ready, route, mode])
+@@ -661,7 +661,6 @@ export default function MapPage() {
+     <div className={`b map-page ${mode === 'memory' ? 'is-memory' : 'is-live'}`}>
+       {mode === 'memory' && <section className="memory-hero" aria-label="Tổng quan bản đồ kỷ niệm">
+         <div className="memory-hero-copy">
+-          <span className="memory-eyebrow">OUR LITTLE STORY</span>
+           <h2>Bản đồ kỷ niệm</h2>
+           <p>Mỗi dấu ghim là một nơi hai đứa đã cùng đi qua.</p>
+         </div>
+diff --git a/app/(app)/moments/moments-ui.css b/app/(app)/moments/moments-ui.css
+index 6e70122..3b27877 100644
+--- a/app/(app)/moments/moments-ui.css
++++ b/app/(app)/moments/moments-ui.css
+@@ -1,27 +1,27 @@
+ .moments-page{gap:15px;padding-top:8px}
+-.moments-hero{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:19px 18px;border:1px solid #efc0d3;border-radius:24px;background:linear-gradient(128deg,#fff 0%,#ffe7ef 64%,#f0e8ff 100%);box-shadow:0 9px 22px rgba(91,31,58,.08)}
++.moments-hero{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:19px 18px;border:1px solid var(--line2);border-radius:24px;background:linear-gradient(135deg,#fffafb 0%,#ffe4ee 60%,#efe5fd 100%);box-shadow:var(--sh2)}
+ .moments-hero-copy{min-width:0}
+ .moments-hero h2{max-width:230px}
+ .moments-hero p{max-width:235px}
+ .moments-hero-count{width:68px;height:68px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;border:1px solid rgba(91,31,58,.12);border-radius:20px;background:rgba(255,255,255,.78)}
+-.moments-hero-count strong{font:800 27px/1 var(--f1),sans-serif;color:var(--ink)}
++.moments-hero-count strong{font:600 27px/1 var(--f1);color:var(--ink)}
+ .moments-hero-count span{margin-top:4px;color:#92536e;font-size:10px;font-weight:800}
+-.moments-page>.k.li{padding:13px 15px;border:1px solid #e8c7d6;border-radius:19px;box-shadow:0 5px 15px rgba(91,31,58,.055)}
++.moments-page>.k.li{padding:13px 15px;border:1px solid var(--line2);border-radius:19px;box-shadow:var(--sh1)}
+ .moments-toolbar{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px!important}
+-.moments-toolbar>*{min-width:0;display:flex;align-items:center;justify-content:center;padding:9px 5px!important;border:1px solid #edc5d5!important;border-radius:14px!important;background:#fff!important;box-shadow:0 3px 9px rgba(91,31,58,.045);font-size:11px!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
++.moments-toolbar>*{min-width:0;display:flex;align-items:center;justify-content:center;padding:9px 5px!important;border:1px solid var(--line2)!important;border-radius:14px!important;background:#fff!important;box-shadow:0 3px 9px rgba(91,31,58,.045);font-size:11px!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .moments-toolbar>*:first-child{background:#ffe1ec!important}
+ .moments-toolbar>*:disabled{opacity:.55}
+-.moments-filter-panel{padding:14px!important;border:1px solid #efc7d7!important;border-radius:19px!important;box-shadow:0 6px 16px rgba(91,31,58,.055)!important}
++.moments-filter-panel{padding:14px!important;border:1px solid var(--line2)!important;border-radius:19px!important;box-shadow:var(--sh1)!important}
+ .moments-filter-panel label{display:flex;flex-direction:column;gap:5px}
+-.moments-filter-panel select{min-height:39px;border:1px solid #edc6d6;border-radius:12px;padding:6px 10px;background:#fff9fc;font-size:13px}
++.moments-filter-panel select{min-height:39px;border:1px solid var(--line2);border-radius:12px;padding:6px 10px;background:#fff9fc;font-size:13px}
+ .moments-albums{gap:7px;padding:2px 1px 5px;scrollbar-width:none}
+ .moments-albums::-webkit-scrollbar{display:none}
+-.moments-albums .pill{flex:none;padding:7px 13px;border:1px solid #ebc7d7;background:#fff;font-size:11px;white-space:nowrap}
+-.moments-albums .pill.on{background:#ffdce9;border-color:#e9a6bf}
++.moments-albums .pill{flex:none;padding:7px 13px;border:1px solid var(--line2);background:#fff;font-size:11px;white-space:nowrap}
++.moments-albums .pill.on{background:#ffdce9;border-color:var(--line2)}
+ .moment-day{gap:10px!important}
+-.moment-day-label{position:sticky;top:0;z-index:2;align-self:flex-start;padding:6px 12px!important;border:1px solid #f0c6d7;border-radius:999px;background:rgba(255,255,255,.92)!important;box-shadow:0 3px 9px rgba(91,31,58,.045);color:#8d4c68!important;font-size:11px!important;font-weight:800;letter-spacing:.02em;backdrop-filter:blur(8px)}
+-.moment-card{display:block;width:100%;padding:13px!important;border:1px solid #edc7d7!important;border-radius:21px!important;background:#fff!important;box-shadow:0 6px 17px rgba(91,31,58,.065)!important;text-align:left;line-height:1.5;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
+-.moment-card:hover{transform:translateY(-2px);border-color:#e5a4bd!important;box-shadow:0 10px 22px rgba(91,31,58,.10)!important}
++.moment-day-label{position:sticky;top:0;z-index:2;align-self:flex-start;padding:6px 12px!important;border:1px solid var(--line2);border-radius:999px;background:rgba(255,255,255,.92)!important;box-shadow:0 3px 9px rgba(91,31,58,.045);color:#8d4c68!important;font-size:11px!important;font-weight:800;letter-spacing:.02em;backdrop-filter:blur(8px)}
++.moment-card{display:block;width:100%;padding:13px!important;border:1px solid var(--line2)!important;border-radius:21px!important;background:#fff!important;box-shadow:var(--sh1)!important;text-align:left;line-height:1.5;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
++.moment-card:hover{transform:translateY(-2px);border-color:var(--line2)!important;box-shadow:0 10px 22px rgba(91,31,58,.10)!important}
+ .moment-card:focus-visible{outline:3px solid #a34c72;outline-offset:3px}
+ .moment-card>b{margin:8px 0 5px;font-size:17px;line-height:1.25;color:#5b1f3a}
+ .moment-card>div:not(.moment-media-grid){font-size:13px;font-weight:600;color:#684058}
+@@ -30,8 +30,8 @@
+ .moment-media-grid .th{border:0!important;border-radius:14px!important;background:#f7e6ed;box-shadow:inset 0 0 0 1px rgba(91,31,58,.07)}
+ .moment-media-grid .th img{transition:transform .3s ease}
+ .moment-card:hover .moment-media-grid .th img{transform:scale(1.025)}
+-.moment-media-grid .more{border-radius:14px;font:800 21px var(--f1),sans-serif}
+-.moments-empty{padding:22px 17px!important;border:1px solid #efc6d7!important;border-radius:21px!important;background:linear-gradient(135deg,#fff,#f5edff)!important;box-shadow:0 7px 18px rgba(91,31,58,.06)!important}
++.moment-media-grid .more{border-radius:14px;font:600 21px var(--f1)}
++.moments-empty{padding:22px 17px!important;border:1px solid var(--line2)!important;border-radius:21px!important;background:linear-gradient(135deg,#fff,#f5edff)!important;box-shadow:var(--sh1)!important}
+ .moments-empty b{font-size:17px}
+ .moments-page>.s:last-child{text-align:center;padding:8px 0 12px;color:#9b6680;font-size:11px}
+ .moments-page .fab{z-index:10;box-shadow:0 6px 18px rgba(91,31,58,.18)}
+diff --git a/app/(app)/moments/page.tsx b/app/(app)/moments/page.tsx
+index 13d5f09..93a3ac0 100644
+--- a/app/(app)/moments/page.tsx
++++ b/app/(app)/moments/page.tsx
+@@ -142,7 +142,6 @@ export default function Moments() {
+     <div className="b moments-page">
+       <section className="moments-hero" aria-label="Kho lưu niệm">
+         <div className="moments-hero-copy">
+-          <span className="moments-eyebrow">A LITTLE TIME CAPSULE</span>
+           <h2>Những ngày mình nhớ</h2>
+           <p>Lưu lại những khoảnh khắc nhỏ, để sau này cùng mở ra.</p>
+         </div>
+diff --git a/app/(app)/moments/trash/page.tsx b/app/(app)/moments/trash/page.tsx
+index a3b8977..81ce3c9 100644
+--- a/app/(app)/moments/trash/page.tsx
++++ b/app/(app)/moments/trash/page.tsx
+@@ -28,7 +28,7 @@ export default function Trash() {
+       {list && !list.length && <div className="k pe"><b>Thùng rác trống</b></div>}
+       {list?.map(m => { const x = (m.media as any[])[0], u = x && t[x.thumb_path ?? (x.kind === 'image' ? x.path : '')]
+         return <div key={m.id} className="k" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+-          {u ? <img src={u} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 12, border: '2px solid var(--ink)' }} /> : <span style={{ fontSize: 32 }}>🗑️</span>}
++          {u ? <img src={u} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 12, border: '1px solid var(--line2)' }} /> : <span style={{ fontSize: 32 }}>🗑️</span>}
+           <div style={{ flex: 1, minWidth: 0 }}><b>{m.title}</b><div className="s">{new Date(m.taken_on).toLocaleDateString('vi-VN')} · còn {left(m.deleted_at)} ngày</div>
+             <div className="row" style={{ marginTop: 6 }}><button className="pill on" onClick={() => restore(m)}>Khôi phục</button><button className="pill" onClick={() => kill(m)}>Xóa hẳn</button></div></div>
+         </div> })}
+diff --git a/app/(app)/page.tsx b/app/(app)/page.tsx
+index f480738..1d53d51 100644
+--- a/app/(app)/page.tsx
++++ b/app/(app)/page.tsx
+@@ -74,25 +74,26 @@ export default function Home() {
+ 
+   return <>
+     <Head t="tdlove"><Link href="/settings" className="pill">Cài đặt</Link></Head>
+-    <div className="b">
++    <div className="b stagger">
+       <Link href="/level" className="lh-link" aria-label={`${day ? `${day} ngày bên nhau. ` : ''}Mở khu cấp độ của hai đứa`}>
+         <LoveHeart days={day} />
+       </Link>
+-      {partner && <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 'none' }}>
+-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Avatar p={me} size={48} on /><Heart size={24} /><Avatar p={partner} size={48} /></div>
+-        <div className="s">{me.display_name} & {partner.display_name}</div></div>}
++      {partner && <div className="couple">
++        <div className="couple-row"><Avatar p={me} size={52} on /><Heart size={22} /><Avatar p={partner} size={52} /></div>
++        <div className="couple-names">{me.display_name}<i>{'&'}</i>{partner.display_name}</div></div>}
++      {!partner && <div className="k pe"><b>Mời người ấy vào Space</b>{expired ? <div className="s">Mã mời đã hết hạn.</div> : <><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></>}<button className="pill" style={{ marginTop: 8 }} onClick={renew}>Tạo mã mới</button></div>}
+       {!space.start_date && <label className="k li"><b>Hai đứa bắt đầu yêu từ ngày nào?</b><input type="date" min="1950-01-01" max={todayStr()} onChange={e => e.target.value && setDate(e.target.value)} /></label>}
+-      {next && <Link href="/special" className="k pk"><b>{next.n === 0 ? `Hôm nay: ${next.t} 🎉` : `Sắp tới: ${next.t}`}</b><div className="s">{next.n === 0 ? 'Chúc mừng hai đứa!' : `Còn ${next.n} ngày nữa`}</div></Link>}
+-      {latest && <Link href={`/moments?open=${latest.id}`} className="k li"><b>Moment mới nhất: {latest.title}</b><div className="s">{new Date(latest.taken_on + 'T00:00:00').toLocaleDateString('vi-VN')}{latest.place ? ` · ${latest.place}` : ''}</div></Link>}
+-      {plan && <Link href={`/plan/${plan.id}`} className="k pe"><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></Link>}
+-      {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map(m => <Link key={m.kind + m.id} href={m.kind === 'diary' ? `/diary?month=${m.day.slice(0, 7)}` : `/moments?open=${m.id}`} className="s" style={{ display: 'block' }}>{m.kind === 'diary' ? (m.is_private ? '🔒' : '📓') : '📷'} {m.day.slice(0, 4)}: {m.title}</Link>)}{memo.some(m => m.kind === 'moment') && <Link href="/moments?memories=1" className="pill on">▶ Xem lại ảnh</Link>}</div>}
+-      <div className="row"><Link href="/diary" className="k pk"><b>Nhật ký</b><div className="s">Viết cho nhau</div></Link><Link href="/special" className="k pe"><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></Link></div>
+-      <Link href="/capsule" className={`k ${cap.ready ? 'pk' : 'li'}`}><b>Hộp thời gian</b><div className="s">{cap.ready ? `${cap.ready} hộp mở được rồi, vào xem nhé!` : cap.wait ? `${cap.wait} hộp đang chờ ngày mở` : 'Viết thư, hẹn ngày mở'}</div></Link>
+-      <Link href="/fun" className={`k ${fun ? 'pk' : 'pe'}`}><b>Giải trí</b><div className="s">{fun ? `${fun} clip mới từ ${partner?.display_name ?? 'người ấy'}, xem nhé!` : 'Clip TikTok hai đứa gửi nhau'}</div></Link>
+-      {!partner && <div className="k pe"><b>Mời người ấy vào Space</b>{expired ? <div className="s">Mã mời đã hết hạn.</div> : <><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></>}<button className="pill" onClick={renew}>Tạo mã mới</button></div>}
+-      <div className="row">
+-        <Link href="/chat" className="k li"><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></Link>
+-        <Link href="/moments" className="k"><b>Khoảnh khắc</b><div className="s">Lưu thêm một kỷ niệm</div></Link>
++      {next && <Link href="/special" className="k pk hero-k"><div><b>{next.n === 0 ? `Hôm nay: ${next.t} 🎉` : `Sắp tới: ${next.t}`}</b><div className="s">{next.n === 0 ? 'Chúc mừng hai đứa!' : `Còn ${next.n} ngày nữa`}</div></div>{next.n > 0 && <div className="big" aria-hidden="true"><span className="num">{next.n}</span><span>ngày</span></div>}</Link>}
++      {latest && <Link href={`/moments?open=${latest.id}`} className="k hero-k"><div><b>Moment mới nhất: {latest.title}</b><div className="s">{new Date(latest.taken_on + 'T00:00:00').toLocaleDateString('vi-VN')}{latest.place ? ` · ${latest.place}` : ''}</div></div></Link>}
++      {plan && <Link href={`/plan/${plan.id}`} className="k pe hero-k"><div><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></div></Link>}
++      {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map(m => <Link key={m.kind + m.id} href={m.kind === 'diary' ? `/diary?month=${m.day.slice(0, 7)}` : `/moments?open=${m.id}`} className="s" style={{ display: 'block' }}>{m.kind === 'diary' ? (m.is_private ? '🔒' : '📓') : '📷'} {m.day.slice(0, 4)}: {m.title}</Link>)}{memo.some(m => m.kind === 'moment') && <Link href="/moments?memories=1" className="pill on" style={{ marginTop: 8 }}>▶ Xem lại ảnh</Link>}</div>}
++      <div className="k lst">
++        <Link href="/diary" className="rowl"><div><b>Nhật ký</b><div className="s">Viết cho nhau</div></div></Link>
++        <Link href="/special" className="rowl"><div><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></div></Link>
++        <Link href="/capsule" className="rowl"><div><b>Hộp thời gian</b><div className="s">{cap.ready ? `${cap.ready} hộp mở được rồi, vào xem nhé!` : cap.wait ? `${cap.wait} hộp đang chờ ngày mở` : 'Viết thư, hẹn ngày mở'}</div></div>{cap.ready > 0 && <i className="pulse" aria-hidden="true" />}</Link>
++        <Link href="/fun" className="rowl"><div><b>Giải trí</b><div className="s">{fun ? `${fun} clip mới từ ${partner?.display_name ?? 'người ấy'}, xem nhé!` : 'Clip TikTok hai đứa gửi nhau'}</div></div>{fun > 0 && <i className="pulse" aria-hidden="true" />}</Link>
++        <Link href="/chat" className="rowl"><div><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></div>{unread > 0 && <i className="pulse" aria-hidden="true" />}</Link>
++        <Link href="/moments" className="rowl"><div><b>Khoảnh khắc</b><div className="s">Lưu thêm một kỷ niệm</div></div></Link>
+       </div>
+     </div>
+   </>
+diff --git a/app/(app)/plan/[id]/page.tsx b/app/(app)/plan/[id]/page.tsx
+index 29e46a9..777715e 100644
+--- a/app/(app)/plan/[id]/page.tsx
++++ b/app/(app)/plan/[id]/page.tsx
+@@ -151,7 +151,7 @@ export default function PlanPage() {
+   return <>
+     <Head t={p.name}><label className="pill">Ảnh bìa<input type="file" accept="image/*" hidden onChange={e => setCoverFile(e.target.files?.[0])} /></label></Head>
+     <div className="b">
+-      {cover && <img src={cover} alt={p.name} style={{ flex: 'none', width: '100%', height: 150, objectFit: 'cover', borderRadius: 22, border: '2.5px solid var(--ink)' }} />}
++      {cover && <img src={cover} alt={p.name} style={{ flex: 'none', width: '100%', height: 150, objectFit: 'cover', borderRadius: 24, border: '1px solid var(--line2)', boxShadow: 'var(--sh2)' }} />}
+       <div className="row" style={{ flex: 'none', flexWrap: 'wrap' }}>{ST.map(s => <button key={s} className={`pill ${p.status === s ? 'on' : ''}`} onClick={() => setStatus(s)}>{s}</button>)}</div>
+       <div className="row" style={{ flex: 'none', flexWrap: 'wrap' }}><button className="pill" onClick={() => pEdit ? setPEdit(false) : startPlanEdit()}>{pEdit ? 'Đóng' : 'Sửa kế hoạch'}</button><button className="pill" onClick={delPlan}>Xóa kế hoạch</button></div>
+       {pEdit && <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+diff --git a/app/globals.css b/app/globals.css
+index 1cebd26..61df533 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -1,123 +1,271 @@
+-:root{--f1:'Baloo 2';--f2:'Quicksand';--ink:#5B1F3A;--ink2:#8A3358;--pink:#FF8FB8;--shadow:#FFB3CF}
++/* ============================================================
++   tdlove · "Ivory & Rose"
++   Tiết chế và có chủ ý: nền ngà có hạt giấy, mận đậm làm màu chữ, hồng bụi làm điểm nhấn duy nhất,
++   vàng champagne chỉ dùng cho đường kẻ và chi tiết nhỏ. Thẻ phẳng, viền mảnh, bóng một lớp rất nhẹ.
++   Cái "nũng nịu" nằm ở chuyển động và chi tiết nhỏ (tim thở, mặt chớp mắt, tim bay lên), không phải ở màu sặc sỡ.
++   Tên class giữ nguyên như bản cũ nên các trang không phải sửa logic.
++   ============================================================ */
++:root{
++  --f1:'Fraunces','Cormorant Garamond','Playfair Display',Georgia,'Times New Roman',serif;
++  --f2:'Quicksand',system-ui,-apple-system,'Segoe UI',sans-serif;
++  --ink:#3B1A2B;--ink2:#6B4659;--pink:#E58AA8;--shadow:#F3D9E2;
++  --rose:#C45379;--rose-d:#A83E65;--blush:#F9E6EC;--blush2:#F3D3DE;--peach:#F6EBDD;--lav:#EEE6F1;
++  --gold:#B8925A;--gold-d:#8E6B2A;--gold-l:#E9D8B4;--cream:#FBF6F1;
++  --line:rgba(59,26,43,.09);--line2:rgba(59,26,43,.16);
++  --sh1:inset 0 1px 0 rgba(255,255,255,.85),0 1px 2px rgba(59,26,43,.04),0 12px 26px -18px rgba(120,40,70,.35);
++  --sh2:inset 0 1px 0 rgba(255,255,255,.85),0 2px 4px rgba(59,26,43,.05),0 20px 36px -18px rgba(120,40,70,.45);
++  --glow:0 10px 22px -10px rgba(168,62,101,.7);
++  --spring:cubic-bezier(.3,1.5,.5,1);
++  --ease:cubic-bezier(.22,1,.36,1);
++}
+ *{margin:0;padding:0;box-sizing:border-box}
+-body{background:#FFF0F6;font-family:var(--f2),system-ui,sans-serif;font-size:16px;color:var(--ink)}
++html{-webkit-text-size-adjust:100%}
++body{background:#F2E8E4;font-family:var(--f2);font-size:16px;font-weight:500;line-height:1.5;color:var(--ink);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+ a{color:inherit;text-decoration:none}
+-.p{max-width:480px;height:100dvh;margin:0 auto;display:flex;flex-direction:column;background-color:#FFF0F6;background-image:radial-gradient(#FFC9DD 1.6px,transparent 1.7px);background-size:20px 20px;overflow:hidden}
+-.h{display:flex;align-items:center;gap:8px;padding:24px 18px 12px}
+-.t1,.num,b{font-family:var(--f1),var(--f2),sans-serif;font-weight:800}
+-.t1{font-size:27px;line-height:1.1}.num{line-height:1}
++button{font:inherit;color:inherit}
++::selection{background:#F3D3DE;color:var(--ink)}
++::placeholder{color:#A98A9A;font-weight:500;opacity:1}
++input[type=range],input[type=checkbox],input[type=radio],progress{accent-color:var(--rose-d)}
++
++/* Khung ứng dụng: nền ngà, hạt giấy rất mịn, hai vầng sáng hồng/mận trôi chậm phía sau */
++.p{max-width:480px;height:100dvh;margin:0 auto;display:flex;flex-direction:column;position:relative;overflow:hidden;isolation:isolate;
++  background:
++    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .3 0 0 0 0 .12 0 0 0 0 .2 .07 0 0 0 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E") 0 0/220px 220px,
++    var(--cream)}
++.p::before,.p::after{content:'';position:absolute;z-index:-1;pointer-events:none;border-radius:50%;filter:blur(14px)}
++.p::before{width:340px;height:340px;top:-150px;right:-130px;background:radial-gradient(closest-side,rgba(240,160,190,.42),transparent)}
++.p::after{width:320px;height:320px;bottom:-140px;left:-130px;background:radial-gradient(closest-side,rgba(208,190,235,.42),transparent)}
++@media (min-width:520px){.p{box-shadow:0 0 0 1px rgba(59,26,43,.05),0 40px 90px -40px rgba(120,40,70,.45)}}
++@media (prefers-reduced-motion:no-preference){
++.p::before{animation:drift 18s ease-in-out infinite alternate}
++.p::after{animation:drift 22s ease-in-out -6s infinite alternate-reverse}
++@keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(-36px,46px) scale(1.12)}}
++.b{animation:pagein .6s var(--ease) backwards}
++@keyframes pagein{from{opacity:0}to{opacity:1}}
++}
++
++/* Đầu trang */
++.h{display:flex;align-items:center;gap:10px;padding:24px 20px 12px}
++.t1,.num,b{font-family:var(--f1);font-weight:600;font-variation-settings:'SOFT' 100;font-variant-numeric:lining-nums}
++.t1{font-size:29px;line-height:1.1;letter-spacing:-.02em}
++.num{line-height:1}
+ .r{margin-left:auto;display:flex;gap:6px}
+-.b{flex:1;min-height:0;padding:6px 18px 14px;display:flex;flex-direction:column;gap:14px;overflow-y:auto}
+-.k{background:#fff;border:2.5px solid var(--ink);border-radius:22px;padding:12px 14px;box-shadow:4px 4px 0 var(--shadow);line-height:1.45;font-weight:600}
+-.pk{background:#FFD9E8}.pe{background:#FFE6D6}.li{background:#EBDDFF}
+-b{font-size:18px;display:block;line-height:1.25}
+-.s{font-size:16px;font-weight:700;color:var(--ink2)}
+-.btn{background:var(--pink);border:2.5px solid var(--ink);border-radius:999px;padding:11px;text-align:center;font:800 18px var(--f1),sans-serif;box-shadow:3px 3px 0 var(--ink);color:var(--ink);cursor:pointer;width:100%}
+-.btn:disabled{opacity:.6}
+-.pill{display:inline-block;background:#fff;border:2px solid var(--ink);border-radius:999px;padding:4px 12px;font-size:16px;font-weight:700;cursor:pointer;color:var(--ink)}
+-.on{background:var(--pink)}
+-.row{display:flex;gap:10px;align-items:center}.row>*{flex:1}.row>.rb{flex:none}
+-.rb{width:58px;height:58px;border:2.5px solid var(--ink);border-radius:50%;background:var(--pink);font:800 16px var(--f1),sans-serif;color:var(--ink);cursor:pointer}
+-.nav{margin:0 18px 18px;display:flex;justify-content:space-around;background:#fff;border:2.5px solid var(--ink);border-radius:999px;padding:8px 6px;box-shadow:4px 4px 0 var(--shadow)}
+-.nav a{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:13px;font-weight:700;padding:6px 9px;border-radius:999px;color:var(--ink2)}
+-.nav .a{background:var(--pink);color:var(--ink)}
+-.fab{position:fixed;right:max(24px,calc(50% - 216px));bottom:120px;width:58px;height:58px;font-size:36px}
++.b{flex:1;min-height:0;padding:6px 18px 16px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#E5BFCD transparent}
++
++/* Thẻ: phẳng, viền mảnh; ba màu nền chỉ là ba sắc độ rất nhạt */
++.k{position:relative;background:#FFFDFB;border:1px solid var(--line);border-radius:22px;padding:14px 16px;box-shadow:var(--sh1);line-height:1.45;font-weight:600;color:var(--ink)}
++.pk{background:#FCEFF3;border-color:rgba(196,83,121,.17)}
++.pe{background:#F9F1E6;border-color:rgba(184,146,90,.26)}
++.li{background:#F4EEF6;border-color:rgba(120,90,150,.18)}
++b{font-size:17px;display:block;line-height:1.3;letter-spacing:-.008em}
++.s{font-size:14.5px;font-weight:600;color:var(--ink2)}
++a.k,button.k{transition:transform .35s var(--spring),box-shadow .3s ease,border-color .3s ease;cursor:pointer}
++button.k{display:block;width:100%}
++
++/* Nút chính: hồng bụi đậm, chữ trắng, một vệt sáng quét qua định kỳ */
++.btn{position:relative;overflow:hidden;display:block;background:linear-gradient(180deg,#CD5D84,#B4476E);border:0;border-radius:999px;padding:14px 18px;text-align:center;font:700 16px/1.25 var(--f2);letter-spacing:.02em;box-shadow:inset 0 1px 0 rgba(255,255,255,.28),var(--glow);color:#fff;cursor:pointer;width:100%;transition:transform .3s var(--spring),box-shadow .3s ease,filter .2s}
++.btn:disabled{opacity:.5;box-shadow:none;cursor:default}
++.btn.ghost{background:#fff;color:var(--ink);box-shadow:inset 0 0 0 1px var(--line2)}
++.btn::after,.rb::after{content:'';position:absolute;inset:0;background:linear-gradient(105deg,transparent 38%,rgba(255,255,255,.38) 50%,transparent 62%);transform:translateX(-130%);pointer-events:none}
++.btn.ghost::after,.btn:disabled::after{display:none}
++@media (prefers-reduced-motion:no-preference){.btn::after,.rb::after{animation:sheen 6s ease-in-out infinite}@keyframes sheen{0%,62%{transform:translateX(-130%)}100%{transform:translateX(130%)}}}
++.pill{display:inline-block;background:rgba(255,255,255,.9);border:1px solid var(--line2);border-radius:999px;padding:5px 13px;font:700 14.5px/1.35 var(--f2);cursor:pointer;color:var(--ink);transition:background .25s,border-color .25s,transform .3s var(--spring)}
++.on{background:var(--blush2)}
++.pill.on{background:#F7DCE5;border-color:rgba(196,83,121,.5)}
++.k.on{background:#F9E1E9;border-color:rgba(196,83,121,.55);box-shadow:0 0 0 3px rgba(229,138,168,.22),var(--sh1)}
++.row{display:flex;gap:12px;align-items:center}.row>*{flex:1}.row>.rb{flex:none}
++.rb{position:relative;overflow:hidden;width:58px;height:58px;border:0;border-radius:50%;background:linear-gradient(180deg,#CD5D84,#B4476E);font:700 16px var(--f2);color:#fff;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.28),var(--glow);transition:transform .3s var(--spring)}
++.fab{position:fixed;right:max(22px,calc(50% - 218px));bottom:108px;width:58px;height:58px;font-size:32px;line-height:1;z-index:5}
++
++/* Thanh điều hướng nổi, viên mận trượt theo tab đang mở */
++.nav{position:relative;flex:none;margin:0 14px max(14px,env(safe-area-inset-bottom));display:flex;justify-content:space-around;padding:7px;background:rgba(255,253,251,.92);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);border:1px solid rgba(255,255,255,.95);border-radius:30px;box-shadow:0 0 0 1px rgba(59,26,43,.08),0 20px 40px -16px rgba(120,40,70,.5)}
++.nav-ind{position:absolute;top:7px;bottom:7px;left:7px;width:calc((100% - 14px)/5);border-radius:23px;background:linear-gradient(180deg,#4B2338,#34172A);box-shadow:0 10px 20px -8px rgba(59,26,43,.65),inset 0 1px 0 rgba(255,255,255,.14);transform:translateX(calc(var(--i,0)*100%));transition:transform .6s cubic-bezier(.34,1.35,.5,1),opacity .3s;pointer-events:none}
++.nav a{position:relative;z-index:1;flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;font:700 11px/1.2 var(--f2);white-space:nowrap;padding:8px 2px 7px;border-radius:23px;color:var(--ink2);transition:color .35s}
++.nav a svg{transition:transform .4s var(--spring)}
++.nav .a{color:#FFF3EC}
++.nav .a svg{fill:rgba(240,160,190,.4);transform:translateY(-1px) scale(1.08)}
++@media (max-width:380px){.nav a{font-size:10px}}
++
+ input,textarea{font:inherit;width:100%;border:0;outline:0;background:transparent;color:inherit}
+-.k:focus-within,.btn:focus-visible,.pill:focus-visible,.rb:focus-visible,.nav a:focus-visible{outline:3px solid var(--ink2);outline-offset:2px}
++label.k input,label.k textarea{color:var(--ink);font-weight:600}
++.k:focus-within{border-color:rgba(196,83,121,.6);box-shadow:0 0 0 4px rgba(229,138,168,.25),var(--sh1)}
++.btn:focus-visible,.pill:focus-visible,.rb:focus-visible,.nav a:focus-visible,a.k:focus-visible,button.k:focus-visible,.rowl:focus-visible{outline:3px solid var(--rose-d);outline-offset:2px}
+ .strip{display:flex;gap:8px;overflow-x:auto;margin-bottom:8px}
+-.strip img{height:180px;border-radius:14px;border:2px solid var(--ink)}
++.strip img{height:180px;border-radius:18px;border:1px solid var(--line)}
++
++/* Bong bóng chat: mình (hồng nhạt, đuôi phải) và người ấy (trắng, đuôi trái) */
+ .me{margin-left:auto;max-width:82%}.you{margin-right:auto;max-width:82%}
+-@media (prefers-reduced-motion:no-preference){.btn:active,.rb:active{transform:translate(2px,2px)}}
+-.mapbox{flex:none;height:320px;border:2.5px solid var(--ink);border-radius:22px;box-shadow:4px 4px 0 var(--shadow);overflow:hidden;isolation:isolate}
+-.pin{width:44px;height:44px;border-radius:50%;border:2.5px solid var(--ink);background:#EBDDFF;display:flex;align-items:center;justify-content:center;font:800 20px var(--f1),sans-serif;color:var(--ink)}
+-.pin.on{background:var(--pink)}
+-select{font:inherit;border:2px solid var(--ink);border-radius:999px;padding:4px 8px;background:#fff;color:inherit;max-width:130px}
+-.days{display:flex;gap:6px;overflow-x:auto;flex:none}.days .pill{flex:none}
+-.call{position:fixed;inset:0;z-index:2000;background:#FFF0F6;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:calc(28px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom))}
++.k.me{border-radius:22px 22px 6px 22px}
++.k.you{border-radius:22px 22px 22px 6px}
++.k.pk.me{background:#F8DCE5;border-color:rgba(196,83,121,.28)}
++
++@media (prefers-reduced-motion:no-preference){
++  .btn:active:not(:disabled),.rb:active{transform:scale(.97)}
++  a.k:active,button.k:active{transform:scale(.985)}
++  .pill:active{transform:scale(.95)}
++}
++@media (hover:hover) and (prefers-reduced-motion:no-preference){
++  a.k:hover,button.k:hover{transform:translateY(-2px);box-shadow:var(--sh2)}
++  .btn:hover:not(:disabled),.rb:hover{filter:brightness(1.05);transform:translateY(-1px)}
++}
++
++.mapbox{flex:none;height:320px;border:1px solid var(--line2);border-radius:26px;box-shadow:var(--sh2);overflow:hidden;isolation:isolate}
++.mapbox .leaflet-tile-pane{filter:sepia(.3) saturate(.7) hue-rotate(-18deg) brightness(1.04) contrast(.95)}
++.pin{width:44px;height:44px;border-radius:50%;border:2px solid #fff;background:var(--lav);display:flex;align-items:center;justify-content:center;font:600 19px var(--f1);color:var(--ink);box-shadow:0 0 0 1.5px var(--rose-d),0 8px 14px -5px rgba(59,26,43,.45)}
++.pin.on{background:var(--blush2)}
++select{font:inherit;font-weight:600;border:1px solid var(--line2);border-radius:999px;padding:5px 10px;background:#fff;color:inherit;max-width:130px}
++.days{display:flex;gap:6px;overflow-x:auto;flex:none;scrollbar-width:none}.days .pill{flex:none}
++
++/* Cuộc gọi, tờ phủ toàn màn hình */
++.call{position:fixed;inset:0;z-index:2000;background:radial-gradient(90% 40% at 100% 0%,rgba(240,160,190,.4),transparent 65%),radial-gradient(80% 40% at 0% 100%,rgba(208,190,235,.4),transparent 62%),var(--cream);display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:calc(28px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom))}
+ .call .rv{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;z-index:-1}
+ .call .hid{width:1px;height:1px;opacity:0}
+-.call .lv{position:absolute;top:calc(16px + env(safe-area-inset-top));right:16px;width:96px;height:128px;object-fit:cover;border:2.5px solid var(--ink);border-radius:16px;background:#000;z-index:2}
+-.call .ci{text-align:center;background:rgba(255,240,246,.9);border-radius:18px;padding:8px 18px}
++.call .lv{position:absolute;top:calc(16px + env(safe-area-inset-top));right:16px;width:96px;height:128px;object-fit:cover;border:2px solid #fff;border-radius:20px;background:#000;z-index:2;box-shadow:0 12px 24px -8px rgba(0,0,0,.5)}
++.call .ci{text-align:center;background:rgba(255,253,251,.88);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.8);border-radius:22px;padding:10px 20px}
+ .call .cc{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;width:100%;max-width:420px}
+ .call .cc .btn{flex:1 1 140px}.call .cc .pill{padding:10px 16px}
+-.sheet{position:fixed;inset:0;z-index:1000;background:#FFF0F6;overflow-y:auto;padding:calc(18px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:12px;max-width:480px;margin:0 auto}
+-.chip{display:inline-block;background:#fff;border:2px solid var(--ink);border-radius:999px;padding:4px 12px;font-size:16px;font-weight:700;cursor:pointer;color:var(--ink);font-family:inherit}
+-.chip[aria-pressed=true]{background:var(--pink)}
++.call{visibility:visible}
++.sheet{position:fixed;inset:0;z-index:1000;background:radial-gradient(90% 34% at 100% 0%,rgba(240,160,190,.35),transparent 64%),var(--cream);overflow-y:auto;padding:calc(18px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:12px;max-width:480px;margin:0 auto}
++.chip{display:inline-block;background:#fff;border:1px solid var(--line2);border-radius:999px;padding:5px 13px;font:700 14.5px var(--f2);cursor:pointer;color:var(--ink)}
++.chip[aria-pressed=true]{background:#F7DCE5;border-color:rgba(196,83,121,.5)}
++
++/* Lưới ảnh */
+ .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+-.grid .th{position:relative;aspect-ratio:1;border:2px solid var(--ink);border-radius:14px;overflow:hidden;background:#FFD9E8;display:flex;align-items:center;justify-content:center;font-size:28px}
++.grid .th{position:relative;aspect-ratio:1;border:0;border-radius:16px;overflow:hidden;background:#F6E6EC;box-shadow:inset 0 0 0 1px var(--line);display:flex;align-items:center;justify-content:center;font-size:28px}
+ .grid .th img{width:100%;height:100%;object-fit:cover}
+-.grid .th .x{position:absolute;top:3px;right:3px;width:28px;height:28px;border-radius:50%;border:2px solid var(--ink);background:#fff;font-weight:800;line-height:1;cursor:pointer;color:var(--ink)}
+-.grid .th .st{position:absolute;left:0;right:0;bottom:0;font-size:13px;font-weight:800;text-align:center;background:rgba(255,255,255,.88);padding:2px}
+-.bar{height:10px;border:2px solid var(--ink);border-radius:999px;background:#fff;overflow:hidden}
+-.bar>i{display:block;height:100%;background:var(--pink)}
++.grid .th .x{position:absolute;top:5px;right:5px;width:28px;height:28px;border-radius:50%;border:1px solid var(--line2);background:rgba(255,255,255,.94);font-weight:700;line-height:1;cursor:pointer;color:var(--ink);box-shadow:0 3px 8px rgba(59,26,43,.18)}
++.grid .th .st{position:absolute;left:0;right:0;bottom:0;font-size:12.5px;font-weight:700;text-align:center;background:rgba(255,255,255,.9);padding:3px}
++.bar{height:8px;border-radius:999px;background:#F3E2E8;box-shadow:inset 0 0 0 1px var(--line);overflow:hidden}
++.bar>i{display:block;height:100%;background:linear-gradient(90deg,#E9A0B8,var(--rose));border-radius:999px}
+ .mgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px}
+-.mgrid .th{position:relative;aspect-ratio:1;border:2px solid var(--ink);border-radius:12px;overflow:hidden;background:#FFD9E8;display:flex;align-items:center;justify-content:center;font-size:26px;padding:0;cursor:pointer}
++.mgrid .th{position:relative;aspect-ratio:1;border:0;border-radius:14px;overflow:hidden;background:#F6E6EC;box-shadow:inset 0 0 0 1px var(--line);display:flex;align-items:center;justify-content:center;font-size:26px;padding:0;cursor:pointer}
+ .mgrid .th img{width:100%;height:100%;object-fit:cover}
+-.mgrid .more{position:absolute;inset:0;background:rgba(91,31,58,.55);color:#fff;display:flex;align-items:center;justify-content:center;font:800 22px var(--f1),sans-serif}
+-.lb{position:fixed;inset:0;z-index:3000;background:#000;display:flex;align-items:center;justify-content:center}
++.mgrid .more{position:absolute;inset:0;background:rgba(59,26,43,.5);color:#fff;display:flex;align-items:center;justify-content:center;font:600 22px var(--f1)}
++
++/* Xem ảnh toàn màn hình */
++.lb{position:fixed;inset:0;z-index:3000;background:#14070E;display:flex;align-items:center;justify-content:center}
+ .lb img,.lb video{max-width:100%;max-height:100%;object-fit:contain}
+ .lb .c{position:absolute;top:calc(12px + env(safe-area-inset-top));right:12px}
+-.lb .n{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:2px solid var(--ink);background:rgba(255,255,255,.9);font-size:22px;cursor:pointer;color:var(--ink)}
+-.lb .cap{position:absolute;left:0;right:0;bottom:0;padding:14px 18px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.7));color:#fff;font-weight:700}
++.lb .n{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:0;background:rgba(255,255,255,.9);font-size:22px;cursor:pointer;color:var(--ink);box-shadow:0 8px 18px rgba(0,0,0,.35)}
++.lb .cap{position:absolute;left:0;right:0;bottom:0;padding:14px 18px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(20,7,14,.78));color:#fff;font-weight:600}
+ .tabs{display:flex;gap:6px;flex:none}.tabs .pill{flex:1;text-align:center}
+ .heartbtn{display:inline-flex;align-items:center;gap:6px}
+-.av{border:2.5px solid var(--ink);border-radius:50%;object-fit:cover;background:#EBDDFF;flex:none;display:flex;align-items:center;justify-content:center;font:800 20px var(--f1),sans-serif;color:var(--ink);overflow:hidden}
+-.av.on{background:var(--pink)}
++
++/* Ảnh đại diện: viền trắng, vòng vàng champagne mảnh bên ngoài */
++.av{border:2px solid #fff;box-shadow:0 0 0 1.5px rgba(184,146,90,.65),0 8px 14px -6px rgba(59,26,43,.4);border-radius:50%;object-fit:cover;background:var(--lav);flex:none;display:flex;align-items:center;justify-content:center;font:600 20px var(--f1);color:var(--ink);overflow:hidden}
++.av.on{background:linear-gradient(160deg,#F9CFDB,#E98BAA)}
+ .pin{overflow:hidden}.pin img{width:100%;height:100%;object-fit:cover;display:block}
+-.call{visibility:visible}
++
++/* Khóa PIN */
+ .dots{display:flex;gap:14px;justify-content:center;margin:6px 0}
+-.dots i{width:18px;height:18px;border:2.5px solid var(--ink);border-radius:50%;background:#fff}
+-.dots i.f{background:var(--pink)}
++.dots i{width:15px;height:15px;border:1.5px solid var(--rose-d);border-radius:50%;background:#fff;transition:background .25s,transform .35s var(--spring)}
++.dots i.f{background:var(--rose);transform:scale(1.12)}
+ .pad{display:grid;grid-template-columns:repeat(3,84px);gap:12px;justify-content:center;margin:6px 0 10px}
+-.pad button{height:68px;border:2.5px solid var(--ink);border-radius:999px;background:#fff;font:800 26px var(--f1),sans-serif;color:var(--ink);cursor:pointer;box-shadow:3px 3px 0 var(--shadow)}
+-.pad button.sm{font-size:16px;line-height:1.15;padding:0 4px;background:#FFD9E8}
++.pad button{height:68px;border:1px solid var(--line2);border-radius:999px;background:#FFFDFB;font:600 26px var(--f1);color:var(--ink);cursor:pointer;box-shadow:var(--sh1);transition:transform .25s var(--spring)}
++.pad button.sm{font:700 15px/1.15 var(--f2);padding:0 4px;background:#FCEFF3}
+ .pad button:disabled{opacity:.5}
+-.pad button:focus-visible{outline:3px solid var(--ink2);outline-offset:2px}
+-@media (prefers-reduced-motion:no-preference){.pad button:active:not(:disabled){transform:translate(2px,2px)}}
+-.rec{display:flex;align-items:center;gap:8px;margin:10px 18px 0;padding:6px 8px 6px 14px;background:#fff;border:2.5px solid var(--ink);border-radius:22px;box-shadow:3px 3px 0 var(--shadow);font-weight:700;font-size:16px;line-height:1.3;flex:none}
+-.rec.on{background:#FFD9E8}
+-.rec .dot{width:12px;height:12px;border-radius:50%;background:#E5304F;border:2px solid var(--ink);flex:none}
++.pad button:focus-visible{outline:3px solid var(--rose-d);outline-offset:2px}
++@media (prefers-reduced-motion:no-preference){.pad button:active:not(:disabled){transform:scale(.93)}}
++
++/* Thanh đang ghi âm / hành trình */
++.rec{display:flex;align-items:center;gap:8px;margin:10px 18px 0;padding:7px 9px 7px 14px;background:#fff;border:1px solid var(--line2);border-radius:22px;box-shadow:var(--sh1);font-weight:700;font-size:15px;line-height:1.3;flex:none}
++.rec.on{background:#FCEFF3}
++.rec .dot{width:10px;height:10px;border-radius:50%;background:#E5304F;box-shadow:0 0 0 3px rgba(229,48,79,.18);flex:none}
+ @media (prefers-reduced-motion:no-preference){.rec .dot{animation:blink 1.4s ease-in-out infinite}@keyframes blink{50%{opacity:.25}}}
++
++/* Cảm xúc bay lên khi xem clip cùng nhau */
+ .vwrap{position:relative;flex:none}
+ .vwrap .flies{position:absolute;inset:0;pointer-events:none;overflow:hidden;border-radius:22px}
+ .fly{position:absolute;bottom:8%;font-size:36px;line-height:1;opacity:0}
+ @media (prefers-reduced-motion:no-preference){.fly{animation:flyup 2.2s ease-out forwards}@keyframes flyup{0%{opacity:0;transform:translateY(0) scale(.6)}15%{opacity:1}100%{opacity:0;transform:translateY(-45dvh) scale(1.3)}}}
+ @media (prefers-reduced-motion:reduce){.fly{animation:flyfade 1.6s ease-out forwards}@keyframes flyfade{0%{opacity:0}20%,70%{opacity:1}100%{opacity:0}}}
++
++/* Vào trang: các khối hiện dần, trượt lên và rõ nét dần (class .stagger dùng ở Trang chủ và Đăng nhập) */
++@media (prefers-reduced-motion:no-preference){
++.stagger>*{animation:rise .85s var(--ease) backwards}
++.stagger>*:nth-child(2){animation-delay:.07s}.stagger>*:nth-child(3){animation-delay:.14s}.stagger>*:nth-child(4){animation-delay:.21s}
++.stagger>*:nth-child(5){animation-delay:.28s}.stagger>*:nth-child(6){animation-delay:.35s}.stagger>*:nth-child(7){animation-delay:.42s}.stagger>*:nth-child(n+8){animation-delay:.49s}
++@keyframes rise{from{opacity:0;transform:translateY(18px);filter:blur(6px)}to{opacity:1;transform:none;filter:blur(0)}}
++}
++
++/* Trang chủ */
++.couple{display:flex;flex-direction:column;align-items:center;gap:8px;flex:none}
++.couple-row{display:flex;align-items:center;gap:12px}
++.couple-names{font:500 italic 17px/1.2 var(--f1);color:var(--ink2);letter-spacing:.005em}
++.couple-names i{font-style:normal;color:var(--gold);margin:0 4px}
++.hero-k{display:flex;align-items:center;gap:14px;padding:15px 16px}
++.hero-k>div{min-width:0}
++.hero-k .big{margin-left:auto;flex:none;text-align:center;min-width:58px;padding:7px 10px;border-radius:16px;background:rgba(255,255,255,.7);box-shadow:inset 0 0 0 1px rgba(184,146,90,.35)}
++.hero-k .big .num{display:block;font-size:26px;color:var(--rose-d)}
++.hero-k .big span{font-size:10.5px;font-weight:700;color:var(--ink2);letter-spacing:.12em;text-transform:uppercase}
++/* Biểu tượng nét mảnh trong vòng vàng champagne, như một món trang sức nhỏ */
++.ic{flex:none;width:38px;height:38px;display:grid;place-items:center;border-radius:50%;background:rgba(255,255,255,.7);box-shadow:inset 0 0 0 1px rgba(184,146,90,.5);color:var(--gold-d)}
++.ic svg{display:block}
++/* Nhãn nhỏ có đường kẻ vàng hai bên */
++.eyebrow{display:flex;align-items:center;gap:12px;flex:none;font:700 10.5px/1 var(--f2);letter-spacing:.26em;text-transform:uppercase;color:var(--gold-d);margin-top:4px}
++.eyebrow::before,.eyebrow::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,transparent,var(--gold-l))}
++.eyebrow::after{background:linear-gradient(270deg,transparent,var(--gold-l))}
++/* Danh sách lối tắt: một thẻ lớn, các dòng ngăn bằng đường kẻ mảnh */
++.lst{padding:6px;flex:none}
++.rowl{position:relative;display:flex;align-items:center;gap:14px;padding:13px 12px;border-radius:18px;transition:background .3s ease}
++.rowl+.rowl::before{content:'';position:absolute;top:0;left:64px;right:14px;height:1px;background:var(--line)}
++.rowl>div{flex:1;min-width:0}
++.rowl b{font-size:16.5px}
++.rowl .s{font-size:13px;line-height:1.35;margin-top:1px}
++.rowl::after{content:'';flex:none;width:7px;height:7px;border-top:1.6px solid var(--gold);border-right:1.6px solid var(--gold);transform:rotate(45deg);margin-right:4px;transition:transform .35s var(--spring)}
++.rowl:active{background:rgba(196,83,121,.07)}
++@media (hover:hover){.rowl:hover{background:rgba(196,83,121,.06)}}
++@media (hover:hover) and (prefers-reduced-motion:no-preference){.rowl:hover::after{transform:translateX(4px) rotate(45deg)}}
++/* Chấm hồng báo có tin mới, tỏa vòng sóng */
++.pulse{position:relative;flex:none;width:9px;height:9px;border-radius:50%;background:var(--rose)}
++@media (prefers-reduced-motion:no-preference){.pulse::after{content:'';position:absolute;inset:0;border-radius:50%;background:var(--rose);animation:ping 2s ease-out infinite}@keyframes ping{from{transform:scale(1);opacity:.55}to{transform:scale(3.2);opacity:0}}}
++
+ /* Trái tim đếm ngày ở Trang chủ (components/LoveHeart.tsx). Khung 270x221px = viewBox -20 -10 240 196 nhân 1.125, chữ .lh-txt đặt theo px khớp với mặt tim */
+ .lh-link{display:flex;justify-content:center;flex:none;border-radius:28px;-webkit-tap-highlight-color:transparent}
+-.lh-link:focus-visible{outline:3px solid var(--ink2);outline-offset:4px}
++.lh-link:focus-visible{outline:3px solid var(--rose-d);outline-offset:4px}
+ .lh{position:relative;width:270px;height:221px;flex:none}
++.lh::before{content:'';position:absolute;left:22%;right:22%;bottom:-2px;height:18px;border-radius:50%;background:radial-gradient(closest-side,rgba(168,62,101,.32),transparent);filter:blur(5px)}
++.lh-halo{position:absolute;left:-6%;right:-6%;top:-8%;bottom:-2%;background:radial-gradient(closest-side,rgba(240,150,180,.42),rgba(240,150,180,.12) 60%,transparent 74%);pointer-events:none}
+ .lh-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
++.lh-beat .lh-svg{filter:drop-shadow(0 12px 14px rgba(168,62,101,.26))}
+ .lh-press,.lh-beat{position:absolute;inset:0}
+ .lh-beat{transform-origin:50% 56%}
+-.lh-txt{position:absolute;left:0;right:0;top:46px;text-align:center;color:var(--ink);text-shadow:0 2px 0 rgba(255,255,255,.55);pointer-events:none}
+-.lh-n{font-size:66px}
+-.lh-l{font-size:19px}
++.lh-txt{position:absolute;left:0;right:0;top:44px;text-align:center;color:var(--ink);text-shadow:0 1px 0 rgba(255,255,255,.5);pointer-events:none}
++.lh-n{font-size:68px;letter-spacing:-.03em;font-feature-settings:'tnum'}
++.lh-l{font:700 11px/1 var(--f2);letter-spacing:.24em;text-transform:uppercase;margin-top:6px}
+ .lh-fl,.lh-tw,.lh-eye{transform-box:fill-box;transform-origin:center}
++.lh-rise{position:absolute;inset:0;pointer-events:none}
++.lh-rise i{position:absolute;bottom:26%;font-style:normal;line-height:1;color:#E58AA8;opacity:0}
++.lh-rise i::before{content:'♥'}
++.lh-rise i:nth-child(1){left:14%;font-size:13px}.lh-rise i:nth-child(2){left:30%;font-size:9px}.lh-rise i:nth-child(3){left:52%;font-size:11px}
++.lh-rise i:nth-child(4){left:70%;font-size:14px}.lh-rise i:nth-child(5){left:84%;font-size:9px}
+ @media (prefers-reduced-motion:no-preference){
+-.lh-press{transition:transform .2s cubic-bezier(.3,1.6,.5,1)}
++.lh-press{transition:transform .25s cubic-bezier(.3,1.6,.5,1)}
+ .lh-link:active .lh-press{transform:scale(.95)}
+-.lh-beat{animation:lhbeat 2.6s ease-in-out infinite}
++.lh-beat{animation:lhbeat 2.8s ease-in-out infinite}
++.lh-halo{animation:lhhalo 2.8s ease-in-out infinite}
+ .lh-eye{animation:lhblink 5s infinite}
+-.lh-fl{animation:lhfloat 3.8s ease-in-out infinite}
+-.lh-fl.b{animation-duration:4.4s;animation-delay:-1.3s}
+ .lh-tw{animation:lhtw 2.8s ease-in-out infinite}
+ .lh-tw.b{animation-delay:-.9s}
+ .lh-tw.c{animation-delay:-1.8s}
+-@keyframes lhbeat{0%{transform:scale(1)}12%{transform:scale(1.05)}24%{transform:scale(.99)}36%{transform:scale(1.035)}48%,100%{transform:scale(1)}}
++.lh-rise i{animation:lhup 7s ease-in infinite}
++.lh-rise i:nth-child(2){animation-delay:-1.6s;animation-duration:8s}.lh-rise i:nth-child(3){animation-delay:-3.2s}
++.lh-rise i:nth-child(4){animation-delay:-4.6s;animation-duration:6.5s}.lh-rise i:nth-child(5){animation-delay:-5.8s;animation-duration:8.5s}
++@keyframes lhbeat{0%{transform:scale(1)}12%{transform:scale(1.045)}24%{transform:scale(.992)}36%{transform:scale(1.03)}48%,100%{transform:scale(1)}}
++@keyframes lhhalo{0%,100%{opacity:.7;transform:scale(.96)}14%{opacity:1;transform:scale(1.06)}40%{opacity:.85;transform:scale(1.02)}}
+ @keyframes lhblink{0%,90%,100%{transform:scaleY(1)}94%{transform:scaleY(.12)}}
+-@keyframes lhfloat{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-5px) rotate(6deg)}}
+-@keyframes lhtw{0%,100%{transform:scale(.7) rotate(0);opacity:.55}50%{transform:scale(1.15) rotate(20deg);opacity:1}}
++@keyframes lhtw{0%,100%{transform:scale(.6) rotate(0);opacity:.4}50%{transform:scale(1.15) rotate(20deg);opacity:1}}
++@keyframes lhup{0%{transform:translate(0,0) scale(.7);opacity:0}12%{opacity:.8}70%{opacity:.5}100%{transform:translate(10px,-120px) scale(1.15);opacity:0}}
+ }
+ @media (prefers-reduced-motion:no-preference) and (hover:hover){.lh-link:hover .lh-press{transform:scale(1.03)}}
+ 
+ /* Bản đồ Kỷ niệm */
+ .memory-pin{position:relative}
+-.memory-pin .pin-number{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font:800 14px var(--f1),sans-serif;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.3);z-index:1}
+-.memory-pin .pin-merge{position:absolute;bottom:-4px;right:-4px;background:var(--pink);color:#5B1F3A;font:700 10px var(--f2),sans-serif;padding:0 4px;border-radius:999px;border:2px solid #5B1F3A;white-space:nowrap}
++.memory-pin .pin-number{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font:600 14px var(--f1);color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.3);z-index:1}
++.memory-pin .pin-merge{position:absolute;bottom:-4px;right:-4px;background:var(--blush2);color:var(--ink);font:700 10px var(--f2);padding:0 5px;border-radius:999px;border:1.5px solid #fff;box-shadow:0 0 0 1px var(--rose-d);white-space:nowrap}
+ .memory-pin .pin-favorite{position:absolute;top:-6px;right:-6px;font-size:14px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.3));animation:pin-star-pulse 2s ease-in-out infinite}
+-.cluster-pin{background:#FFD9E8;border-color:#5B1F3A;color:#5B1F3A;font:800 16px var(--f1),sans-serif}
+-.pin.memory-pin:after{content:'';position:absolute;inset:0;border-radius:50%;border:2.5px solid var(--ink);background:var(--pin-color);opacity:0.3;z-index:-1}
++.cluster-pin{background:var(--blush2);color:var(--ink);font:600 16px var(--f1)}
++.pin.memory-pin:after{content:'';position:absolute;inset:0;border-radius:50%;background:var(--pin-color);opacity:0.3;z-index:-1}
+ .k.merged .pin-merge{font-size:11px;padding:1px 6px}
+ .k.disabled{opacity:0.5}
+ 
+@@ -128,13 +276,13 @@ select{font:inherit;border:2px solid var(--ink);border-radius:999px;padding:4px
+ 
+ /* Khu cấp độ (/level) */
+ .lv-tabs{display:flex;gap:8px;flex:none}.lv-tabs .pill{flex:1;text-align:center;padding:8px 12px}
+-.lv-bar{height:18px;border:2.5px solid var(--ink);border-radius:999px;background:#fff;overflow:hidden}.lv-bar>i{display:block;height:100%;background:var(--pink);border-radius:999px}
+-.lv-chips{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px;flex:none}.lv-chips .pill{flex:none;white-space:nowrap}
+-.lv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+-.lv-it{display:flex;flex-direction:column;gap:3px;text-align:left;min-height:84px;padding:10px 12px;background:#fff;border:2.5px solid var(--ink);border-radius:18px;box-shadow:3px 3px 0 var(--shadow);font:inherit;font-weight:700;color:var(--ink);cursor:pointer}
+-.lv-it.sel{background:#FFD9E8}.lv-it.lock{opacity:.55}
+-.lv-it:focus-visible,.lv-chips .pill:focus-visible{outline:3px solid var(--ink2);outline-offset:2px}
+-.lv-sw{display:inline-block;width:16px;height:16px;border-radius:50%;border:2px solid var(--ink);vertical-align:-3px;margin-right:6px}
++.lv-bar{height:14px;border-radius:999px;background:#F3E2E8;box-shadow:inset 0 0 0 1px var(--line);overflow:hidden}.lv-bar>i{display:block;height:100%;background:linear-gradient(90deg,#E9A0B8,var(--rose));border-radius:999px;transition:width 1s var(--ease)}
++.lv-chips{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px;flex:none;scrollbar-width:none}.lv-chips .pill{flex:none;white-space:nowrap}
++.lv-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
++.lv-it{display:flex;flex-direction:column;gap:3px;text-align:left;min-height:84px;padding:12px 14px;background:#FFFDFB;border:1px solid var(--line);border-radius:20px;box-shadow:var(--sh1);font:inherit;font-weight:600;color:var(--ink);cursor:pointer;transition:transform .3s var(--spring),box-shadow .25s}
++.lv-it.sel{background:#FBE5EC;border-color:rgba(196,83,121,.55);box-shadow:0 0 0 3px rgba(229,138,168,.22),var(--sh1)}.lv-it.lock{opacity:.55}
++.lv-it:focus-visible,.lv-chips .pill:focus-visible{outline:3px solid var(--rose-d);outline-offset:2px}
++.lv-sw{display:inline-block;width:16px;height:16px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px var(--line2);vertical-align:-3px;margin-right:6px}
+ .lv-act{position:sticky;bottom:0;display:flex;flex-direction:column;gap:6px;z-index:2}
+ .lv-pts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center}
+-.lv-pts .k{padding:8px 6px}.lv-pts .num{font-size:24px;display:block}
++.lv-pts .k{padding:9px 6px}.lv-pts .num{font-size:25px;display:block}
+diff --git a/app/layout.tsx b/app/layout.tsx
+index 47e020d..682fe61 100644
+--- a/app/layout.tsx
++++ b/app/layout.tsx
+@@ -1,16 +1,21 @@
+ import type { Metadata, Viewport } from 'next'
+-import '@fontsource/baloo-2/latin-700.css'
+-import '@fontsource/baloo-2/latin-800.css'
+-import '@fontsource/baloo-2/vietnamese-700.css'
+-import '@fontsource/baloo-2/vietnamese-800.css'
+-import '@fontsource/quicksand/latin-600.css'
+-import '@fontsource/quicksand/latin-700.css'
+-import '@fontsource/quicksand/vietnamese-600.css'
+-import '@fontsource/quicksand/vietnamese-700.css'
+ import './globals.css'
++import './skin.css'
+ import Sw from '@/components/Sw'
+ export const metadata: Metadata = { title: 'tdlove', description: 'Góc nhỏ của hai đứa mình', manifest: '/manifest.webmanifest', robots: { index: false, follow: false }, icons: { icon: '/icons/icon-192.png', apple: '/icons/apple-touch-icon.png' } }
+-export const viewport: Viewport = { themeColor: '#FF8FB8', width: 'device-width', initialScale: 1 }
++export const viewport: Viewport = { themeColor: '#F8F7FB', width: 'device-width', initialScale: 1 }
++
++// Be Vietnam Pro (chữ thân, thiết kế cho tiếng Việt) và Mali (nét viết tay cho tiêu đề, có đủ dấu tiếng Việt).
++// Mất mạng thì tự rơi về font hệ thống, giao diện không vỡ.
++const FONTS = 'https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;800&family=Mali:wght@600;700&display=swap'
++
+ export default function Root({ children }: { children: React.ReactNode }) {
+-  return <html lang="vi" ><body>{children}<Sw /></body></html>
++  return <html lang="vi">
++    <head>
++      <link rel="preconnect" href="https://fonts.googleapis.com" />
++      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
++      <link rel="stylesheet" href={FONTS} />
++    </head>
++    <body>{children}<Sw /></body>
++  </html>
+ }
+diff --git a/app/login/page.tsx b/app/login/page.tsx
+index 023a190..163bbdd 100644
+--- a/app/login/page.tsx
++++ b/app/login/page.tsx
+@@ -65,8 +65,8 @@ export default function Login() {
+   const goMode = (m: typeof mode) => { setMode(m); setErr(''); setInfo('') }
+ 
+   return (
+-    <div className="p"><div className="b" style={{ justifyContent: 'center' }}>
+-      <div style={{ textAlign: 'center' }}><Heart size={96} /><h1 className="num" style={{ fontSize: 44 }}>tdlove</h1><div className="s">Góc nhỏ của hai đứa mình</div></div>
++    <div className="p"><div className="b stagger" style={{ justifyContent: 'center' }}>
++      <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, paddingBottom: 6 }}><Heart size={92} /><h1 className="num" style={{ fontSize: 48, marginTop: 6, letterSpacing: '-.03em' }}>tdlove</h1><div className="couple-names">Góc nhỏ của hai đứa mình</div></div>
+       <label className="k s"><input type="email" placeholder="Email của bạn" value={f.email} onChange={up('email')} autoComplete="email" /></label>
+       {mode !== 'forgot' && <label className="k s"><input type="password" placeholder="Mật khẩu" value={f.password} onChange={up('password')} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></label>}
+       {mode === 'login' && <button className="pill" style={{ alignSelf: 'flex-end' }} onClick={() => goMode('forgot')}>Quên mật khẩu?</button>}
+diff --git a/app/reset-password/page.tsx b/app/reset-password/page.tsx
+index 526c9cc..6934ae9 100644
+--- a/app/reset-password/page.tsx
++++ b/app/reset-password/page.tsx
+@@ -39,7 +39,7 @@ export default function ResetPassword() {
+ 
+   return (
+     <div className="p"><div className="b" style={{ justifyContent: 'center' }}>
+-      <div style={{ textAlign: 'center' }}><Heart size={80} /><h1 className="num" style={{ fontSize: 36 }}>Đặt lại mật khẩu</h1></div>
++      <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}><Heart size={80} /><h1 className="num" style={{ fontSize: 34, letterSpacing: '-.02em' }}>Đặt lại mật khẩu</h1></div>
+       {st === 'wait' && <div className="s" style={{ textAlign: 'center' }}>Đang kiểm tra link…</div>}
+       {st === 'bad' && <>
+         <div className="k pe s" role="alert">Link này đã hết hạn hoặc đã được dùng rồi. Hãy yêu cầu link mới nhé.</div>
+diff --git a/app/skin.css b/app/skin.css
+new file mode 100644
+index 0000000..6cb69bf
+--- /dev/null
++++ b/app/skin.css
+@@ -0,0 +1,146 @@
++/* tdlove · "Vở ô li, mực tím"
++   Ý tưởng: cuốn vở học trò của hai đứa. Giấy trắng hơi xanh kẻ ô li, lề đỏ kép bên trái, mực tím cho điểm nhấn,
++   bút đỏ cho điều cần để ý, bút dạ quang vàng quét qua dòng khi chạm. Số ngày bên nhau là một tờ lịch bloc.
++   Tệp này nạp SAU globals.css và thay lớp giao diện "Ivory & Rose"; tên class và tên biến giữ nguyên. */
++:root{
++  --f1:'Mali','Be Vietnam Pro',system-ui,sans-serif;
++  --f2:'Be Vietnam Pro',system-ui,-apple-system,'Segoe UI',sans-serif;
++  --ink:#231F3A;--ink2:#5A5578;--pink:#F4B8C8;--shadow:#E6E3F0;
++  --rose:#E0556B;--rose-d:#B73B54;--blush:#FCE9EE;--blush2:#F8D3DE;--peach:#FFF1A8;--lav:#E9E8F7;
++  --gold:#6A63B5;--gold-d:#3A3396;--gold-l:#C9C6EA;--cream:#F8F7FB;
++  --violet:#3A3396;--rule:#C9D3EC;
++  --line:rgba(35,31,58,.1);--line2:rgba(35,31,58,.2);
++  --sh1:0 1px 0 rgba(35,31,58,.14);--sh2:0 2px 0 rgba(35,31,58,.18);--glow:none;
++  --spring:cubic-bezier(.3,1.35,.5,1);--ease:cubic-bezier(.2,.9,.25,1);
++}
++body{background:#E7E5EF;font-weight:400}
++::selection{background:var(--peach);color:var(--ink)}
++input[type=range],input[type=checkbox],input[type=radio],progress{accent-color:var(--violet)}
++
++/* Trang giấy: ô li xanh nhạt, lề đỏ kép. Không đốm màu, không hạt nhiễu */
++.p{background:
++  linear-gradient(90deg,transparent 29px,rgba(224,85,107,.5) 29px 30px,transparent 30px 33px,rgba(224,85,107,.5) 33px 34px,transparent 34px),
++  repeating-linear-gradient(0deg,transparent 0 31px,rgba(120,150,210,.26) 31px 32px),
++  var(--cream)}
++.p::before,.p::after{content:none;animation:none}
++.b,.stagger>*,.stagger>*:nth-child(n){animation:none}
++
++.h{padding:24px 18px 10px}
++.t1{font:600 28px/1.1 var(--f1);letter-spacing:0}
++b{font-weight:600;font-variation-settings:normal}
++.s{font-size:14px;font-weight:500}
++
++/* Thẻ: mảnh giấy phẳng, một nét mép dưới; ba màu = giấy, bút dạ vàng, mực tím nhạt */
++.k{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--sh1);font-weight:500}
++.pk{background:#FDEFF3;border-color:rgba(224,85,107,.24)}
++.pe{background:#FFF8D2;border-color:rgba(160,128,20,.26)}
++.li{background:#EFEEFB;border-color:rgba(58,51,150,.2)}
++.k.on{background:#EFEEFB;border-color:var(--violet);box-shadow:0 0 0 2px rgba(58,51,150,.16)}
++.k:focus-within{border-color:var(--violet);box-shadow:0 0 0 3px rgba(58,51,150,.15)}
++a.k,button.k{transition:transform .18s var(--ease),background .2s}
++@media (hover:hover) and (prefers-reduced-motion:no-preference){a.k:hover,button.k:hover{transform:none;box-shadow:var(--sh1)}.btn:hover:not(:disabled),.rb:hover{filter:none;transform:none}}
++@media (prefers-reduced-motion:no-preference){a.k:active,button.k:active{transform:translateY(1px)}.btn:active:not(:disabled),.rb:active{transform:translateY(1px)}}
++
++/* Nút: mực tím phẳng, không gradient, không vệt sáng */
++.btn{border-radius:14px;background:var(--violet);color:#fff;box-shadow:none;padding:13px 18px;font:600 15.5px/1.25 var(--f2);letter-spacing:0}
++.btn.ghost{background:transparent;color:var(--violet);box-shadow:inset 0 0 0 1.5px var(--violet)}
++.btn:disabled{opacity:.45}
++.btn::after,.rb::after{content:none;animation:none}
++.rb{background:var(--violet);box-shadow:none;font:600 15px var(--f2)}
++.pill,.chip{background:#fff;border:1px solid var(--line2);padding:5px 13px;font:500 14px/1.35 var(--f2)}
++.pill.on,.chip[aria-pressed=true]{background:var(--violet);border-color:var(--violet);color:#fff}
++.on{background:var(--blush2)}
++.btn:focus-visible,.pill:focus-visible,.rb:focus-visible,.nav a:focus-visible,a.k:focus-visible,button.k:focus-visible,.rowl:focus-visible,.lh-link:focus-visible{outline:2.5px solid var(--violet);outline-offset:2px}
++
++/* Thanh dưới: dải giấy sát mép, một dải "bookmark" đỏ trượt trên tab đang mở */
++.nav{margin:0;padding:6px 8px max(8px,env(safe-area-inset-bottom));background:var(--cream);-webkit-backdrop-filter:none;backdrop-filter:none;border:0;border-top:1px solid var(--line2);border-radius:0;box-shadow:none}
++.nav-ind{top:-1px;bottom:auto;left:8px;width:calc((100% - 16px)/5);height:3px;border-radius:0 0 3px 3px;background:linear-gradient(90deg,transparent 32%,var(--rose) 32% 68%,transparent 68%);box-shadow:none;transition:transform .55s var(--spring),opacity .2s}
++.nav a{padding:8px 2px 6px;border-radius:10px;font:500 11px/1.2 var(--f2);color:var(--ink2)}
++.nav .a{color:var(--violet);font-weight:600}
++.nav .a svg{fill:rgba(244,184,200,.75);transform:none}
++.fab{bottom:84px}
++
++/* Bong bóng chat */
++.k.me{border-radius:14px 14px 3px 14px}.k.you{border-radius:14px 14px 14px 3px}
++.k.pk.me{background:#E9E7FA;border-color:rgba(58,51,150,.22)}
++
++/* Chi tiết nhỏ: ảnh, ghim, avatar, khóa PIN, thanh tiến độ */
++.mapbox{border-radius:14px;box-shadow:var(--sh1)}
++.pin{border:2px solid #fff;box-shadow:0 0 0 1.5px var(--violet);background:var(--lav)}.pin.on{background:var(--blush2)}
++.av{border:2px solid #fff;box-shadow:0 0 0 1.5px var(--violet);background:var(--lav)}.av.on{background:var(--blush2)}
++.grid .th,.mgrid .th{border-radius:8px}
++.strip img{border-radius:10px}
++.dots i{border-color:var(--violet)}.dots i.f{background:var(--violet);transform:none}
++.pad button{border-radius:14px;box-shadow:var(--sh1);font:600 24px var(--f1)}.pad button.sm{background:var(--blush)}
++.bar{background:#E9E8F7}.bar>i,.lv-bar>i{background:var(--violet)}
++.lv-bar{background:#E9E8F7}
++.lv-it{background:#fff;border-radius:12px;box-shadow:var(--sh1)}
++.lv-it.sel{background:#EFEEFB;border-color:var(--violet);box-shadow:0 0 0 2px rgba(58,51,150,.18)}
++.call,.sheet{background:var(--cream)}
++.rec.on{background:var(--blush)}
++
++/* Trang chủ */
++.couple-names{font:600 16px/1.2 var(--f1);letter-spacing:0;color:var(--ink2)}
++.couple-names i{color:var(--rose);margin:0 7px}
++.eyebrow,.ic{display:none}
++.hero-k{border-left:3px solid var(--rose);border-radius:4px 14px 14px 4px}
++.hero-k .big{background:none;box-shadow:none;padding:0;min-width:0}
++.hero-k .big .num{font-size:30px;color:var(--rose-d)}
++.hero-k .big span:not(.num){font:600 13px var(--f1);letter-spacing:0;text-transform:none;color:var(--ink2)}
++
++/* Danh sách lối tắt: một tờ giấy kẻ dòng, chạm vào thì bút dạ vàng quét dưới tiêu đề */
++.k.lst{background:var(--cream);border:0;border-radius:0;box-shadow:none;padding:0 4px}
++.rowl{display:flex;align-items:center;gap:12px;padding:14px 2px;border-radius:0;transition:none}
++.rowl::after{content:none}
++.rowl+.rowl::before{content:'';position:absolute;left:0;right:0;top:0;height:1px;background:var(--rule);transform-origin:left}
++.rowl b{display:inline;font:600 16.5px/1.5 var(--f1);background:linear-gradient(var(--peach),var(--peach)) 0 85%/0% 55% no-repeat;transition:background-size .4s var(--ease)}
++.rowl:hover,.rowl:active{background:none}
++.rowl:active b,.rowl:focus-visible b{background-size:100% 55%}
++@media (hover:hover){.rowl:hover b{background-size:100% 55%}}
++.pulse{width:8px;height:8px;background:var(--rose)}.pulse::after{content:none}
++
++/* Tờ lịch bloc đếm ngày (components/LoveHeart.tsx) */
++.lh-link{display:block;flex:none;border-radius:10px}
++.lf{position:relative;width:100%;max-width:300px;margin:8px auto 10px;perspective:900px}
++.lf::before,.lf::after{content:'';position:absolute;left:6px;right:6px;top:0;bottom:0;background:#fff;border:1px solid var(--line2);border-radius:10px}
++.lf::before{transform:translateY(7px) rotate(1.4deg)}.lf::after{transform:translateY(3.5px) rotate(-1deg)}
++.lf-leaf{position:relative;z-index:1;background:#fff;border:1px solid var(--line2);border-radius:10px;overflow:hidden;box-shadow:var(--sh2);transform-origin:50% 0}
++.lf-top{display:flex;justify-content:space-between;min-height:34px;align-items:center;padding:0 16px;background:var(--violet);color:#fff;font:500 12.5px/1 var(--f2)}
++.lf-n{padding-top:12px;text-align:center;font:800 clamp(84px,28vw,112px)/1 var(--f2);letter-spacing:-.05em;font-variant-numeric:tabular-nums;color:var(--rose-d)}
++.lf-l{padding-bottom:20px;text-align:center;font:600 19px/1.2 var(--f1);color:var(--ink2)}
++.lf-heart{position:absolute;right:12px;bottom:10px;width:52px;height:52px;transform:rotate(-9deg)}
++.lf-eye{transform-box:fill-box;transform-origin:center}
++@media (prefers-reduced-motion:no-preference){
++  /* Khoảnh khắc duy nhất khi vào Trang chủ: tờ lịch lật xuống từ mép trên, rồi các dòng kẻ vẽ ra lần lượt */
++  .lf-leaf{animation:lfdrop 1s var(--ease) backwards;transition:transform .15s}
++  .lh-link:active .lf-leaf{transform:translateY(2px)}
++  .rowl+.rowl::before{animation:ruledraw .7s var(--ease) backwards}
++  .rowl:nth-child(2)::before{animation-delay:.7s}.rowl:nth-child(3)::before{animation-delay:.76s}.rowl:nth-child(4)::before{animation-delay:.82s}.rowl:nth-child(5)::before{animation-delay:.88s}.rowl:nth-child(6)::before{animation-delay:.94s}
++  .lf-eye{animation:lfblink 6s infinite}
++  @keyframes lfdrop{0%{transform:rotateX(-86deg);opacity:0}30%{opacity:1}72%{transform:rotateX(6deg)}100%{transform:none}}
++  @keyframes ruledraw{from{transform:scaleX(0)}to{transform:scaleX(1)}}
++  @keyframes lfblink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.1)}}
++}
++
++/* Bản đồ Kỷ niệm và Khoảnh khắc: cùng ngôn ngữ giấy phẳng, bỏ gradient hồng và bo góc quá lớn */
++.memory-hero,.moments-hero{background:#fff;border:1px solid var(--line);border-left:3px solid var(--rose);border-radius:4px 14px 14px 4px;box-shadow:var(--sh1)}
++.memory-hero h2,.moments-hero h2{font:600 24px/1.15 var(--f1)}
++.memory-hero p,.moments-hero p{color:var(--ink2);font-weight:500}
++.memory-total,.moments-hero-count{background:none;border:0;border-radius:0;box-shadow:none}
++.memory-total strong,.moments-hero-count strong{font:800 30px/1 var(--f2);color:var(--rose-d);letter-spacing:-.03em}
++.memory-total span,.moments-hero-count span{color:var(--ink2);font-weight:600;font-size:12px}
++.map-page .mapbox,.memory-filters,.memory-timeline,.memory-list-panel,.memory-loading,.memory-empty,.moments-empty,.moments-filter-panel,.moment-card,.moments-page>.k.li,.map-mode-tabs{border-radius:14px!important}
++.memory-empty,.moments-empty{background:#EFEEFB!important}
++.memory-list-panel{background:#fff!important}
++.memory-list-item,.memory-list-subitem,.moments-toolbar>*,.moments-filter-panel select{border-radius:10px!important}
++.memory-list-item,.moment-card,.moments-toolbar>*{box-shadow:var(--sh1)!important}
++.moment-card:hover{transform:none;border-color:var(--violet)!important;box-shadow:var(--sh1)!important}
++.memory-list-item:hover{background:#fff;box-shadow:var(--sh1)}
++.memory-list-item.is-active{border-color:var(--violet);background:#EFEEFB;box-shadow:0 0 0 2px rgba(58,51,150,.16)}
++.memory-list-item>div:first-child>span:first-child{background:var(--blush2);border-radius:8px}
++.map-mode-tabs .pill.on,.memory-filter-chip.on,.moments-albums .pill.on{background:var(--violet);border-color:var(--violet);color:#fff}
++.map-mode-tabs .pill:not(.on),.memory-filter-chip,.moments-albums .pill{background:#fff;color:var(--ink2)}
++.memory-timeline input[type=range]{accent-color:var(--violet)}
++.moment-card>b,.memory-list-item>div:first-child>div>div:first-child{color:var(--ink)}
++.moment-day-label{background:var(--peach)!important;border-color:transparent;border-radius:4px;color:var(--ink)!important;box-shadow:none;backdrop-filter:none}
++.moments-toolbar>*:first-child{background:var(--blush)!important}
+diff --git a/components/Call.tsx b/components/Call.tsx
+index 7035302..3e5b069 100644
+--- a/components/Call.tsx
++++ b/components/Call.tsx
+@@ -213,7 +213,7 @@ export default function Call() {
+       <div className="s">{st === 'incoming' ? `${name} đang gọi ${video ? 'video' : 'thoại'}…` : st === 'calling' ? 'Đang đổ chuông…' : lost ? 'Mạng yếu, đang thử nối lại…' : secs == null ? 'Đang kết nối…' : clock(secs)}</div>
+       {msg && <div className="s" role="status">{msg}</div>}</div>
+     <div className="cc">
+-      {st === 'incoming' ? <><button className="btn" onClick={accept}>Nhận</button><button className="btn" style={{ background: '#fff' }} onClick={reject}>Từ chối</button></> : <>
++      {st === 'incoming' ? <><button className="btn" onClick={accept}>Nhận</button><button className="btn ghost" onClick={reject}>Từ chối</button></> : <>
+         <button className={`pill ${mic ? '' : 'on'}`} onClick={() => toggle('audio')}>{mic ? 'Tắt mic' : 'Bật mic'}</button>
+         {video && <button className={`pill ${camOn ? '' : 'on'}`} onClick={() => toggle('video')}>{camOn ? 'Tắt camera' : 'Bật camera'}</button>}
+         {video && <button className="pill" onClick={flip}>Đổi camera</button>}
+diff --git a/components/ClipViewer.tsx b/components/ClipViewer.tsx
+index 9ef4344..4c1e818 100644
+--- a/components/ClipViewer.tsx
++++ b/components/ClipViewer.tsx
+@@ -196,7 +196,7 @@ export default function ClipViewer({ clip, me, pn, tg, join, onClose, onDelete,
+ 
+     <div className="vwrap">
+       <iframe key={`${clip.id}:${tog ? 'tg' : 'solo'}`} ref={fr} src={embedSrc(clip.video_id, !tog)} title="Clip TikTok" allow="autoplay; fullscreen; encrypted-media"
+-        style={{ width: '100%', height: 'min(62dvh, 600px)', display: 'block', border: '2.5px solid var(--ink)', borderRadius: 22, background: '#000' }} />
++        style={{ width: '100%', height: 'min(62dvh, 600px)', display: 'block', border: '1px solid var(--line2)', borderRadius: 24, background: '#000' }} />
+       <div className="flies" aria-hidden="true">{flies.map(f => <span key={f.id} className="fly" style={{ left: f.x + '%' }}>{f.e}</span>)}</div>
+     </div>
+     {hint && <div className="s" role="status">{hint}</div>}
+diff --git a/components/Head.tsx b/components/Head.tsx
+index ddb2663..fc45bd9 100644
+--- a/components/Head.tsx
++++ b/components/Head.tsx
+@@ -1,5 +1,6 @@
+-export const Heart = ({ size, fill = '#FF8FB8' }: { size: number; fill?: string }) => (
+-  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill={fill} stroke="#5B1F3A" strokeWidth="1.2" strokeLinejoin="round" /></svg>
++// Trái tim nhỏ ở đầu trang, đăng nhập và màn hình khóa: phẳng, một màu hồng phấn, viền mực
++export const Heart = ({ size }: { size: number }) => (
++  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{ flex: 'none' }}><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="#F4B8C8" stroke="#231F3A" strokeWidth="1.2" strokeLinejoin="round" /></svg>
+ )
+ export default function Head({ t, children, lead }: { t: string; children?: React.ReactNode; lead?: React.ReactNode }) {
+   return <div className="h">{lead ?? <Heart size={30} />}<h1 className="t1">{t}</h1><span className="r">{children}</span></div>
+diff --git a/components/LoveHeart.tsx b/components/LoveHeart.tsx
+index 8a63c49..b9c74c5 100644
+--- a/components/LoveHeart.tsx
++++ b/components/LoveHeart.tsx
+@@ -1,63 +1,44 @@
+-// Trái tim đếm ngày bên nhau ở Trang chủ: tim mập có mặt nũng nịu (má hồng, mắt long lanh biết chớp, miệng ω),
+-// bóng lệch hồng giống box-shadow của thẻ `.k`, tim nhỏ và sao lấp lánh bay quanh.
+-// Chỉ vẽ hình; liên kết do Trang chủ bọc ngoài. Kiểu dáng và chuyển động nằm ở globals.css (.lh*),
+-// chuyển động tự tắt khi máy bật "giảm chuyển động". Lớp tim và lớp trang trí dùng chung một viewBox
+-// nên chữ đặt theo px (xem .lh-txt) luôn khớp với hình.
+-const INK = '#5B1F3A'
+-const VB = '-20 -10 240 196'
+-const BODY = 'M100 170 C40 125 8 92 8 58 C8 28 31 8 58 8 C77 8 92 18 100 34 C108 18 123 8 142 8 C169 8 192 28 192 58 C192 92 160 125 100 170 Z'
+-const MINI = 'M0 8.5 C-6 4 -9.2 0.7 -9.2 -2.7 C-9.2 -5.7 -6.9 -7.7 -4.2 -7.7 C-2.3 -7.7 -0.8 -6.7 0 -5.1 C0.8 -6.7 2.3 -7.7 4.2 -7.7 C6.9 -7.7 9.2 -5.7 9.2 -2.7 C9.2 0.7 6 4 0 8.5 Z'
+-const STAR = 'M0 -6 C0.8 -2 2 -0.8 6 0 C2 0.8 0.8 2 0 6 C-0.8 2 -2 0.8 -6 0 C-2 -0.8 -0.8 -2 0 -6 Z'
++'use client'
++// Số ngày bên nhau trên Trang chủ, vẽ như một tờ lịch bloc: dải mực tím ghi thứ và tháng, số ngày thật lớn,
++// một nhãn dán hình tim nhỏ có mặt (giữ lại nhân vật của app) ở góc. Số đếm lên từ 0 khi vào trang.
++// Liên kết do Trang chủ bọc ngoài. Kiểu dáng và chuyển động nằm ở app/skin.css (.lf*), tự tắt khi máy bật "giảm chuyển động".
++import { useEffect, useState } from 'react'
+ 
+-const mini = (fill: string) => ({ fill, stroke: INK, strokeWidth: 2, strokeLinejoin: 'round' as const, vectorEffect: 'non-scaling-stroke' as const })
+-const star = { fill: '#fff', stroke: INK, strokeWidth: 1.8, strokeLinejoin: 'round' as const, vectorEffect: 'non-scaling-stroke' as const }
++const DOW = ['Chủ nhật', 'Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy']
++const HEART = 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z'
++
++function useCount(to: number | null) {
++  const [v, setV] = useState<number | null>(to == null ? null : 0)
++  useEffect(() => {
++    if (to == null) { setV(null); return }
++    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setV(to); return }
++    let raf = 0; const t0 = performance.now(), D = 1300
++    const tick = (t: number) => { const p = Math.min(1, (t - t0) / D); setV(Math.round(to * (1 - Math.pow(1 - p, 3)))); if (p < 1) raf = requestAnimationFrame(tick) }
++    raf = requestAnimationFrame(tick)
++    return () => cancelAnimationFrame(raf)
++  }, [to])
++  return v
++}
+ 
+ export default function LoveHeart({ days }: { days: number | null }) {
++  const n = useCount(days)
++  // Ngày giờ chỉ lấy sau khi vào trang, để HTML từ máy chủ và máy người dùng không lệch nhau
++  const [now, setNow] = useState<Date | null>(null)
++  useEffect(() => setNow(new Date()), [])
+   return (
+-    <div className="lh">
+-      {/* Lớp trang trí nằm sau tim: tim nhỏ trôi nhẹ, sao nhấp nháy lệch nhịp nhau */}
+-      <svg className="lh-svg" viewBox={VB} aria-hidden="true" focusable="false">
+-        <g transform="translate(-6 30) rotate(-20)"><g className="lh-fl"><path d={MINI} {...mini('#FFB3CF')} /></g></g>
+-        <g transform="translate(208 72) rotate(16) scale(1.25)"><g className="lh-fl b"><path d={MINI} {...mini('#EBDDFF')} /></g></g>
+-        <g transform="translate(204 14) scale(1.3)"><path className="lh-tw" d={STAR} {...star} /></g>
+-        <g transform="translate(-2 108) scale(0.9)"><path className="lh-tw b" d={STAR} {...star} /></g>
+-        <g transform="translate(200 132) scale(0.75)"><path className="lh-tw c" d={STAR} {...star} /></g>
+-      </svg>
+-      <div className="lh-press">
+-        <div className="lh-beat">
+-          <svg className="lh-svg" viewBox={VB} aria-hidden="true" focusable="false">
+-            <defs>
+-              <linearGradient id="lh-g" x1="0.2" y1="0" x2="0.8" y2="1">
+-                <stop offset="0" stopColor="#FFC4DB" />
+-                <stop offset="0.55" stopColor="#FF9EC2" />
+-                <stop offset="1" stopColor="#FF7FAC" />
+-              </linearGradient>
+-            </defs>
+-            <path d={BODY} transform="translate(5 6)" fill="#FFB3CF" />
+-            <path d={BODY} fill="url(#lh-g)" stroke={INK} strokeWidth="4.5" strokeLinejoin="round" />
+-            <path d="M26 44 C26 30 36 20 49 19" fill="none" stroke="#fff" strokeWidth="7" strokeLinecap="round" opacity="0.85" />
+-            <circle cx="63" cy="19" r="3.6" fill="#fff" opacity="0.85" />
+-            <g>
+-              <ellipse cx="70" cy="127" rx="7.5" ry="5" fill="#FF5C93" opacity="0.38" />
+-              <ellipse cx="130" cy="127" rx="7.5" ry="5" fill="#FF5C93" opacity="0.38" />
+-              <g className="lh-eye">
+-                <ellipse cx="82" cy="119.5" rx="5.3" ry="6.5" fill={INK} />
+-                <circle cx="84.2" cy="116.9" r="1.95" fill="#fff" />
+-                <circle cx="80.6" cy="122.2" r="0.9" fill="#fff" />
+-              </g>
+-              <g className="lh-eye">
+-                <ellipse cx="118" cy="119.5" rx="5.3" ry="6.5" fill={INK} />
+-                <circle cx="120.2" cy="116.9" r="1.95" fill="#fff" />
+-                <circle cx="116.6" cy="122.2" r="0.9" fill="#fff" />
+-              </g>
+-              <path d="M92.5 129 Q96.3 134.5 100 129 Q103.7 134.5 107.5 129" fill="none" stroke={INK} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" />
+-            </g>
+-          </svg>
+-          <div className="lh-txt">
+-            <div className="num lh-n">{days ?? '–'}</div>
+-            <div className="num lh-l">ngày bên nhau</div>
+-          </div>
+-        </div>
++    <div className="lf">
++      <div className="lf-leaf">
++        <div className="lf-top"><span>{now ? DOW[now.getDay()] : ''}</span><span>{now ? `Tháng ${now.getMonth() + 1}, ${now.getFullYear()}` : ''}</span></div>
++        <div className="lf-n">{n ?? '–'}</div>
++        <div className="lf-l">ngày bên nhau</div>
++        <svg className="lf-heart" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
++          <path d={HEART} fill="#F4B8C8" stroke="#231F3A" strokeWidth="1.2" strokeLinejoin="round" />
++          <ellipse cx="7.6" cy="12.3" rx="1.5" ry=".9" fill="#E0556B" opacity=".35" />
++          <ellipse cx="16.4" cy="12.3" rx="1.5" ry=".9" fill="#E0556B" opacity=".35" />
++          <ellipse className="lf-eye" cx="9.3" cy="10.4" rx=".85" ry="1.1" fill="#231F3A" />
++          <ellipse className="lf-eye" cx="14.7" cy="10.4" rx=".85" ry="1.1" fill="#231F3A" />
++          <path d="M10.7 13.2q.65.85 1.3 0q.65.85 1.3 0" fill="none" stroke="#231F3A" strokeWidth=".55" strokeLinecap="round" />
++        </svg>
+       </div>
+     </div>
+   )
+diff --git a/components/Nav.tsx b/components/Nav.tsx
+index 46dfc8b..972aa88 100644
+--- a/components/Nav.tsx
++++ b/components/Nav.tsx
+@@ -10,8 +10,14 @@ const T: [string, string, string][] = [
+ ]
+ export default function Nav() {
+   const path = usePathname()
+-  return <nav className="nav">{T.map(([href, label, svg]) => (
+-    <Link key={href} href={href} className={(href === '/' ? path === '/' : path.startsWith(href)) ? 'a' : ''}>
+-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: svg }} />{label}
+-    </Link>))}</nav>
++  const on = (href: string) => href === '/' ? path === '/' : path.startsWith(href)
++  const idx = T.findIndex(([href]) => on(href))
++  // Viên mận đậm trượt mượt tới tab đang mở; ở trang không thuộc tab nào (Cài đặt...) thì ẩn đi
++  return <nav className="nav">
++    <span className="nav-ind" aria-hidden="true" style={{ ['--i' as any]: Math.max(idx, 0), opacity: idx < 0 ? 0 : 1 }} />
++    {T.map(([href, label, svg]) => (
++      <Link key={href} href={href} className={on(href) ? 'a' : ''}>
++        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: svg }} />{label}
++      </Link>))}
++  </nav>
+ }
+diff --git a/components/Wheel.tsx b/components/Wheel.tsx
+index 5610dc8..0b3438f 100644
+--- a/components/Wheel.tsx
++++ b/components/Wheel.tsx
+@@ -1,6 +1,6 @@
+ 'use client'
+ // Vòng quay SVG: kim chỉ ở đỉnh, các ô chia đều, quay theo chiều kim đồng hồ.
+-const COLORS = ['#FFD9E8', '#EBDDFF', '#FFE6D6', '#FFB3CF', '#DDEBFF', '#FFF3C9']
++const COLORS = ['#FDEFF3', '#E9E7FA', '#FFF8D2', '#F8D3DE', '#E3EAF8', '#FFFFFF']
+ const R = 96, C = 100
+ const pt = (deg: number, r = R) => { const a = deg * Math.PI / 180; return [C + r * Math.sin(a), C - r * Math.cos(a)] as const }
+ const cut = (s: string, n: number) => { const a = Array.from(s); return a.length > n ? a.slice(0, n - 1).join('') + '…' : s }
+@@ -10,20 +10,20 @@ export default function Wheel({ names, rot, ms }: { names: string[]; rot: number
+   return <div style={{ position: 'relative', width: '100%', maxWidth: 320, margin: '0 auto', aspectRatio: '1' }}>
+     <svg viewBox="0 0 200 200" width="100%" height="100%" role="img" aria-label={`Vòng quay gồm ${n} món: ${names.join(', ')}`}
+       style={{ transform: `rotate(${rot}deg)`, transition: `transform ${ms}ms cubic-bezier(.12,.6,.1,1)`, overflow: 'visible' }}>
+-      <circle cx={C} cy={C} r={R + 3} fill="#fff" stroke="#5B1F3A" strokeWidth="3" />
++      <circle cx={C} cy={C} r={R + 3} fill="#fff" stroke="#3A3396" strokeWidth="2.5" />
+       {names.map((name, i) => {
+         const [x1, y1] = pt(i * a), [x2, y2] = pt((i + 1) * a), c = (i + .5) * a
+         return <g key={name}>
+-          <path d={`M${C},${C} L${x1},${y1} A${R},${R} 0 ${a > 180 ? 1 : 0} 1 ${x2},${y2} Z`} fill={COLORS[i % COLORS.length]} stroke="#5B1F3A" strokeWidth="1.5" strokeLinejoin="round" />
++          <path d={`M${C},${C} L${x1},${y1} A${R},${R} 0 ${a > 180 ? 1 : 0} 1 ${x2},${y2} Z`} fill={COLORS[i % COLORS.length]} stroke="#fff" strokeWidth="1.5" strokeLinejoin="round" />
+           <text transform={`rotate(${c - 90} ${C} ${C})`} x={C + R - 8} y={C} textAnchor="end" dominantBaseline="central"
+-            fontSize={n > 8 ? 9 : 11} fontWeight="800" fill="#5B1F3A" style={{ fontFamily: 'inherit' }}>{cut(name, n > 8 ? 9 : 12)}</text>
++            fontSize={n > 8 ? 9 : 11} fontWeight="700" fill="#231F3A" style={{ fontFamily: 'inherit' }}>{cut(name, n > 8 ? 9 : 12)}</text>
+         </g>
+       })}
+-      <circle cx={C} cy={C} r="9" fill="#FF8FB8" stroke="#5B1F3A" strokeWidth="2.5" />
++      <circle cx={C} cy={C} r="9" fill="#fff" stroke="#3A3396" strokeWidth="2.5" />
+     </svg>
+     {/* kim chỉ cố định ở đỉnh, không quay theo vòng */}
+     <svg viewBox="0 0 24 24" width="9%" style={{ position: 'absolute', left: '50%', top: '-3%', transform: 'translateX(-50%)' }} aria-hidden="true">
+-      <path d="M12 22 2 3h20z" fill="#FF8FB8" stroke="#5B1F3A" strokeWidth="2" strokeLinejoin="round" />
++      <path d="M12 22 2 3h20z" fill="#E0556B" stroke="#231F3A" strokeWidth="1.6" strokeLinejoin="round" />
+     </svg>
+   </div>
+ }

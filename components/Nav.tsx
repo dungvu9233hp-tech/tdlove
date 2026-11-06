@@ -10,8 +10,14 @@ const T: [string, string, string][] = [
 ]
 export default function Nav() {
   const path = usePathname()
-  return <nav className="nav">{T.map(([href, label, svg]) => (
-    <Link key={href} href={href} className={(href === '/' ? path === '/' : path.startsWith(href)) ? 'a' : ''}>
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: svg }} />{label}
-    </Link>))}</nav>
+  const on = (href: string) => href === '/' ? path === '/' : path.startsWith(href)
+  const idx = T.findIndex(([href]) => on(href))
+  // Viên mận đậm trượt mượt tới tab đang mở; ở trang không thuộc tab nào (Cài đặt...) thì ẩn đi
+  return <nav className="nav">
+    <span className="nav-ind" aria-hidden="true" style={{ ['--i' as any]: Math.max(idx, 0), opacity: idx < 0 ? 0 : 1 }} />
+    {T.map(([href, label, svg]) => (
+      <Link key={href} href={href} className={on(href) ? 'a' : ''}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: svg }} />{label}
+      </Link>))}
+  </nav>
 }

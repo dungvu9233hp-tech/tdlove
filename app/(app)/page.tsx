@@ -74,25 +74,26 @@ export default function Home() {
 
   return <>
     <Head t="tdlove"><Link href="/settings" className="pill">Cài đặt</Link></Head>
-    <div className="b">
+    <div className="b stagger">
       <Link href="/level" className="lh-link" aria-label={`${day ? `${day} ngày bên nhau. ` : ''}Mở khu cấp độ của hai đứa`}>
         <LoveHeart days={day} />
       </Link>
-      {partner && <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 'none' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Avatar p={me} size={48} on /><Heart size={24} /><Avatar p={partner} size={48} /></div>
-        <div className="s">{me.display_name} & {partner.display_name}</div></div>}
+      {partner && <div className="couple">
+        <div className="couple-row"><Avatar p={me} size={52} on /><Heart size={22} /><Avatar p={partner} size={52} /></div>
+        <div className="couple-names">{me.display_name}<i>{'&'}</i>{partner.display_name}</div></div>}
+      {!partner && <div className="k pe"><b>Mời người ấy vào Space</b>{expired ? <div className="s">Mã mời đã hết hạn.</div> : <><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></>}<button className="pill" style={{ marginTop: 8 }} onClick={renew}>Tạo mã mới</button></div>}
       {!space.start_date && <label className="k li"><b>Hai đứa bắt đầu yêu từ ngày nào?</b><input type="date" min="1950-01-01" max={todayStr()} onChange={e => e.target.value && setDate(e.target.value)} /></label>}
-      {next && <Link href="/special" className="k pk"><b>{next.n === 0 ? `Hôm nay: ${next.t} 🎉` : `Sắp tới: ${next.t}`}</b><div className="s">{next.n === 0 ? 'Chúc mừng hai đứa!' : `Còn ${next.n} ngày nữa`}</div></Link>}
-      {latest && <Link href={`/moments?open=${latest.id}`} className="k li"><b>Moment mới nhất: {latest.title}</b><div className="s">{new Date(latest.taken_on + 'T00:00:00').toLocaleDateString('vi-VN')}{latest.place ? ` · ${latest.place}` : ''}</div></Link>}
-      {plan && <Link href={`/plan/${plan.id}`} className="k pe"><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></Link>}
-      {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map(m => <Link key={m.kind + m.id} href={m.kind === 'diary' ? `/diary?month=${m.day.slice(0, 7)}` : `/moments?open=${m.id}`} className="s" style={{ display: 'block' }}>{m.kind === 'diary' ? (m.is_private ? '🔒' : '📓') : '📷'} {m.day.slice(0, 4)}: {m.title}</Link>)}{memo.some(m => m.kind === 'moment') && <Link href="/moments?memories=1" className="pill on">▶ Xem lại ảnh</Link>}</div>}
-      <div className="row"><Link href="/diary" className="k pk"><b>Nhật ký</b><div className="s">Viết cho nhau</div></Link><Link href="/special" className="k pe"><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></Link></div>
-      <Link href="/capsule" className={`k ${cap.ready ? 'pk' : 'li'}`}><b>Hộp thời gian</b><div className="s">{cap.ready ? `${cap.ready} hộp mở được rồi, vào xem nhé!` : cap.wait ? `${cap.wait} hộp đang chờ ngày mở` : 'Viết thư, hẹn ngày mở'}</div></Link>
-      <Link href="/fun" className={`k ${fun ? 'pk' : 'pe'}`}><b>Giải trí</b><div className="s">{fun ? `${fun} clip mới từ ${partner?.display_name ?? 'người ấy'}, xem nhé!` : 'Clip TikTok hai đứa gửi nhau'}</div></Link>
-      {!partner && <div className="k pe"><b>Mời người ấy vào Space</b>{expired ? <div className="s">Mã mời đã hết hạn.</div> : <><div className="s">Mã mời: <span style={{ fontSize: 22, userSelect: 'all' }}>{space.invite_code}</span></div><div className="s">Dùng một lần, hết hạn sau 24 giờ</div></>}<button className="pill" onClick={renew}>Tạo mã mới</button></div>}
-      <div className="row">
-        <Link href="/chat" className="k li"><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></Link>
-        <Link href="/moments" className="k"><b>Khoảnh khắc</b><div className="s">Lưu thêm một kỷ niệm</div></Link>
+      {next && <Link href="/special" className="k pk hero-k"><div><b>{next.n === 0 ? `Hôm nay: ${next.t} 🎉` : `Sắp tới: ${next.t}`}</b><div className="s">{next.n === 0 ? 'Chúc mừng hai đứa!' : `Còn ${next.n} ngày nữa`}</div></div>{next.n > 0 && <div className="big" aria-hidden="true"><span className="num">{next.n}</span><span>ngày</span></div>}</Link>}
+      {latest && <Link href={`/moments?open=${latest.id}`} className="k hero-k"><div><b>Moment mới nhất: {latest.title}</b><div className="s">{new Date(latest.taken_on + 'T00:00:00').toLocaleDateString('vi-VN')}{latest.place ? ` · ${latest.place}` : ''}</div></div></Link>}
+      {plan && <Link href={`/plan/${plan.id}`} className="k pe hero-k"><div><b>Sắp đi: {plan.name}</b><div className="s">{plan.start_date ? new Date(plan.start_date).toLocaleDateString('vi-VN') : 'Chưa chọn ngày'}</div></div></Link>}
+      {memo.length > 0 && <div className="k li"><b>Ngày này năm trước</b>{memo.map(m => <Link key={m.kind + m.id} href={m.kind === 'diary' ? `/diary?month=${m.day.slice(0, 7)}` : `/moments?open=${m.id}`} className="s" style={{ display: 'block' }}>{m.kind === 'diary' ? (m.is_private ? '🔒' : '📓') : '📷'} {m.day.slice(0, 4)}: {m.title}</Link>)}{memo.some(m => m.kind === 'moment') && <Link href="/moments?memories=1" className="pill on" style={{ marginTop: 8 }}>▶ Xem lại ảnh</Link>}</div>}
+      <div className="k lst">
+        <Link href="/diary" className="rowl"><div><b>Nhật ký</b><div className="s">Viết cho nhau</div></div></Link>
+        <Link href="/special" className="rowl"><div><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></div></Link>
+        <Link href="/capsule" className="rowl"><div><b>Hộp thời gian</b><div className="s">{cap.ready ? `${cap.ready} hộp mở được rồi, vào xem nhé!` : cap.wait ? `${cap.wait} hộp đang chờ ngày mở` : 'Viết thư, hẹn ngày mở'}</div></div>{cap.ready > 0 && <i className="pulse" aria-hidden="true" />}</Link>
+        <Link href="/fun" className="rowl"><div><b>Giải trí</b><div className="s">{fun ? `${fun} clip mới từ ${partner?.display_name ?? 'người ấy'}, xem nhé!` : 'Clip TikTok hai đứa gửi nhau'}</div></div>{fun > 0 && <i className="pulse" aria-hidden="true" />}</Link>
+        <Link href="/chat" className="rowl"><div><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></div>{unread > 0 && <i className="pulse" aria-hidden="true" />}</Link>
+        <Link href="/moments" className="rowl"><div><b>Khoảnh khắc</b><div className="s">Lưu thêm một kỷ niệm</div></div></Link>
       </div>
     </div>
   </>
