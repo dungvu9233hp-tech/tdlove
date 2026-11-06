@@ -115,10 +115,16 @@ select{font:inherit;border:2px solid var(--ink);border-radius:999px;padding:4px 
 .memory-pin{position:relative}
 .memory-pin .pin-number{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font:800 14px var(--f1),sans-serif;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.3);z-index:1}
 .memory-pin .pin-merge{position:absolute;bottom:-4px;right:-4px;background:var(--pink);color:#5B1F3A;font:700 10px var(--f2),sans-serif;padding:0 4px;border-radius:999px;border:2px solid #5B1F3A;white-space:nowrap}
+.memory-pin .pin-favorite{position:absolute;top:-6px;right:-6px;font-size:14px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.3));animation:pin-star-pulse 2s ease-in-out infinite}
 .cluster-pin{background:#FFD9E8;border-color:#5B1F3A;color:#5B1F3A;font:800 16px var(--f1),sans-serif}
 .pin.memory-pin:after{content:'';position:absolute;inset:0;border-radius:50%;border:2.5px solid var(--ink);background:var(--pin-color);opacity:0.3;z-index:-1}
 .k.merged .pin-merge{font-size:11px;padding:1px 6px}
 .k.disabled{opacity:0.5}
+
+@keyframes pin-star-pulse {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  50% { transform: scale(1.2) rotate(10deg); }
+}
 
 /* Khu cấp độ (/level) */
 .lv-tabs{display:flex;gap:8px;flex:none}.lv-tabs .pill{flex:1;text-align:center;padding:8px 12px}
