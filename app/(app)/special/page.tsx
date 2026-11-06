@@ -4,14 +4,12 @@ import Link from 'next/link'
 import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import Head from '@/components/Head'
-import { daysTogether, ok } from '@/lib/util'
+import { daysTogether, ok, MILESTONES as MS, nextMonthAnniv, nextYearlyDate } from '@/lib/util'
 
-const MS = [100, 200, 300, 365, 400, 500, 600, 700, 730, 800, 900, 1000, 1500, 2000]
 const pd = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d) }
 const today = () => { const t = new Date(); t.setHours(0, 0, 0, 0); return t }
 const left = (d: Date) => Math.round((+d - +today()) / 864e5)
 const when = (n: number) => n === 0 ? 'Hôm nay!' : `Còn ${n} ngày`
-const nextYearly = (s: string) => { const o = pd(s), t = today(), n = new Date(t.getFullYear(), o.getMonth(), o.getDate()); if (n < t) n.setFullYear(n.getFullYear() + 1); return n }
 
 export default function Special() {
   const { space } = useApp()
@@ -21,13 +19,12 @@ export default function Special() {
 
   const items: { t: string; d: Date }[] = []
   if (space.start_date) {
-    const start = pd(space.start_date), t = today(), day = daysTogether(space.start_date)
-    MS.filter(m => m > day).slice(0, 3).forEach(m => items.push({ t: `Ngày thứ ${m}`, d: new Date(start.getFullYear(), start.getMonth(), start.getDate() + m - 1) }))
-    let mo = new Date(t.getFullYear(), t.getMonth(), start.getDate()); if (mo < t) mo = new Date(t.getFullYear(), t.getMonth() + 1, start.getDate())
-    const months = (mo.getFullYear() - start.getFullYear()) * 12 + mo.getMonth() - start.getMonth()
-    if (months > 0) items.push({ t: months % 12 ? `Kỷ niệm ${months} tháng` : `Kỷ niệm ${months / 12} năm`, d: mo })
+    const start = pd(space.start_date), day = daysTogether(space.start_date)
+    MS.filter(m => m >= day).slice(0, 3).forEach(m => items.push({ t: `Ngày thứ ${m}`, d: new Date(start.getFullYear(), start.getMonth(), start.getDate() + m - 1) }))
+    const ma = nextMonthAnniv(space.start_date)
+    if (ma) items.push({ t: ma.months % 12 ? `Kỷ niệm ${ma.months} tháng` : `Kỷ niệm ${ma.months / 12} năm`, d: ma.date })
   }
-  list.forEach(s => { const d = s.yearly ? nextYearly(s.on_date) : pd(s.on_date); if (left(d) >= 0) items.push({ t: s.name, d }) })
+  list.forEach(s => { const d = s.yearly ? nextYearlyDate(s.on_date) : pd(s.on_date); if (left(d) >= 0) items.push({ t: s.name, d }) })
   items.sort((a, b) => +a.d - +b.d)
 
   async function save() {

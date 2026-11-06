@@ -5,6 +5,7 @@ import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import { shrink, km, coords, ok, safeUrl } from '@/lib/util'
 import Head from '@/components/Head'
+import { todayStr } from '@/lib/profile'
 
 const ST = ['Ý tưởng', 'Đã chốt', 'Đã đi', 'Hủy']
 const TY = ['Ăn', 'Uống', 'Tham quan', 'Di chuyển', 'Lưu trú', 'Khác']
@@ -96,7 +97,7 @@ export default function PlanPage() {
   }
   const addTodo = async () => { if (!todo.trim()) return; if (!await ok(sb.from('checklist_items').insert({ plan_id: id, space_id: space.id, text: todo }))) return; setTodo(''); load() }
   async function toMoment() {
-    const { data, error } = await sb.from('moments').insert({ space_id: space.id, title: p.name, taken_on: p.end_date ?? p.start_date ?? new Date().toISOString().slice(0, 10), place: p.area, plan_id: id }).select('id').single()
+    const { data, error } = await sb.from('moments').insert({ space_id: space.id, title: p.name, taken_on: p.end_date ?? p.start_date ?? todayStr(), place: p.area, plan_id: id }).select('id').single()
     if (error || !data) return alert('Không tạo được khoảnh khắc: ' + (error?.message ?? ''))
     r.push('/moments?edit=' + data.id)   // mở sẵn form sửa để thêm ảnh/video
   }

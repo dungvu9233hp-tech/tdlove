@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { sb } from '@/lib/supabase'
 import { MAX_FILES, MAX_IMG, MAX_VIDEO, MAX_VIDEO_SEC, MB, TAGS, TAG_EMOJI, localDay, probeVideo, processImage, readExif, reverse, sign, uploadBlob } from '@/lib/media'
 import PlacePicker from '@/components/PlacePicker'
+import { todayStr } from '@/lib/profile'
 
 type Item = { id: string; file: File; kind: 'image' | 'video'; url: string; status: 'ready' | 'up' | 'done' | 'err'; p: number; err?: string; meta: any }
 const uid = () => crypto.randomUUID()
@@ -12,7 +13,7 @@ export default function MomentForm({ space, moment, plans, albums, onClose, onDo
   space: any; moment?: any; plans: any[]; albums: any[]; onClose: () => void; onDone: () => void; onAlbumCreated: (a: any) => void
 }) {
   const edit = !!moment
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayStr()
   const [f, setF] = useState({
     title: moment?.title ?? '', desc: moment?.description ?? '', date: moment?.taken_on ?? localDay(new Date().toISOString()),
     place: moment?.place ?? '', lat: moment?.lat ?? null as number | null, lng: moment?.lng ?? null as number | null,

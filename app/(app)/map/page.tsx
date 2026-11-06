@@ -7,6 +7,7 @@ import { sb } from '@/lib/supabase'
 import { useApp } from '@/lib/ctx'
 import Head from '@/components/Head'
 import { sign } from '@/lib/media'
+import { LOC_CHANGED } from '@/components/LocShare'
 import TripPanel, { type Route } from '@/components/TripPanel'
 import PlacePicker from '@/components/PlacePicker'
 import { loadPoints } from '@/lib/trip'
@@ -542,14 +543,10 @@ export default function MapPage() {
     const { error } = await sb.from('locations').upsert(row)
     if (error) return setErr(`Không lưu được vị trí: ${error.message}`)
     setLocs(a => ({ ...a, [me.id]: row }))
+    window.dispatchEvent(new Event(LOC_CHANGED))
   }
 
-  useEffect(() => {
-    if (!sharing) return
-    let last = 0
-    const id = navigator.geolocation.watchPosition(p => { if (Date.now() - last < 8000) return; last = Date.now(); push(p, mine.share_until) }, () => {}, { enableHighAccuracy: true, maximumAge: 5000 })
-    return () => navigator.geolocation.clearWatch(id)
-  }, [sharing])
+  // Việc cập nhật vị trí liên tục đã chuyển sang components/LocShare.tsx (chạy ở mọi màn hình).
 
   const start = (h: number) => {
     const su = new Date(); h ? su.setTime(Date.now() + h * 36e5) : su.setHours(23, 59, 59, 0)
@@ -560,6 +557,7 @@ export default function MapPage() {
     const { error } = await sb.from('locations').delete().eq('user_id', me.id)
     if (error) return setErr(`Không tắt được chia sẻ: ${error.message}`)
     setLocs(a => { const n = { ...a }; delete n[me.id]; return n })
+    window.dispatchEvent(new Event(LOC_CHANGED))
   }
 
   // Spots from plans
@@ -689,7 +687,7 @@ export default function MapPage() {
             <button className="pill" onClick={stop}>Tắt chia sẻ</button>
           </> : <>
             <b>Chia sẻ vị trí của mình</b>
-            <div className="s">Chỉ cập nhật khi app đang mở</div>
+            <div className="s">Vị trí được cập nhật khi app đang mở, kể cả khi bạn sang màn hình khác trong app</div>
             <div className="row">{([['1 giờ', 1], ['4 giờ', 4], ['Hết hôm nay', 0]] as [string, number][]).map(([l, h]) => <button key={l} className="pill" onClick={() => start(h)}>{l}</button>)}</div>
           </>}
         </div>
