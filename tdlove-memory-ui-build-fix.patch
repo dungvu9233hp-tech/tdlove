@@ -1,0 +1,12 @@
+diff --git a/app/(app)/map/page.tsx b/app/(app)/map/page.tsx
+--- a/app/(app)/map/page.tsx
++++ b/app/(app)/map/page.tsx
+@@ -652,7 +652,7 @@
+         <div className="memory-total">
+           <strong>{processedPins.length}</strong>
+           <span>địa điểm</span>
+         </div>
+-      </section>
++      </section>}
+       <div ref={el} className="mapbox" />
+       {err && <div className="k pe s" role="alert">{err}</div>}

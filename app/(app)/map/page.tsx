@@ -653,7 +653,7 @@ export default function MapPage() {
           <strong>{processedPins.length}</strong>
           <span>địa điểm</span>
         </div>
-      </section>
+      </section>}
       <div ref={el} className="mapbox" />
       {err && <div className="k pe s" role="alert">{err}</div>}
       {memoryError && mode === 'memory' && <div className="k pe s" role="alert">{memoryError}</div>}
