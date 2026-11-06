@@ -396,7 +396,7 @@ export default function MapPage() {
         const existing = journeyGroups.get(pin.ref_id)
         if (!existing || (pin.is_start_point && !existing.pins.some(p => p.is_start_point))) {
           // For the start point, use the full path; for end point, we already have it
-          journeyGroups.set(pin.ref_id, { path, color: '#3A3396', pins: [pin] })
+          journeyGroups.set(pin.ref_id, { path, color: '#C93C77', pins: [pin] })
         }
       }
     })
@@ -413,7 +413,7 @@ export default function MapPage() {
         }).addTo(routeLayer.current)
         // Inner highlight line
         L.current.polyline(path, {
-          color: '#E0556B',
+          color: '#EE6A9C',
           weight: 3.5,
           opacity: 0.95,
           lineJoin: 'round',
@@ -427,7 +427,7 @@ export default function MapPage() {
     if (pins.length > 1) {
       const linePoints = pins.map(p => [p.lat, p.lng] as [number, number])
       L.current.polyline(linePoints, {
-        color: '#3A3396',
+        color: '#C93C77',
         weight: 2,
         dashArray: '8, 6',
         opacity: 0.7,
@@ -568,7 +568,7 @@ export default function MapPage() {
   useEffect(() => {
     if (!ready || mode !== 'live') return
     const g = L.current.layerGroup().addTo(map.current)
-    spots.forEach(s => L.current.circleMarker([s.lat, s.lng], { radius: 8, color: '#3A3396', weight: 2, fillColor: '#FFB3CF', fillOpacity: 1 }).bindTooltip(s.name).addTo(g))
+    spots.forEach(s => L.current.circleMarker([s.lat, s.lng], { radius: 8, color: '#C93C77', weight: 2, fillColor: '#FFB3CF', fillOpacity: 1 }).bindTooltip(s.name).addTo(g))
     return () => { g.remove() }
   }, [ready, spots, mode])
 
@@ -583,7 +583,7 @@ export default function MapPage() {
       const t = document.createElement('b'); t.textContent = m.title; box.appendChild(t)
       const d = document.createElement('div'); d.textContent = new Date(m.taken_on).toLocaleDateString('vi-VN') + (m.place ? ' · ' + m.place : ''); box.appendChild(d)
       const bt = document.createElement('button'); bt.className = 'pill on'; bt.textContent = 'Xem khoảnh khắc'; bt.onclick = () => router.push('/moments?open=' + m.id); box.appendChild(bt)
-      L.current.circleMarker([m.lat, m.lng], { radius: 10, color: '#3A3396', weight: 2, fillColor: '#EBDDFF', fillOpacity: 1 }).bindPopup(box).bindTooltip('♥ ' + m.title).addTo(g)
+      L.current.circleMarker([m.lat, m.lng], { radius: 10, color: '#C93C77', weight: 2, fillColor: '#EBDDFF', fillOpacity: 1 }).bindPopup(box).bindTooltip('♥ ' + m.title).addTo(g)
     })
     if (!fit.current && moms.length && !Object.keys(pins.current).length) { fit.current = true; map.current.fitBounds(moms.map(m => [m.lat, m.lng]), { padding: [50, 50], maxZoom: 15 }) }
     return () => { g.remove() }
@@ -595,9 +595,9 @@ export default function MapPage() {
     if (!ready || !route || mode !== 'live') return
     const g = L.current.layerGroup().addTo(map.current), ll = route.points
     L.current.polyline(ll, { color: '#fff', weight: 8, opacity: 0.95, lineJoin: 'round' }).addTo(g)
-    L.current.polyline(ll, { color: route.mine ? '#E0556B' : '#9B72E0', weight: 4, lineJoin: 'round' }).addTo(g)
-    L.current.circleMarker(ll[0], { radius: 9, color: '#3A3396', weight: 2, fillColor: '#fff', fillOpacity: 1 }).bindTooltip('Điểm đầu · ' + route.name).addTo(g)
-    L.current.circleMarker(ll[ll.length - 1], { radius: 9, color: '#3A3396', weight: 2, fillColor: '#FF8FB8', fillOpacity: 1 }).bindTooltip('Điểm cuối').addTo(g)
+    L.current.polyline(ll, { color: route.mine ? '#EE6A9C' : '#9B72E0', weight: 4, lineJoin: 'round' }).addTo(g)
+    L.current.circleMarker(ll[0], { radius: 9, color: '#C93C77', weight: 2, fillColor: '#fff', fillOpacity: 1 }).bindTooltip('Điểm đầu · ' + route.name).addTo(g)
+    L.current.circleMarker(ll[ll.length - 1], { radius: 9, color: '#C93C77', weight: 2, fillColor: '#FF8FB8', fillOpacity: 1 }).bindTooltip('Điểm cuối').addTo(g)
     fit.current = true; map.current.fitBounds(ll, { padding: [40, 40] })
     return () => { g.remove() }
   }, [ready, route, mode])
