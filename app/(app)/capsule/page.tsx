@@ -75,7 +75,7 @@ export default function Capsule() {
 
   const letter = (c: Cap) => {
     const s = shown[c.id]; if (!s) return null
-    return <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '2px dashed var(--ink)', paddingTop: 10 }}>
+    return <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1.5px dashed var(--line2)', paddingTop: 10 }}>
       {s.body && <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{s.body}</div>}
       {s.urls.length > 0 && <div className="mgrid">{s.urls.map((u, i) => <button key={u} className="th" onClick={() => setLb({ items: s.urls.map(x => ({ kind: 'image' as const, url: x })), start: i })} aria-label={`Xem ảnh ${i + 1}`}><img src={u} alt="" /></button>)}</div>}
       <button className="pill" style={{ alignSelf: 'flex-start' }} onClick={() => setShown(x => { const { [c.id]: _, ...rest } = x; return rest })}>Gấp thư lại</button>

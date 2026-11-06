@@ -196,7 +196,7 @@ export default function ClipViewer({ clip, me, pn, tg, join, onClose, onDelete, 
 
     <div className="vwrap">
       <iframe key={`${clip.id}:${tog ? 'tg' : 'solo'}`} ref={fr} src={embedSrc(clip.video_id, !tog)} title="Clip TikTok" allow="autoplay; fullscreen; encrypted-media"
-        style={{ width: '100%', height: 'min(62dvh, 600px)', display: 'block', border: '2.5px solid var(--ink)', borderRadius: 22, background: '#000' }} />
+        style={{ width: '100%', height: 'min(62dvh, 600px)', display: 'block', border: '1px solid var(--line2)', borderRadius: 24, background: '#000' }} />
       <div className="flies" aria-hidden="true">{flies.map(f => <span key={f.id} className="fly" style={{ left: f.x + '%' }}>{f.e}</span>)}</div>
     </div>
     {hint && <div className="s" role="status">{hint}</div>}

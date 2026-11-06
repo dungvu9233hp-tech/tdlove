@@ -142,7 +142,6 @@ export default function Moments() {
     <div className="b moments-page">
       <section className="moments-hero" aria-label="Kho lưu niệm">
         <div className="moments-hero-copy">
-          <span className="moments-eyebrow">A LITTLE TIME CAPSULE</span>
           <h2>Những ngày mình nhớ</h2>
           <p>Lưu lại những khoảnh khắc nhỏ, để sau này cùng mở ra.</p>
         </div>

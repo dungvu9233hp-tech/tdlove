@@ -65,8 +65,8 @@ export default function Login() {
   const goMode = (m: typeof mode) => { setMode(m); setErr(''); setInfo('') }
 
   return (
-    <div className="p"><div className="b" style={{ justifyContent: 'center' }}>
-      <div style={{ textAlign: 'center' }}><Heart size={96} /><h1 className="num" style={{ fontSize: 44 }}>tdlove</h1><div className="s">Góc nhỏ của hai đứa mình</div></div>
+    <div className="p"><div className="b stagger" style={{ justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, paddingBottom: 6 }}><Heart size={92} /><h1 className="num" style={{ fontSize: 48, marginTop: 6, letterSpacing: '-.03em' }}>tdlove</h1><div className="couple-names">Góc nhỏ của hai đứa mình</div></div>
       <label className="k s"><input type="email" placeholder="Email của bạn" value={f.email} onChange={up('email')} autoComplete="email" /></label>
       {mode !== 'forgot' && <label className="k s"><input type="password" placeholder="Mật khẩu" value={f.password} onChange={up('password')} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></label>}
       {mode === 'login' && <button className="pill" style={{ alignSelf: 'flex-end' }} onClick={() => goMode('forgot')}>Quên mật khẩu?</button>}

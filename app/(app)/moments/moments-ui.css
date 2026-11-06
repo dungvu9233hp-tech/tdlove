@@ -1,27 +1,27 @@
 .moments-page{gap:15px;padding-top:8px}
-.moments-hero{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:19px 18px;border:1px solid #efc0d3;border-radius:24px;background:linear-gradient(128deg,#fff 0%,#ffe7ef 64%,#f0e8ff 100%);box-shadow:0 9px 22px rgba(91,31,58,.08)}
+.moments-hero{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:19px 18px;border:1px solid var(--line2);border-radius:24px;background:linear-gradient(135deg,#fffafb 0%,#ffe4ee 60%,#efe5fd 100%);box-shadow:var(--sh2)}
 .moments-hero-copy{min-width:0}
 .moments-hero h2{max-width:230px}
 .moments-hero p{max-width:235px}
 .moments-hero-count{width:68px;height:68px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;border:1px solid rgba(91,31,58,.12);border-radius:20px;background:rgba(255,255,255,.78)}
-.moments-hero-count strong{font:800 27px/1 var(--f1),sans-serif;color:var(--ink)}
+.moments-hero-count strong{font:600 27px/1 var(--f1);color:var(--ink)}
 .moments-hero-count span{margin-top:4px;color:#92536e;font-size:10px;font-weight:800}
-.moments-page>.k.li{padding:13px 15px;border:1px solid #e8c7d6;border-radius:19px;box-shadow:0 5px 15px rgba(91,31,58,.055)}
+.moments-page>.k.li{padding:13px 15px;border:1px solid var(--line2);border-radius:19px;box-shadow:var(--sh1)}
 .moments-toolbar{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px!important}
-.moments-toolbar>*{min-width:0;display:flex;align-items:center;justify-content:center;padding:9px 5px!important;border:1px solid #edc5d5!important;border-radius:14px!important;background:#fff!important;box-shadow:0 3px 9px rgba(91,31,58,.045);font-size:11px!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.moments-toolbar>*{min-width:0;display:flex;align-items:center;justify-content:center;padding:9px 5px!important;border:1px solid var(--line2)!important;border-radius:14px!important;background:#fff!important;box-shadow:0 3px 9px rgba(91,31,58,.045);font-size:11px!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .moments-toolbar>*:first-child{background:#ffe1ec!important}
 .moments-toolbar>*:disabled{opacity:.55}
-.moments-filter-panel{padding:14px!important;border:1px solid #efc7d7!important;border-radius:19px!important;box-shadow:0 6px 16px rgba(91,31,58,.055)!important}
+.moments-filter-panel{padding:14px!important;border:1px solid var(--line2)!important;border-radius:19px!important;box-shadow:var(--sh1)!important}
 .moments-filter-panel label{display:flex;flex-direction:column;gap:5px}
-.moments-filter-panel select{min-height:39px;border:1px solid #edc6d6;border-radius:12px;padding:6px 10px;background:#fff9fc;font-size:13px}
+.moments-filter-panel select{min-height:39px;border:1px solid var(--line2);border-radius:12px;padding:6px 10px;background:#fff9fc;font-size:13px}
 .moments-albums{gap:7px;padding:2px 1px 5px;scrollbar-width:none}
 .moments-albums::-webkit-scrollbar{display:none}
-.moments-albums .pill{flex:none;padding:7px 13px;border:1px solid #ebc7d7;background:#fff;font-size:11px;white-space:nowrap}
-.moments-albums .pill.on{background:#ffdce9;border-color:#e9a6bf}
+.moments-albums .pill{flex:none;padding:7px 13px;border:1px solid var(--line2);background:#fff;font-size:11px;white-space:nowrap}
+.moments-albums .pill.on{background:#ffdce9;border-color:var(--line2)}
 .moment-day{gap:10px!important}
-.moment-day-label{position:sticky;top:0;z-index:2;align-self:flex-start;padding:6px 12px!important;border:1px solid #f0c6d7;border-radius:999px;background:rgba(255,255,255,.92)!important;box-shadow:0 3px 9px rgba(91,31,58,.045);color:#8d4c68!important;font-size:11px!important;font-weight:800;letter-spacing:.02em;backdrop-filter:blur(8px)}
-.moment-card{display:block;width:100%;padding:13px!important;border:1px solid #edc7d7!important;border-radius:21px!important;background:#fff!important;box-shadow:0 6px 17px rgba(91,31,58,.065)!important;text-align:left;line-height:1.5;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
-.moment-card:hover{transform:translateY(-2px);border-color:#e5a4bd!important;box-shadow:0 10px 22px rgba(91,31,58,.10)!important}
+.moment-day-label{position:sticky;top:0;z-index:2;align-self:flex-start;padding:6px 12px!important;border:1px solid var(--line2);border-radius:999px;background:rgba(255,255,255,.92)!important;box-shadow:0 3px 9px rgba(91,31,58,.045);color:#8d4c68!important;font-size:11px!important;font-weight:800;letter-spacing:.02em;backdrop-filter:blur(8px)}
+.moment-card{display:block;width:100%;padding:13px!important;border:1px solid var(--line2)!important;border-radius:21px!important;background:#fff!important;box-shadow:var(--sh1)!important;text-align:left;line-height:1.5;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
+.moment-card:hover{transform:translateY(-2px);border-color:var(--line2)!important;box-shadow:0 10px 22px rgba(91,31,58,.10)!important}
 .moment-card:focus-visible{outline:3px solid #a34c72;outline-offset:3px}
 .moment-card>b{margin:8px 0 5px;font-size:17px;line-height:1.25;color:#5b1f3a}
 .moment-card>div:not(.moment-media-grid){font-size:13px;font-weight:600;color:#684058}
@@ -30,8 +30,8 @@
 .moment-media-grid .th{border:0!important;border-radius:14px!important;background:#f7e6ed;box-shadow:inset 0 0 0 1px rgba(91,31,58,.07)}
 .moment-media-grid .th img{transition:transform .3s ease}
 .moment-card:hover .moment-media-grid .th img{transform:scale(1.025)}
-.moment-media-grid .more{border-radius:14px;font:800 21px var(--f1),sans-serif}
-.moments-empty{padding:22px 17px!important;border:1px solid #efc6d7!important;border-radius:21px!important;background:linear-gradient(135deg,#fff,#f5edff)!important;box-shadow:0 7px 18px rgba(91,31,58,.06)!important}
+.moment-media-grid .more{border-radius:14px;font:600 21px var(--f1)}
+.moments-empty{padding:22px 17px!important;border:1px solid var(--line2)!important;border-radius:21px!important;background:linear-gradient(135deg,#fff,#f5edff)!important;box-shadow:var(--sh1)!important}
 .moments-empty b{font-size:17px}
 .moments-page>.s:last-child{text-align:center;padding:8px 0 12px;color:#9b6680;font-size:11px}
 .moments-page .fab{z-index:10;box-shadow:0 6px 18px rgba(91,31,58,.18)}

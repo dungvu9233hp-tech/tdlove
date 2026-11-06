@@ -151,7 +151,7 @@ export default function PlanPage() {
   return <>
     <Head t={p.name}><label className="pill">Ảnh bìa<input type="file" accept="image/*" hidden onChange={e => setCoverFile(e.target.files?.[0])} /></label></Head>
     <div className="b">
-      {cover && <img src={cover} alt={p.name} style={{ flex: 'none', width: '100%', height: 150, objectFit: 'cover', borderRadius: 22, border: '2.5px solid var(--ink)' }} />}
+      {cover && <img src={cover} alt={p.name} style={{ flex: 'none', width: '100%', height: 150, objectFit: 'cover', borderRadius: 24, border: '1px solid var(--line2)', boxShadow: 'var(--sh2)' }} />}
       <div className="row" style={{ flex: 'none', flexWrap: 'wrap' }}>{ST.map(s => <button key={s} className={`pill ${p.status === s ? 'on' : ''}`} onClick={() => setStatus(s)}>{s}</button>)}</div>
       <div className="row" style={{ flex: 'none', flexWrap: 'wrap' }}><button className="pill" onClick={() => pEdit ? setPEdit(false) : startPlanEdit()}>{pEdit ? 'Đóng' : 'Sửa kế hoạch'}</button><button className="pill" onClick={delPlan}>Xóa kế hoạch</button></div>
       {pEdit && <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

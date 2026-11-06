@@ -213,7 +213,7 @@ export default function Call() {
       <div className="s">{st === 'incoming' ? `${name} đang gọi ${video ? 'video' : 'thoại'}…` : st === 'calling' ? 'Đang đổ chuông…' : lost ? 'Mạng yếu, đang thử nối lại…' : secs == null ? 'Đang kết nối…' : clock(secs)}</div>
       {msg && <div className="s" role="status">{msg}</div>}</div>
     <div className="cc">
-      {st === 'incoming' ? <><button className="btn" onClick={accept}>Nhận</button><button className="btn" style={{ background: '#fff' }} onClick={reject}>Từ chối</button></> : <>
+      {st === 'incoming' ? <><button className="btn" onClick={accept}>Nhận</button><button className="btn ghost" onClick={reject}>Từ chối</button></> : <>
         <button className={`pill ${mic ? '' : 'on'}`} onClick={() => toggle('audio')}>{mic ? 'Tắt mic' : 'Bật mic'}</button>
         {video && <button className={`pill ${camOn ? '' : 'on'}`} onClick={() => toggle('video')}>{camOn ? 'Tắt camera' : 'Bật camera'}</button>}
         {video && <button className="pill" onClick={flip}>Đổi camera</button>}
