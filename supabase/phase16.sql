@@ -26,6 +26,7 @@ end $$;
 
 -- 2. View/RPC memory_places: gom các "lần ghé thăm" từ 4 nguồn
 -- Tham số from/to có thể bỏ (null) để lấy toàn bộ; client tự lọc chip
+drop function if exists memory_places(date, date);
 create or replace function memory_places(p_from date default null, p_to date default null)
 returns table(
   source text,
@@ -36,7 +37,9 @@ returns table(
   ref_id uuid,
   kind text,
   is_private boolean,
-  author uuid
+  author uuid,
+  journey_path jsonb,
+  is_start_point boolean
 )
 language sql stable security invoker set search_path = public as $$
   -- Moment: có lat/lng hoặc đã điền bù từ ảnh
@@ -49,7 +52,9 @@ language sql stable security invoker set search_path = public as $$
     m.id as ref_id,
     'moment'::text as kind,
     false as is_private,
-    m.author
+    m.author,
+    null::jsonb as journey_path,
+    null::boolean as is_start_point
   from moments m
   where m.space_id = my_space()
     and m.deleted_at is null
@@ -69,7 +74,9 @@ language sql stable security invoker set search_path = public as $$
     e.id as ref_id,
     'journal'::text as kind,
     e.is_private as is_private,
-    e.author
+    e.author,
+    null::jsonb as journey_path,
+    null::boolean as is_start_point
   from diary_entries e
   left join moments m on e.moment_id = m.id
   left join plans p on e.plan_id = p.id
@@ -97,7 +104,9 @@ language sql stable security invoker set search_path = public as $$
     p.id as ref_id,
     'plan'::text as kind,
     false as is_private,
-    null::uuid as author
+    null::uuid as author,
+    null::jsonb as journey_path,
+    null::boolean as is_start_point
   from plans p
   join lateral (
     select lat, lng from stops
@@ -115,7 +124,7 @@ language sql stable security invoker set search_path = public as $$
   union all
 
   -- Hành trình ghi lại: chỉ những chuyến đã chia sẻ (shared=true) hoặc là chủ sở hữu
-  -- Lấy điểm đầu và cuối của hành trình làm 2 "lần ghé" (hoặc chỉ điểm cuối nếu muốn đơn giản)
+  -- Trả về: điểm đầu, điểm cuối, VÀ toàn bộ đường đi (dùng cho FR-14 thay đường nối thẳng)
   select
     'journey'::text as source,
     t.name || ' (điểm đầu)' as title,
@@ -125,7 +134,9 @@ language sql stable security invoker set search_path = public as $$
     t.id as ref_id,
     'journey'::text as kind,
     false as is_private,
-    t.user_id as author
+    t.user_id as author,
+    lh.points as journey_path,
+    true as is_start_point
   from trips t
   join lateral (
     select jsonb_agg(jsonb_build_object('lat', lat, 'lng', lng) order by recorded_at) as points
@@ -150,7 +161,9 @@ language sql stable security invoker set search_path = public as $$
     t.id as ref_id,
     'journey'::text as kind,
     false as is_private,
-    t.user_id as author
+    t.user_id as author,
+    lh.points as journey_path,
+    false as is_start_point
   from trips t
   join lateral (
     select jsonb_agg(jsonb_build_object('lat', lat, 'lng', lng) order by recorded_at) as points

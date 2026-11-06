@@ -32,12 +32,15 @@ type MemoryPlace = {
   kind: string
   is_private: boolean
   author: string
+  journey_path?: [number, number][]  // [lat, lng][]
+  is_start_point?: boolean
 }
 
 type PinData = MemoryPlace & {
   order: number
   clusterKey?: string
   merged?: MemoryPlace[]
+  is_favorite?: boolean
 }
 
 const CHIP_LABELS = [
@@ -223,6 +226,15 @@ export default function MapPage() {
     // Sort by visited_on asc
     const sorted = [...memories].sort((a, b) => new Date(a.visited_on).getTime() - new Date(b.visited_on).getTime())
 
+    // Count visits per location (for "quán quen" badge - FR-23)
+    const visitCounts = new Map<string, number>()
+    sorted.forEach(m => {
+      const key = `${m.lat.toFixed(4)},${m.lng.toFixed(4)}`
+      visitCounts.set(key, (visitCounts.get(key) || 0) + 1)
+    })
+    const maxVisits = Math.max(...visitCounts.values(), 0)
+    const favoriteKey = maxVisits > 1 ? Array.from(visitCounts.entries()).find(([, v]) => v === maxVisits)?.[0] : null
+
     // Merge nearby points (< 100m)
     const merged: PinData[] = []
     const MERGE_THRESHOLD = 100 // meters
@@ -248,8 +260,12 @@ export default function MapPage() {
       }
     }
 
-    // Assign order numbers
-    merged.forEach((p, i) => { p.order = i + 1 })
+    // Assign order numbers and favorite badge
+    merged.forEach((p, i) => {
+      p.order = i + 1
+      const key = `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`
+      p.is_favorite = key === favoriteKey && maxVisits > 1
+    })
 
     return merged
   }, [memories])
@@ -290,6 +306,9 @@ export default function MapPage() {
       d.innerHTML = `<span class="pin-number">${pin.order}</span>`
       if (pin.merged && pin.merged.length > 0) {
         d.innerHTML += `<span class="pin-merge">×${pin.merged.length + 1}</span>`
+      }
+      if (pin.is_favorite) {
+        d.innerHTML += `<span class="pin-favorite" title="Nơi đến nhiều nhất">⭐</span>`
       }
 
       const marker = L.current.marker([pin.lat, pin.lng], {
@@ -357,7 +376,47 @@ export default function MapPage() {
       marker.bindTooltip(`#${pin.order} · ${pin.title}`, { permanent: false, direction: 'top' })
     })
 
-    // Draw connecting lines (dashed)
+    // Draw connecting lines - use real journey paths where available (FR-14)
+    // Group pins by journey to draw real paths
+    const journeyGroups = new Map<string, { path: [number, number][]; color: string; pins: PinData[] }>()
+
+    // First pass: collect journey paths
+    pins.forEach((pin, idx) => {
+      if (pin.source === 'journey' && pin.journey_path && pin.journey_path.length > 1) {
+        // Convert [lat, lng] to [lng, lat] for Leaflet? No, our data is [lat, lng]
+        // But journey_path from SQL is jsonb with {lat, lng} objects
+        const path = pin.journey_path.map((pt: any) => [pt.lat, pt.lng] as [number, number])
+        const existing = journeyGroups.get(pin.ref_id)
+        if (!existing || (pin.is_start_point && !existing.pins.some(p => p.is_start_point))) {
+          // For the start point, use the full path; for end point, we already have it
+          journeyGroups.set(pin.ref_id, { path, color: '#5B1F3A', pins: [pin] })
+        }
+      }
+    })
+
+    // Draw real journey paths (solid lines)
+    journeyGroups.forEach(({ path }) => {
+      if (path.length >= 2) {
+        L.current.polyline(path, {
+          color: '#5B1F3A',
+          weight: 6,
+          opacity: 0.8,
+          lineJoin: 'round',
+          lineCap: 'round'
+        }).addTo(routeLayer.current)
+        // Inner highlight line
+        L.current.polyline(path, {
+          color: '#FF8FB8',
+          weight: 3,
+          opacity: 0.9,
+          lineJoin: 'round',
+          lineCap: 'round'
+        }).addTo(routeLayer.current)
+      }
+    })
+
+    // Draw connecting lines (dashed) between non-journey pins
+    // We need to connect pins in order, but skip segments that are covered by journey paths
     if (pins.length > 1) {
       const linePoints = pins.map(p => [p.lat, p.lng] as [number, number])
       L.current.polyline(linePoints, {
@@ -374,7 +433,7 @@ export default function MapPage() {
         const div = document.createElement('div')
         div.className = 'k s'
         div.style.cssText = 'background:rgba(255,255,255,0.9);padding:6px 10px;border-radius:6px;font-size:11px;color:#5B1F3A'
-        div.innerHTML = '💡 Đường nối chỉ mang tính minh hoạ'
+        div.innerHTML = '💡 Đường nét đứt: minh hoạ · Đường nét liền: hành trình thật'
         return div
       }
       legend.addTo(map.current)
@@ -649,44 +708,70 @@ export default function MapPage() {
             <span className="s">{timelineIndex + 1} / {processedPins.length}</span>
             <input type="range" min="0" max={processedPins.length - 1} value={Math.max(0, timelineIndex)} onChange={e => setTimelineIndex(+e.target.value)} style={{flex:1}} />
           </div>
-          <div className="s" style={{color:'#5B1F3A'}}>Kéo để xem dòng chảy thời gian · Đường nối chỉ mang tính minh hoạ</div>
+          <div className="s" style={{color:'#5B1F3A'}}>Kéo để xem dòng chảy thời gian · Nét đứt: minh hoạ · Nét liền: hành trình thật</div>
         </div>}
 
         {/* Synced list */}
-        {processedPins.length > 0 && !loadingMemories && <div className="k li" style={{marginTop:12, maxHeight: 300, overflow: 'auto'}}>
-          <b>Danh sách kỷ niệm</b>
+        {processedPins.length > 0 && !loadingMemories && <div className="k li" style={{marginTop:12, maxHeight: 400, overflow: 'auto'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+            <b>Danh sách kỷ niệm ({processedPins.length})</b>
+            <span className="s">{timelineIndex >= 0 ? `Đã xem ${timelineIndex + 1} / ${processedPins.length}` : 'Kéo thanh thời gian để lọc'}</span>
+          </div>
           {processedPins.map((pin, idx) => {
             const isVisible = idx <= timelineIndex
             const sourceLabels: Record<string, string> = {
               moment: '📷', journal: '📓', plan: '🗓️', journey: '🛤️'
             }
+            const handleClick = () => {
+              setTimelineIndex(idx)
+              map.current?.flyTo([pin.lat, pin.lng], 16)
+              // Trigger popup manually
+              const markers = Object.values((memoryLayer.current as any)?._layers || {})
+              markers.forEach((m: any) => {
+                if (m._latlng?.lat === pin.lat && m._latlng?.lng === pin.lng) m.openPopup()
+              })
+              // Scroll list item into view
+              const el = document.getElementById(`memory-list-${pin.ref_id}`)
+              el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            }
+            // For merged pins, show expandable date list
+            const [showMergedDates, setShowMergedDates] = useState(false)
             return <div
               key={pin.ref_id}
+              id={`memory-list-${pin.ref_id}`}
               className={'k s' + (!isVisible ? ' disabled' : '') + (pin.merged ? ' merged' : '')}
               style={{
-                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+                display: 'flex', flexDirection: 'column', gap: 4,
                 borderRadius: 8, cursor: 'pointer',
                 background: isVisible ? 'rgba(91,31,58,0.05)' : 'transparent',
                 opacity: isVisible ? 1 : 0.4,
-                border: idx === timelineIndex ? '2px solid #5B1F3A' : 'none'
+                border: idx === timelineIndex ? '2px solid #5B1F3A' : 'none',
+                padding: '8px 10px'
               }}
-              onClick={() => {
-                setTimelineIndex(idx)
-                map.current?.flyTo([pin.lat, pin.lng], 16)
-                // Trigger popup manually
-                const markers = Object.values((memoryLayer.current as any)?._layers || {})
-                markers.forEach((m: any) => {
-                  if (m._latlng?.lat === pin.lat && m._latlng?.lng === pin.lng) m.openPopup()
-                })
-              }}
+              onClick={pin.merged ? () => setShowMergedDates(!showMergedDates) : handleClick}
             >
-              <span style={{fontWeight:'bold',color:'#5B1F3A',minWidth:28}}>#{pin.order}</span>
-              {pin.merged && <span className="pin-merge" style={{fontSize:12,background:'#FFB3CF',color:'#5B1F3A',padding:'2px 6px',borderRadius:999}}>×{pin.merged.length + 1}</span>}
-              <span style={{fontSize:16}}>{sourceLabels[pin.source] || '📍'}</span>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontWeight:500,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{pin.title}</div>
-                <div className="s" style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{new Date(pin.visited_on).toLocaleDateString('vi-VN')} · {pin.source}</div>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <span style={{fontWeight:'bold',color:'#5B1F3A',minWidth:28}}>#{pin.order}</span>
+                {pin.merged && <span className="pin-merge" style={{fontSize:12,background:'#FFB3CF',color:'#5B1F3A',padding:'2px 6px',borderRadius:999}}>×{pin.merged.length + 1}</span>}
+                <span style={{fontSize:16}}>{sourceLabels[pin.source] || '📍'}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:500,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{pin.title}</div>
+                  <div className="s" style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{new Date(pin.visited_on).toLocaleDateString('vi-VN')} · {pin.source}</div>
+                </div>
+                {pin.merged && <span className="s" style={{color:'#888'}}>{showMergedDates ? '▲ Thu gọn' : '▼ Xem các ngày'}</span>}
               </div>
+              {pin.merged && showMergedDates && (
+                <div style={{marginLeft:36,display:'flex',flexDirection:'column',gap:4,paddingTop:4,borderTop:'1px dashed #FFB3CF'}}>
+                  {pin.merged!.map((mp, mi) => (
+                    <button key={mi} className="k s" style={{textAlign:'left',padding:'6px 8px',borderRadius:6,background:'#fff',border:'1px solid #FFD9E8',cursor:'pointer',width:'100%'}}
+                      onClick={(e) => { e.stopPropagation(); handleClick(); }}
+                    >
+                      <div style={{fontWeight:500}}>{mp.title}</div>
+                      <div className="s">{new Date(mp.visited_on).toLocaleDateString('vi-VN')} · {sourceLabels[mp.source] || mp.source}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           })}
         </div>}
