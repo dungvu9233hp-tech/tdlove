@@ -131,12 +131,14 @@ export const uploadBlob = (path: string, b: Blob, type: string, onP: (p: number)
 
 // ---------- Link ký có thời hạn, có nhớ tạm (NFR-02) ----------
 const cache = new Map<string, { u: string; exp: number }>()
-export async function sign(paths: (string | null | undefined)[], ttl = 3600): Promise<Record<string, string>> {
+export async function sign(paths: (string | null | undefined)[], ttl = 300): Promise<Record<string, string>> {
+  const { data: { session } } = await sb.auth.getSession()
+  const cacheScope = session?.user.id ?? 'anon'
   const want = Array.from(new Set(paths.filter(Boolean) as string[])), out: Record<string, string> = {}, now = Date.now(), miss: string[] = []
-  for (const p of want) { const c = cache.get(p); if (c && c.exp > now + 60000) out[p] = c.u; else miss.push(p) }
+  for (const p of want) { const c = cache.get(`${cacheScope}:${p}`); if (c && c.exp > now + 60000) out[p] = c.u; else miss.push(p) }
   if (miss.length) {
     const { data } = await sb.storage.from('media').createSignedUrls(miss, ttl)
-    for (const x of data ?? []) if (x.path && x.signedUrl) { out[x.path] = x.signedUrl; cache.set(x.path, { u: x.signedUrl, exp: now + ttl * 1000 }) }
+    for (const x of data ?? []) if (x.path && x.signedUrl) { out[x.path] = x.signedUrl; cache.set(`${cacheScope}:${x.path}`, { u: x.signedUrl, exp: now + ttl * 1000 }) }
   }
   return out
 }

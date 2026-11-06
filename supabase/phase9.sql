@@ -1,5 +1,5 @@
 -- Giai đoạn 9: đánh giá + ảnh cho "Quán muốn thử" (WISH-01..02)
--- Chạy trong Supabase > SQL Editor, một lần, SAU phase8.sql. Chạy lại nhiều lần vẫn an toàn.
+-- Chạy trong Supabase > SQL Editor, một lần, SAU phase8_trc.sql. Chạy lại nhiều lần vẫn an toàn.
 -- Luồng: thêm quán -> đi ăn -> bấm "Đã đến" -> viết đánh giá, chấm sao, tải ảnh.
 
 -- WISH-01: nội dung đánh giá và ngày đã đến (wishlist_places chưa bị khóa quyền cột nên cột mới sửa được ngay)

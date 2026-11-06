@@ -125,11 +125,12 @@ export default function MapPage() {
   const [filteredPins, setFilteredPins] = useState<PinData[]>([])
   const [timelineIndex, setTimelineIndex] = useState(-1)
   const [playing, setPlaying] = useState(false)
-  const [playTimer, setPlayTimer] = useState<NodeJS.Timeout | null>(null)
   const [missingCount, setMissingCount] = useState(0)
   const [showMissingList, setShowMissingList] = useState(false)
   const [missingMoments, setMissingMoments] = useState<any[]>([])
-  const [attachingMomentId, setAttachingMomentId] = useState<string | null>(null)
+  const [missingThumbUrls, setMissingThumbUrls] = useState<Record<string, string>>({})
+  const [selectedMomentId, setSelectedMomentId] = useState<string | null>(null)
+  const [savingLocationId, setSavingLocationId] = useState<string | null>(null)
 
   const mine = locs[me.id]
   const sharing = live(mine)
@@ -317,7 +318,6 @@ export default function MapPage() {
       }).addTo(memoryLayer.current)
 
       // Popup
-      const thumbPromise = sign([pin.kind === 'moment' ? pin.ref_id : ''])
       marker.bindPopup(async () => {
         let thumbUrl = ''
         if (pin.source === 'moment') {
@@ -492,43 +492,43 @@ export default function MapPage() {
     }
   }, [ready, mode, visiblePins, router])
 
-  // Timeline playback
-  const playStep = useCallback(() => {
-    if (timelineIndex >= visiblePins.length - 1) {
+  // Timeline playback: mỗi bước đọc timelineIndex mới nhất, không giữ closure cũ.
+  useEffect(() => {
+    if (!playing) return
+    const nextIndex = timelineIndex + 1
+    if (nextIndex >= processedPins.length) {
       setPlaying(false)
-      setPlayTimer(null)
       return
     }
-    const next = timelineIndex + 1
-    setTimelineIndex(next)
-    map.current?.flyTo([visiblePins[next].lat, visiblePins[next].lng], map.current.getZoom(), {
-      duration: Math.min(2, 0.5 + haversine(visiblePins[next].lat, visiblePins[next].lng, visiblePins[next - 1]?.lat ?? 0, visiblePins[next - 1]?.lng ?? 0) / 50000)
-    })
-    const timer = setTimeout(playStep, 1500)
-    setPlayTimer(timer)
-  }, [timelineIndex, visiblePins])
+
+    const timer = window.setTimeout(() => {
+      const nextPin = processedPins[nextIndex]
+      const previousPin = processedPins[nextIndex - 1]
+      setTimelineIndex(nextIndex)
+      if (nextPin && map.current) {
+        const duration = previousPin
+          ? Math.min(2, 0.5 + haversine(nextPin.lat, nextPin.lng, previousPin.lat, previousPin.lng) / 50000)
+          : 0.8
+        map.current.flyTo([nextPin.lat, nextPin.lng], map.current.getZoom(), { duration })
+      }
+    }, 1500)
+
+    return () => window.clearTimeout(timer)
+  }, [playing, timelineIndex, processedPins])
 
   const togglePlay = () => {
     if (playing) {
       setPlaying(false)
-      if (playTimer) { clearTimeout(playTimer); setPlayTimer(null) }
-    } else {
-      if (timelineIndex >= visiblePins.length - 1) setTimelineIndex(-1)
-      setPlaying(true)
-      playStep()
+      return
     }
+    if (!processedPins.length) return
+    if (timelineIndex >= processedPins.length - 1) setTimelineIndex(-1)
+    setPlaying(true)
   }
 
+  // Dừng phát lại khi đổi khoảng thời gian hoặc chuyển chế độ.
   useEffect(() => {
-    return () => { if (playTimer) clearTimeout(playTimer) }
-  }, [playTimer])
-
-  // Stop playback when changing chip or mode
-  useEffect(() => {
-    if (mode !== 'memory' || playing) {
-      setPlaying(false)
-      if (playTimer) { clearTimeout(playTimer); setPlayTimer(null) }
-    }
+    setPlaying(false)
     setTimelineIndex(-1)
     fit.current = false
   }, [mode, selectedChip])
@@ -621,20 +621,33 @@ export default function MapPage() {
 
   const dist = sharing && theirs ? km(mine, theirs) : null
 
-  // Missing moments list
+  // Missing moments list: RPC trả về storage path, nên phải ký URL trước khi hiển thị ảnh.
   const loadMissingMoments = async () => {
-    const { data } = await sb.rpc('moments_missing_coords', { p_limit: 50, p_offset: 0 })
-    setMissingMoments(data ?? [])
-    setShowMissingList(true)
+    const { data, error } = await sb.rpc('moments_missing_coords', { p_limit: 50, p_offset: 0 })
+    if (error) return alert(error.message)
+    const rows = data ?? []
+    const urls = await sign(rows.map((m: any) => m.thumb_path))
+    setMissingThumbUrls(urls)
+    setMissingMoments(rows)
+    const { data: count } = await sb.rpc('moments_missing_coords_count')
+    if (typeof count === 'number') setMissingCount(count)
+    setShowMissingList(rows.length > 0)
   }
 
   const attachLocation = async (momentId: string, place: { lat: number; lng: number; name: string }) => {
-    setAttachingMomentId(momentId)
-    const { error } = await sb.rpc('set_moment_location', { p_moment_id: momentId, p_lat: place.lat, p_lng: place.lng, p_place: place.name })
-    setAttachingMomentId(null)
-    if (error) return alert(error.message)
-    loadMissingMoments()
-    loadMemories()
+    setSavingLocationId(momentId)
+    try {
+      const { error } = await sb.rpc('set_moment_location', {
+        p_moment_id: momentId, p_lat: place.lat, p_lng: place.lng, p_place: place.name
+      })
+      if (error) throw new Error(error.message)
+      setSelectedMomentId(null)
+      await Promise.all([loadMissingMoments(), loadMemories()])
+    } catch (e: any) {
+      alert(e?.message ?? 'Không lưu được địa điểm cho kỷ niệm.')
+    } finally {
+      setSavingLocationId(null)
+    }
   }
 
   return <>
@@ -755,22 +768,30 @@ export default function MapPage() {
             <div className="k" style={{background:'white',borderRadius:16,padding:20,width:'100%',maxWidth:400,maxHeight:'80vh',overflow:'auto'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
                 <b>Gắn vị trí cho {missingMoments.length} kỷ niệm cũ</b>
-                <button className="pill" onClick={() => setShowMissingList(false)}>✕</button>
+                <button className="pill" onClick={() => { setShowMissingList(false); setSelectedMomentId(null) }}>✕</button>
               </div>
               {missingMoments.map(m => (
                 <div key={m.id} className="k" style={{display:'flex',flexDirection:'column',gap:8,padding:12,borderRadius:12,background:'#fafafa',marginBottom:12}}>
-                  {m.thumb_path && (
+                  {m.thumb_path && missingThumbUrls[m.thumb_path] && (
                     <div style={{position:'relative'}}>
-                      <img src={m.thumb_path} alt="" style={{width:'100%',height:160,objectFit:'cover', borderRadius:8}} />
+                      <img src={missingThumbUrls[m.thumb_path]} alt="" loading="lazy" style={{width:'100%',height:160,objectFit:'cover', borderRadius:8}} />
                     </div>
                   )}
                   <b>{m.title}</b>
                   <div className="s">{new Date(m.taken_on).toLocaleDateString('vi-VN')}{m.place ? ' · ' + m.place : ''}</div>
-                  <PlacePicker onClose={() => {}} onPick={place => attachLocation(m.id, place)} />
+                  <button className="pill" disabled={!!savingLocationId} onClick={() => setSelectedMomentId(m.id)}>
+                    {savingLocationId === m.id ? 'Đang lưu…' : 'Chọn vị trí cho kỷ niệm này'}
+                  </button>
                 </div>
               ))}
             </div>
           </div>
+        )}
+        {selectedMomentId && missingMoments.some(m => m.id === selectedMomentId) && (
+          <PlacePicker
+            onClose={() => setSelectedMomentId(null)}
+            onPick={place => attachLocation(selectedMomentId, place)}
+          />
         )}
       </section>}
     </div>

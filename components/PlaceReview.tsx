@@ -47,8 +47,11 @@ export default function PlaceReview({ space, place, onClose, onDone }: {
 
   async function uploadOne(it: Item, sort: number) {
     patch(it.id, { status: 'up', p: 0, err: undefined })
-    const base = `${space.id}/${uid()}`, made: string[] = []
+    const made: string[] = []
     try {
+      const { data: { user } } = await sb.auth.getUser()
+      if (!user) throw new Error('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.')
+      const base = `${space.id}/${user.id}/${uid()}`
       const { full, thumb, width, height } = await processImage(it.file)
       await uploadBlob(`${base}.jpg`, full, 'image/jpeg', p => patch(it.id, { p: Math.round(p * 0.9) })); made.push(`${base}.jpg`)
       await uploadBlob(`${base}-t.jpg`, thumb, 'image/jpeg'); made.push(`${base}-t.jpg`)
