@@ -1,9 +1,9 @@
 import { sb } from '@/lib/supabase'
 
-export type PushKind = 'message' | 'call' | 'clip-react' | 'clip-comment' | 'together'
+export type PushKind = 'message' | 'call' | 'clip-react' | 'clip-comment' | 'together' | 'game'
 
 // Nhờ Edge Function `push` gửi thông báo đến máy người kia (chat, cuộc gọi, tương tác ở mục Giải trí).
-// `clip` chỉ dùng cho 'together': mở thẳng đúng clip khi người kia bấm vào thông báo. Lỗi thì bỏ qua, không làm hỏng việc chính.
+// `clip` dùng cho 'together' (mở đúng clip) và 'game' (mở đúng ván trò chơi, phase24.sql) khi người kia bấm vào thông báo. Lỗi thì bỏ qua, không làm hỏng việc chính.
 export const notifyPartner = (kind: PushKind, text?: string, clip?: string) => {
   sb.functions.invoke('push', { body: { kind, text, clip } }).then(r => { if (r.error) console.warn('push', r.error.message) }, () => { })
 }

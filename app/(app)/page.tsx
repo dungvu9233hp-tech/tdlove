@@ -52,6 +52,11 @@ export default function Home() {
     // ENT-04: số clip TikTok người ấy gửi mà mình chưa xem (phase13.sql)
     sb.from('clips').select('id', { count: 'exact', head: true }).neq('sender', me.id).is('seen_at', null).then(r => { if (!r.error) setFun(r.count ?? 0) })
   }, [me.id])
+  const [gm, setGm] = useState(0)
+  useEffect(() => {
+    // Số ván trò chơi đang chờ mình hành động (phase24.sql)
+    sb.from('games').select('waiting').eq('status', 'playing').then(r => { if (!r.error) setGm((r.data ?? []).filter((g: any) => (g.waiting ?? []).includes(me.id)).length) })
+  }, [me.id])
   const day = space.start_date ? daysTogether(space.start_date) : null
   // Mốc/kỷ niệm gần nhất (kể cả hôm nay): mốc ngày, kỷ niệm tháng/năm và ngày đặc biệt tự đặt
   const next = (() => {
@@ -92,6 +97,7 @@ export default function Home() {
         <Link href="/special" className="rowl"><div><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></div></Link>
         <Link href="/capsule" className="rowl"><div><b>Hộp thời gian</b><div className="s">{cap.ready ? `${cap.ready} hộp mở được rồi, vào xem nhé!` : cap.wait ? `${cap.wait} hộp đang chờ ngày mở` : 'Viết thư, hẹn ngày mở'}</div></div>{cap.ready > 0 && <i className="pulse" aria-hidden="true" />}</Link>
         <Link href="/fun" className="rowl"><div><b>Giải trí</b><div className="s">{fun ? `${fun} clip mới từ ${partner?.display_name ?? 'người ấy'}, xem nhé!` : 'Clip TikTok hai đứa gửi nhau'}</div></div>{fun > 0 && <i className="pulse" aria-hidden="true" />}</Link>
+        <Link href="/games" className="rowl"><div><b>Trò chơi</b><div className="s">{gm ? `${gm} ván đang chờ bạn, vào chơi nhé!` : 'Caro, phá thuyền, bài, vẽ và đoán…'}</div></div>{gm > 0 && <i className="pulse" aria-hidden="true" />}</Link>
         <Link href="/chat" className="rowl"><div><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></div>{unread > 0 && <i className="pulse" aria-hidden="true" />}</Link>
         <Link href="/moments" className="rowl"><div><b>Khoảnh khắc</b><div className="s">Lưu thêm một kỷ niệm</div></div></Link>
       </div>

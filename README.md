@@ -169,3 +169,29 @@ Chạy lần lượt trong Supabase SQL Editor, **sau `phase19.sql`**, rồi dep
 - `phase23.sql` (T15, L3): cột `stops.end_time` và hàm `set_stop_vote` (bình chọn Thích/Không không ghi đè nhau).
 - Deploy lại hàm: `supabase functions deploy anniversary`. Hàm này giờ **chỉ nhận khóa service_role** trong header `Authorization` (T8); lịch `pg_cron` ở `supabase/functions/README.md` đã gửi đúng khóa này. Nhắc thêm 7 ngày, kỷ niệm tháng và 29/02 (T2) cũng nằm trong hàm này.
 - T9, bước làm tay: khi cả hai đã vào Space, vào Supabase > Authentication > Providers > Email và tắt **Allow new users to sign up**. Không có bước này thì ai biết địa chỉ site vẫn tạo được tài khoản mới.
+
+## Trò chơi cho hai người (phase24)
+
+Mở từ Trang chủ > **Trò chơi** (`/games`). Chín trò, chơi cùng lúc hoặc chơi dở rồi để đó, lúc nào rảnh người kia vào chơi tiếp:
+
+- **Cờ bàn:** Cờ caro (bàn 15x15 hoặc 10x10, nối 5 quân).
+- **Giấu thông tin:** Số bí mật (Bulls & Cows), Phá thuyền (mỗi người tự xếp đội tàu, người kia không thấy).
+- **Bài:** Lật bài trí nhớ (đối kháng hoặc cùng đội), Bài cào (ba cào, tính nút), Xì dách 2 người (cái và con đổi vai).
+- **Gắn kết:** Ai hiểu ai nhất (một người trả lời về mình, người kia đoán), Vẽ và đoán (vẽ trực tiếp), Thật hay thách (thẻ nhẹ nhàng, thân mật, sâu sắc).
+- **Hộp quà thử thách** (`/games/rewards`): mỗi người tự viết sẵn các phần quà “mình sẽ làm cho người ấy”; người thắng một ván rút ngẫu nhiên một phần từ hộp của người kia.
+
+Cách bật:
+
+1. Supabase > SQL Editor, chạy `supabase/phase24.sql` (sau phase23, chạy lại nhiều lần vẫn an toàn). File này tạo bảng `games`, `game_secrets`, `game_vouchers`, các hàm luật chơi, thêm hai bảng vào Realtime và mở kênh `game-<space>` cho nét vẽ.
+2. Muốn có thông báo đẩy “đến lượt bạn” và lời rủ chơi: deploy lại Edge Function `push` (`supabase functions deploy push`). Chưa deploy thì game vẫn chơi bình thường, chỉ không có thông báo. App chỉ gửi thông báo khi người kia không đang mở đúng ván đó, tối đa một lần mỗi 90 giây mỗi ván.
+3. Không cần biến môi trường mới.
+
+Thiết kế:
+
+- Mọi luật chơi chạy ở **máy chủ** (hàm `security definer`): kiểm tra đúng lượt, đúng nước đi, chấm thắng thua. Trình duyệt chỉ đọc `games` (đẩy realtime) và gọi hàm; không ghi thẳng vào bảng.
+- Thông tin phải giấu (tàu của mình, lá bài trên tay, số bí mật, đáp án, từ cần vẽ, vị trí lá bài úp) nằm trong `game_secrets`. Bảng này bật RLS và không có policy nào, nên trình duyệt không đọc được; chỉ hàm `game_my_secret` trả về đúng phần của người gọi. Xóa ván thì bí mật xóa theo.
+- Mỗi trò có đúng một ván đang chơi trong một Space; cột `waiting` cho biết ai đang phải hành động (hiện ở Trang chủ và thông báo).
+- Vẽ và đoán: nét vẽ đi qua kênh broadcast, không lưu lại; vào muộn hoặc mở lại thì xin người vẽ gửi lại nét. Từ khóa chỉ nằm trong `game_secrets`, đáp án được so ở máy chủ (không phân biệt hoa thường và dấu).
+- Thêm trò mới: thêm tên vào `check` của `games.kind` và các hàm luật trong SQL, viết một component trong `components/games/`, đăng ký ở `lib/games/types.ts` và `app/(app)/games/[id]/page.tsx`. Nội dung (câu hỏi, từ, thẻ, gợi ý quà) nằm ở `lib/games/content.ts`, sửa không cần đụng máy chủ.
+
+Chạy thử luật chơi trên Postgres thường (không cần Supabase): tạo một database rỗng rồi chạy lần lượt `supabase/tests/phase24_stub.sql`, `supabase/phase24.sql`, `phase24_test_1.sql`, `phase24_test_2.sql`, `phase24_test_rls.sql` bằng `psql -v ON_ERROR_STOP=1 -f`. Mỗi bài kiểm tra in `NOTICE: ... ok` khi qua.
