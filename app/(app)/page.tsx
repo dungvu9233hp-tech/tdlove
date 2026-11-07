@@ -6,6 +6,7 @@ import { useApp } from '@/lib/ctx'
 import Head, { Heart } from '@/components/Head'
 import Avatar from '@/components/Avatar'
 import LoveHeart from '@/components/LoveHeart'
+import Mascot from '@/components/Mascot'
 import { daysTogether, ok, MILESTONES, nextMonthAnniv, nextYearlyDate } from '@/lib/util'
 import { startDateError, todayStr } from '@/lib/profile'
 
@@ -83,6 +84,9 @@ export default function Home() {
       <Link href="/level" className="lh-link" aria-label={`${day ? `${day} ngày bên nhau. ` : ''}Mở khu cấp độ của hai đứa`}>
         <LoveHeart days={day} />
       </Link>
+      <Mascot uid={me.id} name={me.display_name || 'bạn'} partnerName={partner?.display_name} days={day}
+        unread={unread} capsuleReady={cap.ready} clips={fun} games={gm} next={next} plan={plan ? { id: plan.id, name: plan.name } : null}
+        memo={memo[0] ? { href: memo[0].kind === 'diary' ? `/diary?month=${memo[0].day.slice(0, 7)}` : `/moments?open=${memo[0].id}`, title: memo[0].title, year: memo[0].day.slice(0, 4) } : null} />
       {partner && <div className="couple">
         <div className="couple-row"><Avatar p={me} size={52} on /><Heart size={22} /><Avatar p={partner} size={52} /></div>
         <div className="couple-names">{me.display_name}<i>{'&'}</i>{partner.display_name}</div></div>}

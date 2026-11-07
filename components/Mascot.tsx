@@ -1,0 +1,122 @@
+'use client'
+// Linh vật Shiba 3D của mỗi người ở Trang chủ: thở, vẫy đuôi, chớp mắt, nhìn theo ngón tay, bấm vào thì nhảy.
+// Thỉnh thoảng bi bô nhắc việc đang chờ (tin nhắn, hộp thời gian, ngày kỷ niệm...) hoặc hỏi han.
+// Tên và việc bật/tắt nhắc nhở lưu theo từng người ngay trên máy (localStorage). Chuyển động tự tắt khi máy bật "giảm chuyển động".
+import { useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
+import './mascot.css'
+import { casual, pick, POKE, urgent, type Chip, type Say, type TalkCtx } from '@/lib/mascotTalk'
+import type { MascotHandle } from '@/lib/mascot3d'
+
+type Props = Omit<TalkCtx, 'hour' | 'name' | 'partner' | 'hasPartner'> & { uid: string; name: string; partnerName?: string | null }
+const store = {
+  get: (k: string) => { try { return localStorage.getItem(k) } catch { return null } },
+  set: (k: string, v: string) => { try { localStorage.setItem(k, v) } catch { } },
+}
+
+export default function Mascot(p: Props) {
+  const cv = useRef<HTMLCanvasElement>(null), h = useRef<MascotHandle | null>(null)
+  const [bad, setBad] = useState(false), [ready, setReady] = useState(false)
+  const [msg, setMsg] = useState<(Say & { reply?: string }) | null>(null)
+  const [hearts, setHearts] = useState<number[]>([])
+  const [pname, setPname] = useState('Shiba'), [quiet, setQuiet] = useState(false)
+  const kName = `tdlove.mascot.name.${p.uid}`, kQuiet = `tdlove.mascot.quiet.${p.uid}`
+  useEffect(() => { setPname(store.get(kName) || 'Shiba'); setQuiet(store.get(kQuiet) === '1') }, [kName, kQuiet])
+
+  // Luôn đọc dữ liệu mới nhất của Trang chủ mà không phải dựng lại bộ đếm giờ
+  const ctx = useRef<TalkCtx>(null as any)
+  ctx.current = { ...p, name: p.name, partner: p.partnerName || 'người ấy', hasPartner: !!p.partnerName, hour: new Date().getHours() }
+  const reduced = useRef(false), last = useRef<string | undefined>(undefined), hideT = useRef<any>(undefined), quietRef = useRef(false)
+  quietRef.current = quiet
+
+  // Dựng 3D (tải three.js khi cần)
+  useEffect(() => {
+    const c = cv.current; if (!c) return
+    reduced.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    let dead = false
+    import('@/lib/mascot3d').then(m => m.mountMascot(c, { calm: reduced.current })).then(hd => {
+      if (dead) { hd.dispose(); return }
+      h.current = hd; setReady(true)
+    }).catch(e => { console.error('Mascot', e); if (!dead) setBad(true) })
+    return () => { dead = true; h.current?.dispose(); h.current = null }
+  }, [])
+
+  const hide = useCallback(() => { clearTimeout(hideT.current); setMsg(null); h.current?.talk(false) }, [])
+  const show = useCallback((s: Say & { reply?: string }, ms?: number) => {
+    clearTimeout(hideT.current); setMsg(s); last.current = s.id
+    h.current?.talk(true); setTimeout(() => h.current?.talk(false), 1800)
+    hideT.current = setTimeout(hide, ms ?? (s.chips ? 16000 : s.href ? 12000 : 8000))
+  }, [hide])
+  useEffect(() => () => clearTimeout(hideT.current), [])
+
+  // Nhắc nhở / hỏi han: câu đầu sau ~2 giây, sau đó 45 đến 90 giây một lần, chỉ khi đang xem trang
+  useEffect(() => {
+    let t: any
+    const talk = (first: boolean) => {
+      if (!document.hidden && !quietRef.current) {
+        const c = { ...ctx.current, hour: new Date().getHours() }
+        const u = urgent(c)
+        // Việc đang chờ có phần nhiều hơn, nhưng vẫn xen lẫn hỏi han cho đỡ máy móc
+        const s = first && u.length ? pick(u, last.current) : pick([...u, ...casual(c)], last.current)
+        if (s) { h.current?.act(Math.random() < 0.5 ? 'wag' : 'hop'); show(s) }
+      }
+      t = setTimeout(() => talk(false), 45000 + Math.random() * 45000)
+    }
+    t = setTimeout(() => talk(true), 2200)
+    return () => clearTimeout(t)
+  }, [show])
+
+  // Nhìn theo ngón tay / con trỏ khi nó ở gần
+  useEffect(() => {
+    if (reduced.current) return
+    const move = (e: PointerEvent) => {
+      const c = cv.current; if (!c || !h.current) return
+      const r = c.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height * 0.4
+      const dx = (e.clientX - cx) / 260, dy = (e.clientY - cy) / 260
+      if (Math.abs(dx) < 1.4 && Math.abs(dy) < 1.4) h.current.look(clamp(dx), clamp(dy)); else h.current.unlook()
+    }
+    const out = () => h.current?.unlook()
+    window.addEventListener('pointermove', move, { passive: true }); window.addEventListener('pointerleave', out)
+    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerleave', out) }
+  }, [])
+
+  const poke = () => {
+    h.current?.poke()
+    const id = Date.now(); setHearts(a => [...a.slice(-4), id]); setTimeout(() => setHearts(a => a.filter(x => x !== id)), 1400)
+    show({ id: 'poke', w: 1, text: POKE[Math.floor(Math.random() * POKE.length)] }, 3500)
+  }
+  const choose = (m: Say, c: Chip) => {
+    h.current?.act('wag')
+    if (c.reply) show({ id: m.id + '-r', w: 1, text: c.reply, href: c.href, hrefLabel: c.href ? 'Nhắn tin' : undefined }, c.href ? 11000 : 6500); else hide()
+  }
+  const rename = () => {
+    const v = window.prompt('Đặt tên cho linh vật của bạn nhé', pname); if (v == null) return
+    const n = v.replace(/\s+/g, ' ').trim().slice(0, 20); if (!n) return
+    setPname(n); store.set(kName, n)
+  }
+  const toggleQuiet = () => { const q = !quiet; setQuiet(q); store.set(kQuiet, q ? '1' : '0'); if (q) hide() }
+
+  return <div className="mc" aria-label={`Linh vật ${pname}`}>
+    <div className="mc-stage">
+      {!bad && <button type="button" className="mc-hit" onClick={poke} aria-label={`Xoa đầu ${pname}`}><canvas ref={cv} className={ready ? 'on' : ''} /></button>}
+      {bad && <button type="button" className="mc-hit mc-emoji" onClick={poke} aria-label={`Xoa đầu ${pname}`}>🐶</button>}
+      <div className="mc-shadow" aria-hidden="true" />
+      {hearts.map(id => <i key={id} className="mc-heart" aria-hidden="true" style={{ left: `${35 + (id % 5) * 9}%` }}>♥</i>)}
+      <div className="mc-name"><span>{pname}</span>
+        <button type="button" onClick={rename} aria-label="Đổi tên linh vật">✎</button>
+        <button type="button" onClick={toggleQuiet} aria-pressed={quiet} aria-label={quiet ? 'Bật lại nhắc nhở của linh vật' : 'Tắt nhắc nhở của linh vật'}>{quiet ? '🔕' : '🔔'}</button>
+      </div>
+    </div>
+    <div className="mc-talk" aria-live="polite">
+      {msg && <div className="mc-bub" key={msg.id + msg.text}>
+        <button type="button" className="mc-x" onClick={hide} aria-label="Đóng lời nhắn">×</button>
+        <div>{msg.text}</div>
+        {(msg.chips || msg.href) && <div className="mc-act">
+          {msg.chips?.map(c => <button key={c.label} type="button" className="pill" onClick={() => choose(msg, c)}>{c.label}</button>)}
+          {msg.href && <Link href={msg.href} className="pill on" onClick={hide}>{msg.hrefLabel ?? 'Xem'}</Link>}
+        </div>}
+      </div>}
+    </div>
+  </div>
+}
+const clamp = (x: number) => Math.max(-1, Math.min(1, x))
