@@ -11,6 +11,7 @@ export type MascotHandle = {
   look: (nx: number, ny: number) => void // hướng nhìn, -1..1 (ra ngoài vùng thì thả về null)
   unlook: () => void
   talk: (on: boolean) => void          // đang nói: gật gù nhẹ, vẫy đuôi
+  face: (dir: 1 | -1) => void          // hướng mặt: 1 = quay sang phải màn hình, -1 = sang trái
   act: (a: MascotAct) => void
   dispose: () => void
 }
@@ -69,7 +70,7 @@ export async function mountMascot(canvas: HTMLCanvasElement, opt: { url?: string
 
   // ---- trạng thái chuyển động ----
   const S = {
-    t: 0, yaw: 0.55, headYaw: 0, headNod: 0, headTilt: 0, lookX: 0, lookY: 0, looking: false,
+    t: 0, dir: 1 as 1 | -1, yaw: 0.55, headYaw: 0, headNod: 0, headTilt: 0, lookX: 0, lookY: 0, looking: false,
     hop: 0, hopT: -1, shake: 0, sniff: 0, spin: -1, wagBoost: 0, squint: 0, talking: false,
     nextBlink: 1.5, blink: 0, nextIdle: 3, idleHeadT: 0, idleHeadYaw: 0, idleHeadNod: 0,
   }
@@ -144,7 +145,7 @@ export async function mountMascot(canvas: HTMLCanvasElement, opt: { url?: string
     // thân xoay nhẹ theo, + lắc người, + xoay vòng
     let spinA = 0
     if (S.spin >= 0) { S.spin += dt / 0.9; spinA = (1 - Math.pow(1 - Math.min(S.spin, 1), 3)) * Math.PI * 2; if (S.spin >= 1) S.spin = -1 }
-    const targetYaw = 0.55 + (S.looking ? S.lookX * 0.22 : 0) + 0.12 * S.shake * Math.sin(S.t * 28) + spinA
+    const targetYaw = 0.55 * S.dir + (S.looking ? S.lookX * 0.22 : 0) + 0.12 * S.shake * Math.sin(S.t * 28) + spinA
     S.yaw = damp(S.yaw, targetYaw, S.spin >= 0 ? 60 : 8, dt)
     yawG.rotation.y = S.yaw
     // nhảy: parabol + co giãn trước khi bật / khi chạm đất
@@ -193,6 +194,7 @@ export async function mountMascot(canvas: HTMLCanvasElement, opt: { url?: string
     look: (nx, ny) => { S.looking = true; S.lookX = nx; S.lookY = ny; if (calm) oneFrame(); else kick() },
     unlook: () => { S.looking = false; if (calm) oneFrame() },
     talk: on => { S.talking = on && !calm; kick() },
+    face: dir => { S.dir = dir; if (calm) { S.yaw = 0.55 * dir; oneFrame() } else kick() },
     act: a => { if (calm) return; act(a); kick() },
     dispose: () => {
       alive = false; if (raf) cancelAnimationFrame(raf)
