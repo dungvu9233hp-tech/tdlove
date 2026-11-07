@@ -1,0 +1,2582 @@
+diff --git a/README.md b/README.md
+index 81b523e..5ee4309 100644
+--- a/README.md
++++ b/README.md
+@@ -169,3 +169,29 @@ Chạy lần lượt trong Supabase SQL Editor, **sau `phase19.sql`**, rồi dep
+ - `phase23.sql` (T15, L3): cột `stops.end_time` và hàm `set_stop_vote` (bình chọn Thích/Không không ghi đè nhau).
+ - Deploy lại hàm: `supabase functions deploy anniversary`. Hàm này giờ **chỉ nhận khóa service_role** trong header `Authorization` (T8); lịch `pg_cron` ở `supabase/functions/README.md` đã gửi đúng khóa này. Nhắc thêm 7 ngày, kỷ niệm tháng và 29/02 (T2) cũng nằm trong hàm này.
+ - T9, bước làm tay: khi cả hai đã vào Space, vào Supabase > Authentication > Providers > Email và tắt **Allow new users to sign up**. Không có bước này thì ai biết địa chỉ site vẫn tạo được tài khoản mới.
++
++## Trò chơi cho hai người (phase24)
++
++Mở từ Trang chủ > **Trò chơi** (`/games`). Chín trò, chơi cùng lúc hoặc chơi dở rồi để đó, lúc nào rảnh người kia vào chơi tiếp:
++
++- **Cờ bàn:** Cờ caro (bàn 15x15 hoặc 10x10, nối 5 quân).
++- **Giấu thông tin:** Số bí mật (Bulls & Cows), Phá thuyền (mỗi người tự xếp đội tàu, người kia không thấy).
++- **Bài:** Lật bài trí nhớ (đối kháng hoặc cùng đội), Bài cào (ba cào, tính nút), Xì dách 2 người (cái và con đổi vai).
++- **Gắn kết:** Ai hiểu ai nhất (một người trả lời về mình, người kia đoán), Vẽ và đoán (vẽ trực tiếp), Thật hay thách (thẻ nhẹ nhàng, thân mật, sâu sắc).
++- **Hộp quà thử thách** (`/games/rewards`): mỗi người tự viết sẵn các phần quà “mình sẽ làm cho người ấy”; người thắng một ván rút ngẫu nhiên một phần từ hộp của người kia.
++
++Cách bật:
++
++1. Supabase > SQL Editor, chạy `supabase/phase24.sql` (sau phase23, chạy lại nhiều lần vẫn an toàn). File này tạo bảng `games`, `game_secrets`, `game_vouchers`, các hàm luật chơi, thêm hai bảng vào Realtime và mở kênh `game-<space>` cho nét vẽ.
++2. Muốn có thông báo đẩy “đến lượt bạn” và lời rủ chơi: deploy lại Edge Function `push` (`supabase functions deploy push`). Chưa deploy thì game vẫn chơi bình thường, chỉ không có thông báo. App chỉ gửi thông báo khi người kia không đang mở đúng ván đó, tối đa một lần mỗi 90 giây mỗi ván.
++3. Không cần biến môi trường mới.
++
++Thiết kế:
++
++- Mọi luật chơi chạy ở **máy chủ** (hàm `security definer`): kiểm tra đúng lượt, đúng nước đi, chấm thắng thua. Trình duyệt chỉ đọc `games` (đẩy realtime) và gọi hàm; không ghi thẳng vào bảng.
++- Thông tin phải giấu (tàu của mình, lá bài trên tay, số bí mật, đáp án, từ cần vẽ, vị trí lá bài úp) nằm trong `game_secrets`. Bảng này bật RLS và không có policy nào, nên trình duyệt không đọc được; chỉ hàm `game_my_secret` trả về đúng phần của người gọi. Xóa ván thì bí mật xóa theo.
++- Mỗi trò có đúng một ván đang chơi trong một Space; cột `waiting` cho biết ai đang phải hành động (hiện ở Trang chủ và thông báo).
++- Vẽ và đoán: nét vẽ đi qua kênh broadcast, không lưu lại; vào muộn hoặc mở lại thì xin người vẽ gửi lại nét. Từ khóa chỉ nằm trong `game_secrets`, đáp án được so ở máy chủ (không phân biệt hoa thường và dấu).
++- Thêm trò mới: thêm tên vào `check` của `games.kind` và các hàm luật trong SQL, viết một component trong `components/games/`, đăng ký ở `lib/games/types.ts` và `app/(app)/games/[id]/page.tsx`. Nội dung (câu hỏi, từ, thẻ, gợi ý quà) nằm ở `lib/games/content.ts`, sửa không cần đụng máy chủ.
++
++Chạy thử luật chơi trên Postgres thường (không cần Supabase): tạo một database rỗng rồi chạy lần lượt `supabase/tests/phase24_stub.sql`, `supabase/phase24.sql`, `phase24_test_1.sql`, `phase24_test_2.sql`, `phase24_test_rls.sql` bằng `psql -v ON_ERROR_STOP=1 -f`. Mỗi bài kiểm tra in `NOTICE: ... ok` khi qua.
+diff --git a/app/(app)/games/[id]/page.tsx b/app/(app)/games/[id]/page.tsx
+new file mode 100644
+index 0000000..8e054a3
+--- /dev/null
++++ b/app/(app)/games/[id]/page.tsx
+@@ -0,0 +1,97 @@
++'use client'
++import { useEffect, useState } from 'react'
++import Link from 'next/link'
++import { useParams, useRouter } from 'next/navigation'
++import { sb } from '@/lib/supabase'
++import { useApp } from '@/lib/ctx'
++import Head from '@/components/Head'
++import { useGame } from '@/lib/games/useGame'
++import { createGame, replayOpts } from '@/lib/games/api'
++import { KINDS, type GameProps, type Voucher } from '@/lib/games/types'
++import Caro from '@/components/games/Caro'
++import SoBiMat from '@/components/games/SoBiMat'
++import HieuNhau from '@/components/games/HieuNhau'
++import LatBai from '@/components/games/LatBai'
++import PhaThuyen from '@/components/games/PhaThuyen'
++import BaiCao from '@/components/games/BaiCao'
++import XiDach from '@/components/games/XiDach'
++import VeDoan from '@/components/games/VeDoan'
++import ThatThach from '@/components/games/ThatThach'
++
++const VIEW: Record<string, (p: GameProps) => React.ReactElement> = {
++  caro: Caro, so_bi_mat: SoBiMat, hieu_nhau: HieuNhau, lat_bai: LatBai, pha_thuyen: PhaThuyen, bai_cao: BaiCao, xi_dach: XiDach, ve_doan: VeDoan, that_thach: ThatThach,
++}
++
++export default function Room() {
++  const { id } = useParams<{ id: string }>()
++  const { me, partner } = useApp()
++  const r = useRouter()
++  const pn = partner?.display_name ?? 'Người ấy'
++  const { g, secret, busy, msg, setMsg, act, ch } = useGame(id)
++  const [prize, setPrize] = useState<Voucher | null>(null)
++  const [rb, setRb] = useState(false); const [rmsg, setRmsg] = useState('')
++
++  // Phần quà đã rút cho ván này (nếu có), để cả hai cùng thấy
++  useEffect(() => {
++    if (!g || g.status !== 'done' || !g.reward_drawn) return
++    sb.from('game_vouchers').select('*').eq('game_id', g.id).maybeSingle().then(x => { if (x.data) setPrize(x.data as Voucher) })
++  }, [g?.id, g?.status, g?.reward_drawn])  // eslint-disable-line react-hooks/exhaustive-deps
++
++  if (g === undefined) return <><Head t="Trò chơi" /><div className="b"><div className="s">Đang mở ván chơi…</div></div></>
++  if (g === null || !partner) return <><Head t="Trò chơi"><Link href="/games" className="pill">Trò chơi</Link></Head>
++    <div className="b"><div className="k pe"><b>Không tìm thấy ván chơi</b><div className="s">Ván này có thể đã bị xóa hoặc không thuộc Space của bạn.</div></div></div></>
++
++  const info = KINDS[g.kind], View = VIEW[g.kind]
++  const mine = g.waiting.includes(me.id)
++  const playing = g.status === 'playing'
++  const props: GameProps = { g, me: me.id, partnerId: partner.id, pn, mine, secret, act, busy, ch }
++
++  async function draw() {
++    setRb(true); setRmsg('')
++    const x = await sb.rpc('voucher_draw', { p_game: g!.id })
++    setRb(false)
++    if (x.error) return setRmsg(x.error.message)
++    setPrize(x.data as Voucher)
++  }
++  async function again() {
++    const x = await createGame(g!.kind, replayOpts(g!))
++    if (x.error) return setMsg(x.error)
++    r.push(`/games/${x.id}`)
++  }
++  async function end() {
++    if (confirm('Kết thúc ván này? Ván sẽ không được tính thắng thua.')) await act('game_end')
++  }
++
++  const banner = playing
++    ? (mine ? { cls: 'me', t: g.waiting.length === 1 ? 'Đến lượt bạn' : 'Cần bạn hành động' } : { cls: '', t: `Chờ ${pn}…` })
++    : g.status === 'abandoned' ? { cls: 'end', t: 'Ván này đã kết thúc, không tính thắng thua' }
++      : { cls: 'end', t: g.winner === me.id ? 'Bạn thắng rồi! 🎉' : g.winner ? `${pn} thắng ván này` : 'Hòa nhau, hay quá!' }
++
++  return <>
++    <Head t={info.name} lead={<span style={{ fontSize: 28 }} aria-hidden="true">{info.icon}</span>}><Link href="/games" className="pill">Trò chơi</Link></Head>
++    <div className="b">
++      <div className={`gm-turn ${banner.cls}`} role="status">
++        {playing && mine && <i className="gm-dot" aria-hidden="true" />}
++        <span className="gm-grow">{banner.t}
++          {playing && <span className="gm-sub" style={{ display: 'block' }}>{ch.partnerHere ? `${pn} đang ở trong ván` : `${pn} không ở trong ván, sẽ có thông báo khi đến lượt`}</span>}</span>
++      </div>
++      {msg && <div className="gm-err" role="alert">{msg}</div>}
++
++      <View {...props} />
++
++      {g.status === 'done' && <div className="k pe" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++        {g.winner === me.id && !g.reward_drawn && <>
++          <b>Phần thưởng cho người thắng 🎁</b>
++          <div className="gm-sub">Rút ngẫu nhiên một phần quà mà {pn} đã viết sẵn trong hộp quà.</div>
++          <button className="btn" disabled={rb} onClick={draw}>{rb ? 'Đang rút…' : 'Rút quà thử thách'}</button>
++          {rmsg && <div className="gm-err" role="alert">{rmsg} <Link href="/games/rewards" className="pill" style={{ marginLeft: 6 }}>Mở hộp quà</Link></div>}
++        </>}
++        {prize && <div className="gm-big">🎁 {g.winner === me.id ? `Bạn nhận được: ${prize.title}` : `${pn} nhận được từ bạn: ${prize.title}`}<br /><Link href="/games/rewards" className="pill on">Xem hộp quà</Link></div>}
++        {g.winner && g.winner !== me.id && !g.reward_drawn && <div className="gm-sub">{pn} sẽ được rút một phần quà từ hộp quà của bạn.</div>}
++        <button className="btn ghost" onClick={again}>Chơi lại</button>
++      </div>}
++      {g.status !== 'playing' && g.winner === null && <button className="btn ghost" onClick={again}>Chơi lại</button>}
++      {playing && <button className="pill" style={{ alignSelf: 'center' }} onClick={end}>Kết thúc ván này</button>}
++    </div>
++  </>
++}
+diff --git a/app/(app)/games/games.css b/app/(app)/games/games.css
+new file mode 100644
+index 0000000..f70da47
+--- /dev/null
++++ b/app/(app)/games/games.css
+@@ -0,0 +1,72 @@
++/* Khu Trò chơi: dùng lại màu và bo góc của giao diện Ivory & Rose (app/globals.css) */
++.gm-turn{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:22px;border:1px solid var(--line);background:#F4EEF6;font-weight:700;color:var(--ink)}
++.gm-turn.me{background:#FCEFF3;border-color:rgba(196,83,121,.3)}
++.gm-turn.end{background:#F9F1E6;border-color:rgba(184,146,90,.3)}
++.gm-dot{flex:none;width:10px;height:10px;border-radius:50%;background:var(--rose);box-shadow:0 0 0 4px rgba(229,138,168,.3)}
++@media (prefers-reduced-motion:no-preference){.gm-turn.me .gm-dot{animation:gmpulse 1.6s ease-in-out infinite}@keyframes gmpulse{50%{transform:scale(1.35)}}}
++.gm-err{padding:10px 14px;border-radius:16px;background:#FDECEC;border:1px solid rgba(200,60,60,.25);color:#8A2A2A;font-weight:700;font-size:14.5px}
++.gm-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
++.gm-grow{flex:1;min-width:0}
++.gm-sub{font-size:13px;font-weight:700;color:var(--ink2)}
++.gm-card{display:flex;flex-direction:column;gap:6px;text-align:left;width:100%}
++.gm-pill-n{display:inline-block;min-width:22px;padding:1px 7px;border-radius:999px;background:var(--rose);color:#fff;font:700 12.5px var(--f2);text-align:center}
++
++/* Cờ caro */
++.gm-board{display:grid;grid-template-columns:repeat(var(--n),1fr);gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:14px;overflow:hidden;box-shadow:var(--sh1);touch-action:manipulation}
++.gm-cell{aspect-ratio:1;border:0;padding:0;background:#FFFDFB;font:700 clamp(11px,3.6vw,17px)/1 var(--f2);color:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:center}
++.gm-cell:disabled{cursor:default;opacity:1}
++.gm-cell.x{color:var(--rose-d)}.gm-cell.o{color:#4B2338}
++.gm-cell.last{background:var(--blush2)}
++.gm-cell.win{background:var(--gold-l)}
++.gm-cell:not(:disabled):hover{background:var(--blush)}
++.gm-cell:focus-visible{outline:2px solid var(--rose-d);outline-offset:-2px}
++
++/* Nhập số, danh sách lượt đoán */
++.gm-input{border:1px solid var(--line2)!important;border-radius:16px;padding:12px 14px!important;background:#fff!important;font:700 22px var(--f1)!important;letter-spacing:.3em;text-align:center}
++.gm-hist{display:flex;flex-direction:column;gap:6px}
++.gm-hist div{display:flex;justify-content:space-between;gap:8px;padding:6px 12px;border-radius:12px;background:#fff;border:1px solid var(--line);font-weight:700;font-size:15px}
++.gm-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
++
++/* Lựa chọn (Ai hiểu ai nhất) */
++.gm-opts{display:flex;flex-direction:column;gap:8px}
++.gm-opt{padding:12px 16px;border-radius:18px;border:1px solid var(--line2);background:#fff;font:700 16px var(--f2);text-align:left;cursor:pointer;transition:transform .25s var(--spring),background .2s}
++.gm-opt:hover:not(:disabled){background:var(--blush)}.gm-opt:disabled{opacity:.6;cursor:default}
++.gm-opt.pick{background:#F7DCE5;border-color:rgba(196,83,121,.5)}.gm-opt.ans{background:#E4F3E8;border-color:rgba(70,150,90,.5)}.gm-opt.bad{background:#FDECEC;border-color:rgba(200,60,60,.35)}
++
++/* Lật bài trí nhớ */
++.gm-mem{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
++.gm-mc{aspect-ratio:1;border-radius:16px;border:1px solid var(--line2);background:linear-gradient(145deg,#F3D3DE,#E9B7C9);font-size:clamp(22px,8vw,34px);display:flex;align-items:center;justify-content:center;cursor:pointer;color:transparent;transition:transform .3s var(--spring)}
++.gm-mc.up,.gm-mc.ok{background:#FFFDFB;color:inherit}
++.gm-mc.ok{border-color:rgba(70,150,90,.5);background:#EAF6EE}
++.gm-mc:disabled{cursor:default}
++@media (prefers-reduced-motion:no-preference){.gm-mc.up{transform:rotateY(0) scale(1.04)}}
++
++/* Bài */
++.gm-hand{display:flex;gap:8px;flex-wrap:wrap}
++.gm-pc{position:relative;width:60px;height:86px;border-radius:12px;border:1px solid var(--line2);background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font:700 22px/1.1 var(--f1);color:#2A2530;box-shadow:var(--sh1);padding:0;cursor:default}
++.gm-pc.red{color:#C0384F}
++.gm-pc small{font-size:20px;line-height:1}
++.gm-pc.back{background:repeating-linear-gradient(45deg,#E9B7C9 0 6px,#F3D3DE 6px 12px);color:transparent;border-color:rgba(196,83,121,.4)}
++.gm-pc.tap{cursor:pointer}
++.gm-pc.sm{width:44px;height:64px;font-size:17px;border-radius:10px}.gm-pc.sm small{font-size:15px}
++.gm-score{display:flex;gap:10px}.gm-score>div{flex:1;text-align:center;padding:8px;border-radius:16px;background:#fff;border:1px solid var(--line)}
++.gm-score b{font-size:22px}
++
++/* Phá thuyền */
++.gm-sea{display:grid;grid-template-columns:repeat(var(--n),1fr);gap:1px;background:#B9CBE0;border:1px solid #8DA6C4;border-radius:12px;overflow:hidden;touch-action:manipulation}
++.gm-w{aspect-ratio:1;border:0;padding:0;background:#E8F1FA;font:700 clamp(10px,3.4vw,15px)/1 var(--f2);display:flex;align-items:center;justify-content:center;cursor:pointer;color:#35557A}
++.gm-w:disabled{cursor:default;opacity:1}
++.gm-w.ship{background:#6F8FB5;color:#fff}.gm-w.prev{background:#A9C2DD}.gm-w.bad{background:#F6C9C9}
++.gm-w.hit{background:#E0526A;color:#fff}.gm-w.miss{background:#F7FBFF;color:#6F8FB5}
++.gm-w.sunk{background:#4B2338;color:#fff}
++.gm-w:not(:disabled):hover{filter:brightness(.95)}
++.gm-w:focus-visible{outline:2px solid var(--rose-d);outline-offset:-2px}
++
++/* Vẽ và đoán */
++.gm-canvas{width:100%;aspect-ratio:4/3;border-radius:20px;border:1px solid var(--line2);background:#fff;box-shadow:var(--sh1);touch-action:none;display:block}
++.gm-colors{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
++.gm-sw{width:30px;height:30px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1.5px var(--line2);cursor:pointer;padding:0}
++.gm-sw.on{box-shadow:0 0 0 3px var(--rose-d)}
++.gm-word{font:700 26px var(--f1);letter-spacing:.14em;text-align:center}
++.gm-chips{display:flex;gap:6px;flex-wrap:wrap}
++.gm-big{font:600 20px/1.35 var(--f1);text-align:center;padding:8px 4px}
+diff --git a/app/(app)/games/layout.tsx b/app/(app)/games/layout.tsx
+new file mode 100644
+index 0000000..48ef081
+--- /dev/null
++++ b/app/(app)/games/layout.tsx
+@@ -0,0 +1,2 @@
++import './games.css'
++export default function GamesLayout({ children }: { children: React.ReactNode }) { return children }
+diff --git a/app/(app)/games/page.tsx b/app/(app)/games/page.tsx
+new file mode 100644
+index 0000000..0a0cda3
+--- /dev/null
++++ b/app/(app)/games/page.tsx
+@@ -0,0 +1,135 @@
++'use client'
++import { useCallback, useEffect, useMemo, useState } from 'react'
++import Link from 'next/link'
++import { useRouter } from 'next/navigation'
++import { sb } from '@/lib/supabase'
++import { useApp } from '@/lib/ctx'
++import Head from '@/components/Head'
++import { KINDS, KIND_ORDER, statusText, type Game, type GameKind } from '@/lib/games/types'
++import { createGame, defaultOpts } from '@/lib/games/api'
++
++type Choice = { v: string | number; l: string }
++type OptDef = { key: string; label: string; choices: Choice[]; def: string | number }
++// Tùy chọn khi bắt đầu từng game (khớp game_create trong phase24.sql)
++const OPTS: Partial<Record<GameKind, OptDef[]>> = {
++  caro: [{ key: 'size', label: 'Cỡ bàn', def: 15, choices: [{ v: 15, l: '15 × 15' }, { v: 10, l: '10 × 10 (nhanh)' }] }],
++  so_bi_mat: [{ key: 'len', label: 'Số chữ số', def: 4, choices: [{ v: 3, l: '3' }, { v: 4, l: '4' }, { v: 5, l: '5' }] }],
++  lat_bai: [
++    { key: 'pairs', label: 'Số cặp', def: 8, choices: [{ v: 6, l: '6 cặp' }, { v: 8, l: '8 cặp' }, { v: 10, l: '10 cặp' }] },
++    { key: 'mode', label: 'Cách chơi', def: 'vs', choices: [{ v: 'vs', l: 'Đối kháng' }, { v: 'coop', l: 'Cùng đội' }] }],
++  bai_cao: [{ key: 'rounds', label: 'Số vòng', def: 3, choices: [{ v: 1, l: '1 vòng' }, { v: 3, l: '3 vòng' }, { v: 5, l: '5 vòng' }] }],
++  xi_dach: [{ key: 'rounds', label: 'Số ván', def: 3, choices: [{ v: 1, l: '1 ván' }, { v: 3, l: '3 ván' }, { v: 5, l: '5 ván' }] }],
++  ve_doan: [{ key: 'rounds', label: 'Số lượt vẽ', def: 4, choices: [{ v: 2, l: '2 lượt' }, { v: 4, l: '4 lượt' }, { v: 6, l: '6 lượt' }] }],
++}
++
++export default function Games() {
++  const { me, partner, space } = useApp()
++  const r = useRouter()
++  const pn = partner?.display_name ?? 'Người ấy'
++  const [games, setGames] = useState<Game[] | null>(null)
++  const [err, setErr] = useState('')
++  const [open, setOpen] = useState<GameKind | null>(null)
++  const [opts, setOpts] = useState<Record<string, string | number>>({})
++  const [busy, setBusy] = useState(false); const [msg, setMsg] = useState('')
++  const [owed, setOwed] = useState(0)
++
++  const load = useCallback(async () => {
++    const [a, b] = await Promise.all([
++      sb.from('games').select('*').order('updated_at', { ascending: false }).limit(300),
++      sb.from('game_vouchers').select('id', { count: 'exact', head: true }).eq('holder', me.id).eq('status', 'won'),
++    ])
++    if (a.error) { setErr('Chưa tải được trò chơi. Đã chạy supabase/phase24.sql chưa?'); setGames([]) }
++    else { setErr(''); setGames((a.data ?? []) as Game[]) }
++    if (!b.error) setOwed(b.count ?? 0)
++  }, [me.id])
++
++  useEffect(() => {
++    load()
++    const c = sb.channel('games-' + space.id)
++      .on('postgres_changes', { event: '*', schema: 'public', table: 'games', filter: `space_id=eq.${space.id}` }, () => load())
++      .subscribe()
++    const onVis = () => { if (document.visibilityState === 'visible') load() }
++    document.addEventListener('visibilitychange', onVis)
++    return () => { sb.removeChannel(c); document.removeEventListener('visibilitychange', onVis) }
++  }, [space.id, load])
++
++  const active = useMemo(() => (games ?? []).filter(g => g.status === 'playing'), [games])
++  const byKind = useMemo(() => new Map(active.map(g => [g.kind, g])), [active])
++  const stats = useMemo(() => {
++    const done = (games ?? []).filter(g => g.status === 'done')
++    const per = new Map<GameKind, { me: number; you: number; tie: number }>()
++    for (const g of done) {
++      const x = per.get(g.kind) ?? { me: 0, you: 0, tie: 0 }
++      if (g.winner === me.id) x.me++; else if (g.winner) x.you++; else x.tie++
++      per.set(g.kind, x)
++    }
++    const all = [...per.values()].reduce((s, x) => ({ me: s.me + x.me, you: s.you + x.you, tie: s.tie + x.tie }), { me: 0, you: 0, tie: 0 })
++    return { per, all, n: done.length }
++  }, [games, me.id])
++
++  const choose = (k: GameKind) => {
++    setMsg('')
++    if (open === k) return setOpen(null)
++    setOpen(k); setOpts(Object.fromEntries((OPTS[k] ?? []).map(o => [o.key, o.def])))
++  }
++  async function start(k: GameKind) {
++    if (!partner) return setMsg('Hãy mời người ấy vào Space trước, rồi hai đứa mới chơi cùng nhau được.')
++    setBusy(true); setMsg('')
++    const res = await createGame(k, { ...defaultOpts(k), ...opts })
++    setBusy(false)
++    if (res.error) return setMsg(res.error)
++    r.push(`/games/${res.id}`)
++  }
++
++  const needMe = active.filter(g => g.waiting.includes(me.id)).length
++
++  return <>
++    <Head t="Trò chơi"><Link href="/" className="pill">Trang chủ</Link></Head>
++    <div className="b">
++      {err && <div className="k pe"><div className="s">{err}</div></div>}
++      {games === null && <div className="s">Đang tải…</div>}
++
++      {active.length > 0 && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++        <b>Đang chơi dở {needMe > 0 && <span className="gm-pill-n">{needMe} chờ bạn</span>}</b>
++        {active.map(g => {
++          const k = KINDS[g.kind], mineTurn = g.waiting.includes(me.id)
++          return <Link key={g.id} href={`/games/${g.id}`} className={`k ${mineTurn ? 'pk' : 'li'}`} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
++            <span style={{ fontSize: 28 }} aria-hidden="true">{k.icon}</span>
++            <span className="gm-grow"><b>{k.name}</b><span className="s" style={{ display: 'block' }}>{statusText(g, me.id, pn)}</span></span>
++            <span className="pill on" style={{ flex: 'none' }}>{mineTurn ? 'Chơi tiếp' : 'Xem'}</span>
++          </Link>
++        })}
++      </div>}
++
++      <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
++        <div className="gm-row" style={{ justifyContent: 'space-between' }}>
++          <b>Tỉ số hai đứa</b>
++          <Link href="/games/rewards" className="pill on">🎁 Hộp quà{owed > 0 ? ` (${owed})` : ''}</Link>
++        </div>
++        {stats.n === 0 ? <div className="s">Chưa có ván nào xong. Chơi một ván thử nhé!</div>
++          : <div className="s">Bạn thắng {stats.all.me} · {pn} thắng {stats.all.you} · hòa hoặc cùng vui {stats.all.tie}</div>}
++        {stats.n > 0 && <details><summary className="s" style={{ cursor: 'pointer' }}>Chi tiết từng trò</summary>
++          <div className="gm-hist" style={{ marginTop: 8 }}>
++            {[...stats.per.entries()].map(([k, x]) => <div key={k}><span>{KINDS[k].icon} {KINDS[k].name}</span><span>Bạn {x.me} – {x.you} {pn}{x.tie ? ` · ${x.tie} hòa` : ''}</span></div>)}
++          </div></details>}
++      </div>
++
++      <b>Chọn trò để chơi cùng {pn}</b>
++      {msg && <div className="gm-err" role="alert">{msg}</div>}
++      {KIND_ORDER.map(k => {
++        const info = KINDS[k], cur = byKind.get(k), def = OPTS[k] ?? []
++        return <div key={k} className="k" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++          <button type="button" className="gm-card" style={{ background: 'none', border: 0, cursor: 'pointer', font: 'inherit', color: 'inherit' }} onClick={() => cur ? r.push(`/games/${cur.id}`) : choose(k)} aria-expanded={open === k}>
++            <span className="gm-row"><span style={{ fontSize: 30 }} aria-hidden="true">{info.icon}</span><span className="gm-grow"><b>{info.name}</b><span className="s" style={{ display: 'block' }}>{info.blurb}</span></span></span>
++            <span className="gm-sub">{info.players}{cur ? ' · đang có một ván, chạm để tiếp tục' : ''}</span>
++          </button>
++          {open === k && !cur && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++            {def.map(o => <div key={o.key}><div className="gm-sub" style={{ marginBottom: 4 }}>{o.label}</div>
++              <div className="gm-chips" role="group" aria-label={o.label}>{o.choices.map(c => <button key={String(c.v)} type="button" className={`pill ${opts[o.key] === c.v ? 'on' : ''}`} aria-pressed={opts[o.key] === c.v} onClick={() => setOpts(x => ({ ...x, [o.key]: c.v }))}>{c.l}</button>)}</div></div>)}
++            <button className="btn" disabled={busy} onClick={() => start(k)}>{busy ? 'Đang tạo…' : `Rủ ${pn} chơi`}</button>
++          </div>}
++        </div>
++      })}
++    </div>
++  </>
++}
+diff --git a/app/(app)/games/rewards/page.tsx b/app/(app)/games/rewards/page.tsx
+new file mode 100644
+index 0000000..5eb16a9
+--- /dev/null
++++ b/app/(app)/games/rewards/page.tsx
+@@ -0,0 +1,74 @@
++'use client'
++import { useCallback, useEffect, useState } from 'react'
++import Link from 'next/link'
++import { sb } from '@/lib/supabase'
++import { useApp } from '@/lib/ctx'
++import { ok } from '@/lib/util'
++import Head from '@/components/Head'
++import { VOUCHER_IDEAS } from '@/lib/games/content'
++import type { Voucher } from '@/lib/games/types'
++
++export default function Rewards() {
++  const { me, partner, space } = useApp()
++  const pn = partner?.display_name ?? 'Người ấy'
++  const [vs, setVs] = useState<Voucher[] | null>(null)
++  const [err, setErr] = useState(''); const [title, setTitle] = useState(''); const [busy, setBusy] = useState(false)
++
++  const load = useCallback(async () => {
++    const r = await sb.from('game_vouchers').select('*').order('created_at', { ascending: false }).limit(300)
++    if (r.error) { setErr('Chưa tải được hộp quà. Đã chạy supabase/phase24.sql chưa?'); setVs([]) } else { setErr(''); setVs((r.data ?? []) as Voucher[]) }
++  }, [])
++  useEffect(() => {
++    load()
++    const c = sb.channel('vouchers-' + space.id).on('postgres_changes', { event: '*', schema: 'public', table: 'game_vouchers', filter: `space_id=eq.${space.id}` }, () => load()).subscribe()
++    return () => { sb.removeChannel(c) }
++  }, [space.id, load])
++
++  async function add(t: string) {
++    const s = t.trim(); if (!s || busy) return
++    setBusy(true)
++    const good = await ok(sb.rpc('voucher_add', { p_title: s }), 'Không thêm được quà')
++    setBusy(false)
++    if (good) { setTitle(''); load() }
++  }
++  const call = async (fn: string, args: Record<string, unknown>, what: string) => { if (await ok(sb.rpc(fn, args), what)) load() }
++
++  const all = vs ?? []
++  const mine = all.filter(v => v.owner === me.id && v.status === 'pool')
++  const theirs = all.filter(v => v.owner !== me.id && v.status === 'pool').length
++  const received = all.filter(v => v.holder === me.id && v.status === 'won')
++  const owe = all.filter(v => v.owner === me.id && v.holder && v.holder !== me.id && v.status === 'won')
++  const done = all.filter(v => v.status === 'done')
++  const taken = new Set(mine.map(v => v.title))
++
++  return <>
++    <Head t="Hộp quà thử thách"><Link href="/games" className="pill">Trò chơi</Link></Head>
++    <div className="b">
++      <div className="k li"><div className="s">Mỗi người tự viết sẵn những phần quà “mình sẽ làm cho người ấy”. Ai thắng một ván thì được rút ngẫu nhiên một phần từ hộp của người kia. Người rút không biết trước trong hộp có gì.</div></div>
++      {err && <div className="k pe"><div className="s">{err}</div></div>}
++
++      {received.length > 0 && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}><b>🎉 Quà bạn đã trúng</b>
++        {received.map(v => <div key={v.id} className="k pk gm-row"><div className="gm-grow"><b style={{ fontSize: 16 }}>{v.title}</b><div className="gm-sub">{pn} sẽ thực hiện</div></div>
++          <button className="pill on" onClick={() => call('voucher_done', { p_id: v.id }, 'Không cập nhật được')}>Đã nhận ✓</button></div>)}</div>}
++      {owe.length > 0 && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}><b>Bạn đang nợ {pn}</b>
++        {owe.map(v => <div key={v.id} className="k pe gm-row"><div className="gm-grow"><b style={{ fontSize: 16 }}>{v.title}</b><div className="gm-sub">Đừng quên thực hiện nhé</div></div>
++          <button className="pill on" onClick={() => call('voucher_done', { p_id: v.id }, 'Không cập nhật được')}>Đã làm xong ✓</button></div>)}</div>}
++
++      <b>Hộp quà của bạn ({mine.length}/40)</b>
++      <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++        <div className="row"><label className="k"><input value={title} maxLength={120} onChange={e => setTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && add(title)} placeholder="Mình sẽ… (ví dụ: nấu bữa tối cho em)" aria-label="Phần quà mới" /></label>
++          <button className="rb" disabled={busy || !title.trim()} onClick={() => add(title)} aria-label="Thêm quà">+</button></div>
++        <div className="gm-sub">Gợi ý, chạm để thêm:</div>
++        <div className="gm-chips">{VOUCHER_IDEAS.filter(i => !taken.has(i)).slice(0, 8).map(i => <button key={i} className="pill" disabled={busy} onClick={() => add(i)}>{i}</button>)}</div>
++      </div>
++      {vs && !mine.length && <div className="s">Hộp của bạn đang trống. Nếu không có quà nào, {pn} thắng cũng không rút được gì.</div>}
++      {mine.map(v => <div key={v.id} className="k gm-row"><div className="gm-grow">{v.title}</div>
++        <button className="pill" onClick={() => { if (confirm('Bỏ phần quà này khỏi hộp?')) call('voucher_remove', { p_id: v.id }, 'Không xóa được') }} aria-label={`Xóa ${v.title}`}>Xóa</button></div>)}
++
++      <div className="k pe"><b>Hộp quà của {pn}</b><div className="s">{theirs} phần quà đang chờ được rút. Nội dung giữ bí mật cho đến khi bạn thắng.</div></div>
++
++      {done.length > 0 && <details className="k"><summary style={{ cursor: 'pointer', fontWeight: 700 }}>Đã hoàn thành ({done.length})</summary>
++        <div className="gm-hist" style={{ marginTop: 8 }}>{done.map(v => <div key={v.id}><span>{v.title}</span><span>{v.holder === me.id ? `${pn} làm cho bạn` : `Bạn làm cho ${pn}`}</span></div>)}</div></details>}
++    </div>
++  </>
++}
+diff --git a/app/(app)/page.tsx b/app/(app)/page.tsx
+index 1d53d51..30605de 100644
+--- a/app/(app)/page.tsx
++++ b/app/(app)/page.tsx
+@@ -52,6 +52,11 @@ export default function Home() {
+     // ENT-04: số clip TikTok người ấy gửi mà mình chưa xem (phase13.sql)
+     sb.from('clips').select('id', { count: 'exact', head: true }).neq('sender', me.id).is('seen_at', null).then(r => { if (!r.error) setFun(r.count ?? 0) })
+   }, [me.id])
++  const [gm, setGm] = useState(0)
++  useEffect(() => {
++    // Số ván trò chơi đang chờ mình hành động (phase24.sql)
++    sb.from('games').select('waiting').eq('status', 'playing').then(r => { if (!r.error) setGm((r.data ?? []).filter((g: any) => (g.waiting ?? []).includes(me.id)).length) })
++  }, [me.id])
+   const day = space.start_date ? daysTogether(space.start_date) : null
+   // Mốc/kỷ niệm gần nhất (kể cả hôm nay): mốc ngày, kỷ niệm tháng/năm và ngày đặc biệt tự đặt
+   const next = (() => {
+@@ -92,6 +97,7 @@ export default function Home() {
+         <Link href="/special" className="rowl"><div><b>Ngày đặc biệt</b><div className="s">Mốc kỷ niệm</div></div></Link>
+         <Link href="/capsule" className="rowl"><div><b>Hộp thời gian</b><div className="s">{cap.ready ? `${cap.ready} hộp mở được rồi, vào xem nhé!` : cap.wait ? `${cap.wait} hộp đang chờ ngày mở` : 'Viết thư, hẹn ngày mở'}</div></div>{cap.ready > 0 && <i className="pulse" aria-hidden="true" />}</Link>
+         <Link href="/fun" className="rowl"><div><b>Giải trí</b><div className="s">{fun ? `${fun} clip mới từ ${partner?.display_name ?? 'người ấy'}, xem nhé!` : 'Clip TikTok hai đứa gửi nhau'}</div></div>{fun > 0 && <i className="pulse" aria-hidden="true" />}</Link>
++        <Link href="/games" className="rowl"><div><b>Trò chơi</b><div className="s">{gm ? `${gm} ván đang chờ bạn, vào chơi nhé!` : 'Caro, phá thuyền, bài, vẽ và đoán…'}</div></div>{gm > 0 && <i className="pulse" aria-hidden="true" />}</Link>
+         <Link href="/chat" className="rowl"><div><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></div>{unread > 0 && <i className="pulse" aria-hidden="true" />}</Link>
+         <Link href="/moments" className="rowl"><div><b>Khoảnh khắc</b><div className="s">Lưu thêm một kỷ niệm</div></div></Link>
+       </div>
+diff --git a/components/games/BaiCao.tsx b/components/games/BaiCao.tsx
+new file mode 100644
+index 0000000..e2f4054
+--- /dev/null
++++ b/components/games/BaiCao.tsx
+@@ -0,0 +1,47 @@
++'use client'
++import { useEffect, useState } from 'react'
++import type { GameProps } from '@/lib/games/types'
++import { baiCaoLabel, baiCaoPts } from '@/lib/games/cards'
++import { PCard, Scores } from './ui'
++
++export default function BaiCao({ g, me, partnerId, pn, secret, act, busy }: GameProps) {
++  const st = g.state, round: number = st.round
++  const playing = g.status === 'playing'
++  const show = st.phase === 'show' || g.status === 'done'
++  const myCards: number[] = secret?.cards ?? []
++  const [peek, setPeek] = useState<boolean[]>([false, false, false])
++  useEffect(() => { setPeek([false, false, false]) }, [round])
++  const iRevealed = !!st.revealed?.[me], theyRevealed = !!st.revealed?.[partnerId]
++  const last = st.last
++
++  return <>
++    <div className="gm-sub">Ba lá bài, cộng điểm rồi lấy số hàng đơn vị (10, J, Q, K tính 0). Ba lá J/Q/K là “ba cào”, lớn nhất. Bằng nhau thì hòa. Vòng {round}/{st.rounds}.</div>
++    <Scores items={[{ name: 'Bạn', n: st.scores?.[me] ?? 0 }, { name: pn, n: st.scores?.[partnerId] ?? 0 }]} />
++
++    {show && last ? <>
++      {[[pn, partnerId], ['Bạn', me]].map(([name, id]) => {
++        const cards: number[] = last.hands[id]
++        return <div key={id} className={`k ${last.winner === id ? 'pe' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++          <b style={{ fontSize: 16 }}>{name}: {baiCaoLabel(last.pts[id])} {last.winner === id ? '🏆' : ''}</b>
++          <div className="gm-hand">{cards.map((c, i) => <PCard key={i} c={c} />)}</div>
++        </div>
++      })}
++      <div className="k li"><b>{last.winner === me ? 'Bạn thắng vòng này 🎉' : last.winner ? `${pn} thắng vòng này` : 'Vòng này hòa'}</b></div>
++      {playing && <button className="btn" disabled={busy} onClick={() => act('bc_next')}>Chia bài vòng tiếp</button>}
++    </> : <>
++      <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++        <b style={{ fontSize: 16 }}>Bài của {pn}</b>
++        <div className="gm-hand">{[0, 1, 2].map(i => <PCard key={i} down />)}</div>
++        <div className="gm-sub">{theyRevealed ? `${pn} đã lật bài` : `${pn} chưa lật bài`}</div>
++      </div>
++      <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++        <b style={{ fontSize: 16 }}>Bài của bạn {peek.every(Boolean) && myCards.length === 3 ? `· ${baiCaoLabel(baiCaoPts(myCards))}` : ''}</b>
++        <div className="gm-hand">{[0, 1, 2].map(i => <PCard key={i} c={peek[i] ? myCards[i] : undefined} down={!peek[i] || myCards[i] === undefined}
++          onClick={myCards[i] === undefined ? undefined : () => setPeek(p => p.map((x, k) => k === i ? !x : x))} label="Chạm để xem lá bài" />)}</div>
++        <div className="gm-sub">Chạm từng lá để xem riêng. Chỉ khi bấm “Lật bài” thì bài mới được công bố.</div>
++        {iRevealed ? <div className="gm-sub" role="status">Bạn đã lật bài, chờ {pn}…</div>
++          : <button className="btn" disabled={busy || !playing} onClick={() => act('bc_reveal')}>Lật bài</button>}
++      </div>
++    </>}
++  </>
++}
+diff --git a/components/games/Caro.tsx b/components/games/Caro.tsx
+new file mode 100644
+index 0000000..547a7d9
+--- /dev/null
++++ b/components/games/Caro.tsx
+@@ -0,0 +1,21 @@
++'use client'
++import type { GameProps } from '@/lib/games/types'
++
++export default function Caro({ g, me, pn, mine, act, busy }: GameProps) {
++  const st = g.state, n: number = st.size, board: string = st.board
++  const last = st.last as [number, number] | null
++  const win = new Set<number>((st.win ?? []).map((c: number[]) => c[0] * n + c[1]))
++  const mark = me === g.p1 ? '✕' : '○'
++  const playing = g.status === 'playing'
++  return <>
++    <div className="gm-row gm-sub"><span>Bạn là <b style={{ display: 'inline' }}>{mark}</b>, {pn} là <b style={{ display: 'inline' }}>{mark === '✕' ? '○' : '✕'}</b></span><span>Nối đủ 5 quân liền nhau để thắng</span></div>
++    <div className="gm-board" style={{ ['--n' as any]: n }} role="grid" aria-label={`Bàn cờ caro ${n} nhân ${n}`}>
++      {Array.from({ length: n * n }, (_, i) => {
++        const v = board[i], r = Math.floor(i / n), c = i % n
++        const cls = `gm-cell ${v === '1' ? 'x' : v === '2' ? 'o' : ''} ${last && last[0] === r && last[1] === c ? 'last' : ''} ${win.has(i) ? 'win' : ''}`
++        return <button key={i} type="button" className={cls} disabled={!playing || !mine || busy || v !== '0'} onClick={() => act('caro_move', { p_r: r, p_c: c })}
++          aria-label={`Hàng ${r + 1}, cột ${c + 1}${v === '1' ? ', quân ✕' : v === '2' ? ', quân ○' : ''}`}>{v === '1' ? '✕' : v === '2' ? '○' : ''}</button>
++      })}
++    </div>
++  </>
++}
+diff --git a/components/games/HieuNhau.tsx b/components/games/HieuNhau.tsx
+new file mode 100644
+index 0000000..750766e
+--- /dev/null
++++ b/components/games/HieuNhau.tsx
+@@ -0,0 +1,44 @@
++'use client'
++import type { GameProps } from '@/lib/games/types'
++
++export default function HieuNhau({ g, me, partnerId, pn, secret, act, busy }: GameProps) {
++  const st = g.state, qs: { q: string; o: string[] }[] = st.qs, i: number = st.i
++  const playing = g.status === 'playing'
++  const iAnswer = playing && st.phase === 'answer' && st.answerer === me
++  const iGuess = playing && st.phase === 'guess' && st.answerer !== me
++  const who = st.answerer === me ? 'bạn' : pn
++  const q = qs[Math.min(i, qs.length - 1)]
++  const log: any[] = st.log ?? []
++  const myPick: number | undefined = secret && secret.i === i ? secret.a : undefined
++  const total = (id: string) => log.filter(l => l.by !== id).length    // số câu người đó phải đoán
++  const good = (id: string) => log.filter(l => l.by !== id && l.ok).length
++
++  return <>
++    <div className="bar" aria-label={`Đã xong ${log.length} trên ${qs.length} câu`}><i style={{ width: `${(log.length / qs.length) * 100}%` }} /></div>
++    <div className="gm-sub">Câu {Math.min(i + 1, qs.length)} / {qs.length}. Mỗi câu một người trả lời thật về mình, người kia đoán xem họ chọn gì.</div>
++    {playing && <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
++      <div className="gm-sub">{iAnswer ? 'Bạn trả lời về chính mình' : iGuess ? `${pn} đã chọn xong, bạn đoán xem họ chọn gì` : st.phase === 'answer' ? `${pn} đang trả lời…` : `${pn} đang đoán…`}</div>
++      <b style={{ fontSize: 19 }}>{q.q}</b>
++      <div className="gm-opts">
++        {q.o.map((o, k) => <button key={k} type="button" className={`gm-opt ${st.phase === 'guess' && myPick === k && st.answerer === me ? 'pick' : ''}`} disabled={busy || !(iAnswer || iGuess)}
++          onClick={() => act(iAnswer ? 'kn_answer' : 'kn_guess', { p_choice: k })}>{o}</button>)}
++      </div>
++      {st.phase === 'guess' && st.answerer === me && <div className="gm-sub">Bạn đã chọn “{q.o[myPick ?? 0]}”. Chờ {pn} đoán.</div>}
++    </div>}
++    {g.status !== 'playing' && <div className="k pe">
++      <b>Kết quả</b>
++      <div className="gm-sub">Bạn đoán đúng {good(me)} / {total(me)} câu · {pn} đoán đúng {good(partnerId)} / {total(partnerId)} câu</div>
++    </div>}
++    {log.length > 0 && <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++      <div className="gm-sub">Các câu đã xong</div>
++      {[...log].reverse().map(l => {
++        const qq = qs[l.i], by = l.by === me ? 'Bạn' : pn, guesser = l.by === me ? pn : 'Bạn'
++        return <div key={l.i} className={`k ${l.ok ? '' : 'pe'}`}>
++          <b style={{ fontSize: 15 }}>{qq.q}</b>
++          <div className="gm-sub">{by} chọn: {qq.o[l.a]}</div>
++          <div className="gm-sub">{guesser} đoán: {qq.o[l.g]} {l.ok ? '✅ đúng rồi!' : '❌ chưa đúng'}</div>
++        </div>
++      })}
++    </div>}
++  </>
++}
+diff --git a/components/games/LatBai.tsx b/components/games/LatBai.tsx
+new file mode 100644
+index 0000000..993c46a
+--- /dev/null
++++ b/components/games/LatBai.tsx
+@@ -0,0 +1,25 @@
++'use client'
++import type { GameProps } from '@/lib/games/types'
++import { Scores } from './ui'
++
++export default function LatBai({ g, me, partnerId, pn, mine, act, busy }: GameProps) {
++  const st = g.state, n: number = st.n, matched: Record<string, string> = st.matched ?? {}
++  const up: { i: number; s: string }[] = st.up ?? []
++  const upMap = new Map(up.map(u => [u.i, u.s]))
++  const vs = st.mode === 'vs', playing = g.status === 'playing'
++  const cols = n % 4 === 0 ? 4 : n % 3 === 0 ? 3 : 4
++  const found = Object.keys(matched).length / 2
++  return <>
++    <div className="gm-sub">{vs ? 'Đối kháng: ai ghép được nhiều cặp hơn thì thắng. Ghép đúng được lật tiếp, lật hụt thì đổi lượt.' : 'Cùng đội: hai đứa thay nhau lật, cùng tìm hết các cặp với ít lượt nhất.'}</div>
++    {vs ? <Scores items={[{ name: 'Bạn', n: st.scores?.[me] ?? 0 }, { name: pn, n: st.scores?.[partnerId] ?? 0 }]} />
++      : <Scores items={[{ name: 'Đã ghép', n: `${found}/${n / 2}` }, { name: 'Số lượt', n: st.tries }]} />}
++    <div className="gm-mem" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
++      {Array.from({ length: n }, (_, i) => {
++        const s = matched[i] ?? upMap.get(i), shown = s !== undefined
++        return <button key={i} type="button" className={`gm-mc ${matched[i] ? 'ok' : upMap.has(i) ? 'up' : ''}`} disabled={!playing || !mine || busy || !!matched[i]}
++          onClick={() => act('lb_flip', { p_i: i })} aria-label={shown ? `Ô ${i + 1}: ${s}` : `Ô ${i + 1}, đang úp`}>{shown ? s : ''}</button>
++      })}
++    </div>
++    {up.length === 2 && playing && <div className="gm-sub" role="status">Hai ô vừa lật không giống nhau. Chúng sẽ úp lại ở lượt kế tiếp.</div>}
++  </>
++}
+diff --git a/components/games/PhaThuyen.tsx b/components/games/PhaThuyen.tsx
+new file mode 100644
+index 0000000..b97a232
+--- /dev/null
++++ b/components/games/PhaThuyen.tsx
+@@ -0,0 +1,111 @@
++'use client'
++import { useMemo, useState } from 'react'
++import type { GameProps } from '@/lib/games/types'
++import { rnd } from '@/lib/games/content'
++
++type Ship = { len: number; r: number; c: number; d: 'h' | 'v' }
++type Placed = Ship & { idx: number }
++const SIZE = 10
++const key = (r: number, c: number) => `${r},${c}`
++const cellsOf = (s: Ship) => Array.from({ length: s.len }, (_, k) => [s.r + (s.d === 'v' ? k : 0), s.c + (s.d === 'h' ? k : 0)] as [number, number])
++const fits = (s: Ship, others: Placed[]) => {
++  const occ = new Set(others.flatMap(o => cellsOf(o).map(([r, c]) => key(r, c))))
++  return cellsOf(s).every(([r, c]) => r >= 0 && r < SIZE && c >= 0 && c < SIZE && !occ.has(key(r, c)))
++}
++const NAMES: Record<number, string> = { 5: 'Tàu sân bay', 4: 'Tàu chiến', 3: 'Tàu ngầm', 2: 'Tàu tí hon' }
++
++function Sea({ cell }: { cell: (r: number, c: number) => { cls?: string; text?: string; label: string; click?: () => void; off?: boolean } }) {
++  return <div className="gm-sea" style={{ ['--n' as any]: SIZE }} role="grid">
++    {Array.from({ length: SIZE * SIZE }, (_, i) => {
++      const r = Math.floor(i / SIZE), c = i % SIZE, x = cell(r, c)
++      return <button key={i} type="button" className={`gm-w ${x.cls ?? ''}`} disabled={x.off || !x.click} onClick={x.click} aria-label={x.label}>{x.text}</button>
++    })}
++  </div>
++}
++
++export default function PhaThuyen({ g, me, partnerId, pn, mine, secret, act, busy }: GameProps) {
++  const st = g.state
++  const fleet: number[] = st.fleet
++  const playing = g.status === 'playing'
++  const [placed, setPlaced] = useState<Placed[]>([])
++  const [dir, setDir] = useState<'h' | 'v'>('h')
++  const [hover, setHover] = useState<[number, number] | null>(null)
++  const nextIdx = fleet.findIndex((_, i) => !placed.some(p => p.idx === i))
++
++  const place = (r: number, c: number) => {
++    const at = placed.find(p => cellsOf(p).some(([a, b]) => a === r && b === c))
++    if (at) return setPlaced(placed.filter(p => p !== at))                 // chạm vào tàu đã đặt thì nhấc ra để đặt lại
++    if (nextIdx < 0) return
++    const s: Ship = { len: fleet[nextIdx], r, c, d: dir }
++    if (fits(s, placed)) setPlaced([...placed, { ...s, idx: nextIdx }])
++  }
++  const randomize = () => {
++    const out: Placed[] = []
++    fleet.forEach((len, idx) => {
++      for (let t = 0; t < 500; t++) {
++        const s: Ship = { len, r: rnd(SIZE), c: rnd(SIZE), d: rnd(2) ? 'h' : 'v' }
++        if (fits(s, out)) { out.push({ ...s, idx }); return }
++      }
++    })
++    setPlaced(out)
++  }
++  const preview = useMemo(() => {
++    if (!hover || nextIdx < 0) return null
++    const s: Ship = { len: fleet[nextIdx], r: hover[0], c: hover[1], d: dir }
++    return { cells: new Set(cellsOf(s).map(([r, c]) => key(r, c))), ok: fits(s, placed) }
++  }, [hover, nextIdx, dir, placed, fleet])
++
++  // ---------- Xếp tàu ----------
++  if (st.phase === 'setup') {
++    if (st.ready?.[me]) return <div className="k li"><b>Đội tàu của bạn đã sẵn sàng</b><div className="gm-sub">Đang chờ {pn} xếp tàu xong…</div></div>
++    const shipCells = new Map<string, number>(placed.flatMap(p => cellsOf(p).map(([r, c]) => [key(r, c), p.idx] as [string, number])))
++    return <>
++      <div className="gm-sub">Xếp đội tàu của bạn lên bàn. {pn} sẽ không nhìn thấy chúng. Chạm vào một ô để đặt tàu, chạm lại vào tàu đã đặt để nhấc ra.</div>
++      <div className="gm-row">
++        {fleet.map((len, i) => <span key={i} className={`pill ${placed.some(p => p.idx === i) ? 'on' : i === nextIdx ? 'on' : ''}`} style={{ opacity: placed.some(p => p.idx === i) ? .55 : 1 }}>
++          {NAMES[len] ?? 'Tàu'} ({len}){placed.some(p => p.idx === i) ? ' ✓' : ''}</span>)}
++      </div>
++      <div onMouseLeave={() => setHover(null)}>
++        <Sea cell={(r, c) => {
++          const k = key(r, c), inPrev = preview?.cells.has(k)
++          return { cls: shipCells.has(k) ? 'ship' : inPrev ? (preview!.ok ? 'prev' : 'bad') : '', label: `Hàng ${r + 1}, cột ${c + 1}${shipCells.has(k) ? ', có tàu' : ''}`, click: () => place(r, c) }
++        }} />
++      </div>
++      <div className="gm-row">
++        <button className="pill" onClick={() => setDir(dir === 'h' ? 'v' : 'h')}>Hướng: {dir === 'h' ? 'ngang ↔' : 'dọc ↕'}</button>
++        <button className="pill" onClick={randomize}>🎲 Xếp ngẫu nhiên</button>
++        <button className="pill" onClick={() => setPlaced([])} disabled={!placed.length}>Làm lại</button>
++      </div>
++      <button className="btn" disabled={busy || placed.length !== fleet.length}
++        onClick={() => act('pt_place', { p_ships: placed.map(({ len, r, c, d }) => ({ len, r, c, d })) })}>Sẵn sàng</button>
++    </>
++  }
++
++  // ---------- Đang đánh / đã xong ----------
++  const myShots: any[] = st.shots?.[me] ?? [], theirShots: any[] = st.shots?.[partnerId] ?? []
++  const shotAt = (arr: any[], r: number, c: number) => arr.find(s => s.r === r && s.c === c)
++  const sunkEnemy: any[] = st.sunk?.[partnerId] ?? [], sunkMine: any[] = st.sunk?.[me] ?? []
++  const sunkCells = new Set<string>(sunkEnemy.flatMap(s => s.cells.map(([r, c]: number[]) => key(r, c))))
++  const myShips: any[] = secret?.ships ?? st.reveal?.[me] ?? []
++  const myShipCells = new Set<string>(myShips.flatMap(s => s.cells.map(([r, c]: number[]) => key(r, c))))
++  const enemyReveal = new Set<string>((st.reveal?.[partnerId] ?? []).flatMap((s: any) => s.cells.map(([r, c]: number[]) => key(r, c))))
++  const hits = (a: any[]) => a.filter(s => s.h).length
++
++  return <>
++    <div className="gm-row gm-sub"><span>Tàu {pn} đã chìm: <b style={{ display: 'inline' }}>{sunkEnemy.length}/{fleet.length}</b></span><span>Tàu của bạn đã chìm: <b style={{ display: 'inline' }}>{sunkMine.length}/{fleet.length}</b></span></div>
++    <div><div className="gm-sub" style={{ marginBottom: 6 }}>Biển của {pn} {playing && mine ? '· chạm một ô để bắn' : ''}</div>
++      <Sea cell={(r, c) => {
++        const s = shotAt(myShots, r, c), k = key(r, c)
++        return {
++          cls: s ? (sunkCells.has(k) ? 'sunk' : s.h ? 'hit' : 'miss') : enemyReveal.has(k) ? 'ship' : '', text: s ? (s.h ? '✕' : '•') : '',
++          label: `Hàng ${r + 1}, cột ${c + 1}${s ? (s.h ? ', trúng' : ', trượt') : ''}`,
++          click: () => act('pt_fire', { p_r: r, p_c: c }), off: !playing || !mine || busy || !!s,
++        }
++      }} /></div>
++    <div><div className="gm-sub" style={{ marginBottom: 6 }}>Biển của bạn ({hits(theirShots)} lần {pn} bắn trúng)</div>
++      <Sea cell={(r, c) => {
++        const s = shotAt(theirShots, r, c), k = key(r, c), has = myShipCells.has(k)
++        return { cls: s ? (s.h ? 'hit' : 'miss') : has ? 'ship' : '', text: s ? (s.h ? '✕' : '•') : '', label: `Hàng ${r + 1}, cột ${c + 1}${has ? ', tàu của bạn' : ''}${s ? (s.h ? ', bị bắn trúng' : ', bị bắn trượt') : ''}`, off: true }
++      }} /></div>
++  </>
++}
+diff --git a/components/games/SoBiMat.tsx b/components/games/SoBiMat.tsx
+new file mode 100644
+index 0000000..2ceea78
+--- /dev/null
++++ b/components/games/SoBiMat.tsx
+@@ -0,0 +1,43 @@
++'use client'
++import { useState } from 'react'
++import type { GameProps } from '@/lib/games/types'
++
++const okCode = (s: string, n: number) => s.length === n && /^\d+$/.test(s) && new Set(s).size === n
++
++export default function SoBiMat({ g, me, partnerId, pn, mine, secret, act, busy }: GameProps) {
++  const st = g.state, n: number = st.len
++  const [v, setV] = useState(''); const [err, setErr] = useState('')
++  const clean = (s: string) => s.replace(/\D/g, '').slice(0, n)
++  const mySecret: string | undefined = secret?.code
++  const mine_g: any[] = st.guesses?.[me] ?? [], their_g: any[] = st.guesses?.[partnerId] ?? []
++  const row = (x: any, i: number) => <div key={i}><span>{x.g}</span><span>{x.b} đúng vị trí · {x.c} sai vị trí</span></div>
++
++  async function submit(fn: 'sb_set' | 'sb_guess') {
++    if (!okCode(v, n)) return setErr(`Nhập đúng ${n} chữ số, không trùng nhau`)
++    setErr('')
++    const r = await act(fn, fn === 'sb_set' ? { p_code: v } : { p_guess: v })
++    if (r.ok) setV('')
++  }
++  const input = (label: string, fn: 'sb_set' | 'sb_guess', btn: string) => <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++    <b>{label}</b>
++    <label className="k" style={{ padding: 0 }}><input className="gm-input" value={v} inputMode="numeric" autoComplete="off" maxLength={n} placeholder={'•'.repeat(n)} aria-label={label}
++      onChange={e => { setV(clean(e.target.value)); setErr('') }} onKeyDown={e => e.key === 'Enter' && submit(fn)} /></label>
++    {err && <div className="gm-err" role="alert">{err}</div>}
++    <button className="btn" disabled={busy || v.length !== n} onClick={() => submit(fn)}>{btn}</button>
++  </div>
++
++  return <>
++    <div className="gm-sub">Mỗi người nghĩ một số {n} chữ số, các chữ số khác nhau. “Đúng vị trí” là đúng số và đúng chỗ; “sai vị trí” là có số đó nhưng ở chỗ khác. Người đi trước đoán đúng thì người kia còn một lượt cuối.</div>
++    {mySecret && <div className="k pe">Số bí mật của bạn: <b style={{ display: 'inline', letterSpacing: '.25em' }}>{mySecret}</b></div>}
++    {st.phase === 'setup' && (st.ready?.[me]
++      ? <div className="k li"><b>Đã chốt số của bạn</b><div className="gm-sub">Đang chờ {pn} chọn số.</div></div>
++      : input(`Chọn số bí mật của bạn (${n} chữ số)`, 'sb_set', 'Chốt số'))}
++    {st.phase === 'play' && g.status === 'playing' && mine && input(`Đoán số của ${pn}`, 'sb_guess', 'Đoán')}
++    {st.phase === 'play' && g.status === 'playing' && !mine && <div className="k li"><div className="gm-sub">{pn} đang đoán…</div></div>}
++    {st.reveal && <div className="k pe"><b>Hai số bí mật</b><div className="gm-sub">Của bạn: {st.reveal[me]} · Của {pn}: {st.reveal[partnerId]}</div></div>}
++    {(mine_g.length > 0 || their_g.length > 0) && <div className="gm-cols">
++      <div><div className="gm-sub" style={{ marginBottom: 6 }}>Bạn đoán ({mine_g.length})</div><div className="gm-hist">{[...mine_g].reverse().map(row)}</div></div>
++      <div><div className="gm-sub" style={{ marginBottom: 6 }}>{pn} đoán ({their_g.length})</div><div className="gm-hist">{[...their_g].reverse().map(row)}</div></div>
++    </div>}
++  </>
++}
+diff --git a/components/games/ThatThach.tsx b/components/games/ThatThach.tsx
+new file mode 100644
+index 0000000..c1a57ef
+--- /dev/null
++++ b/components/games/ThatThach.tsx
+@@ -0,0 +1,55 @@
++'use client'
++import { useState } from 'react'
++import type { GameProps } from '@/lib/games/types'
++import { CARDS, LEVELS, rnd, type Card } from '@/lib/games/content'
++
++export default function ThatThach({ g, me, pn, mine, act, busy }: GameProps) {
++  const st = g.state
++  const playing = g.status === 'playing'
++  const [lvl, setLvl] = useState<1 | 2 | 3>(1)
++  const [card, setCard] = useState<Card | null>(null)
++  const [own, setOwn] = useState(''); const [ownType, setOwnType] = useState<'truth' | 'dare'>('truth')
++  const draw = (t: 'truth' | 'dare') => {
++    const pool = CARDS.filter(c => c.t === t && c.lvl === lvl && c.text !== card?.text)
++    setCard(pool[rnd(pool.length)])
++  }
++  const log: any[] = st.log ?? []
++  const label = (t: string) => t === 'truth' ? 'Thật' : 'Thách'
++  const send = async (c: { t: string; text: string }) => { const r = await act('td_card', { p_card: c }); if (r.ok) { setCard(null); setOwn('') } }
++
++  return <>
++    <div className="gm-sub">Lần lượt ra đề cho nhau: người ra đề chọn “Thật” (một câu hỏi) hoặc “Thách” (một thử thách dễ thương). Làm xong thì đổi vai. Đã hoàn thành {st.count} thẻ.</div>
++
++    {playing && st.phase === 'pick' && (mine
++      ? <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++        <b>Đến lượt bạn ra đề cho {pn}</b>
++        <div className="gm-chips" role="group" aria-label="Mức độ">{([1, 2, 3] as const).map(l => <button key={l} className={`pill ${lvl === l ? 'on' : ''}`} aria-pressed={lvl === l} onClick={() => { setLvl(l); setCard(null) }}>{LEVELS[l]}</button>)}</div>
++        <div className="gm-row"><button className="btn" style={{ flex: 1 }} onClick={() => draw('truth')}>Thật 💬</button><button className="btn" style={{ flex: 1 }} onClick={() => draw('dare')}>Thách 🎯</button></div>
++        {card && <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++          <div className="gm-sub">{label(card.t)} · {LEVELS[card.lvl]}</div><div className="gm-big">{card.text}</div>
++          <button className="btn" disabled={busy} onClick={() => send(card)}>Gửi cho {pn}</button>
++          <button className="pill" onClick={() => draw(card.t)}>Đổi thẻ khác</button>
++        </div>}
++        <details><summary style={{ cursor: 'pointer', fontWeight: 700 }}>Hoặc tự viết đề</summary>
++          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
++            <div className="gm-chips">{(['truth', 'dare'] as const).map(t => <button key={t} className={`pill ${ownType === t ? 'on' : ''}`} onClick={() => setOwnType(t)}>{label(t)}</button>)}</div>
++            <label className="k"><input value={own} maxLength={240} onChange={e => setOwn(e.target.value)} placeholder="Viết câu hỏi hoặc thử thách của bạn…" aria-label="Đề tự viết" /></label>
++            <button className="btn" disabled={busy || !own.trim()} onClick={() => send({ t: ownType, text: own.trim() })}>Gửi đề này</button>
++          </div></details>
++      </div>
++      : <div className="k li"><b>{pn} đang chọn đề cho bạn…</b></div>)}
++
++    {playing && st.phase === 'card' && st.card && (st.target === me
++      ? <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++        <div className="gm-sub">{pn} ra đề cho bạn · {label(st.card.t)}</div><div className="gm-big">{st.card.text}</div>
++        <button className="btn" disabled={busy} onClick={() => act('td_done', { p_skip: false })}>Xong rồi ✓</button>
++        <button className="pill" disabled={busy} onClick={() => act('td_done', { p_skip: true })}>Bỏ qua thẻ này</button>
++      </div>
++      : <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}><div className="gm-sub">Bạn đã gửi cho {pn} · {label(st.card.t)}</div><div className="gm-big">{st.card.text}</div><div className="gm-sub">Đang chờ {pn}…</div></div>)}
++
++    {log.length > 0 && <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++      <div className="gm-sub">Gần đây</div>
++      {log.map((l, i) => <div key={i} className="k"><div className="gm-sub">{l.who === me ? 'Bạn' : pn} · {label(l.t)} {l.skip ? '· đã bỏ qua' : '✓'}</div><div style={{ fontSize: 15 }}>{l.text}</div></div>)}
++    </div>}
++  </>
++}
+diff --git a/components/games/VeDoan.tsx b/components/games/VeDoan.tsx
+new file mode 100644
+index 0000000..cc6d5f8
+--- /dev/null
++++ b/components/games/VeDoan.tsx
+@@ -0,0 +1,138 @@
++'use client'
++import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
++import type { GameProps } from '@/lib/games/types'
++import { WORDS, rnd, sample } from '@/lib/games/content'
++import { Scores } from './ui'
++
++type Stroke = { id: string; color: string; w: number; pts: [number, number][] }
++const COLORS = ['#3B1A2B', '#C45379', '#E58AA8', '#B8925A', '#4A7FB0', '#4C9A6A', '#F2B84B']
++const SIZES = [3, 7, 14]
++
++export default function VeDoan({ g, me, partnerId, pn, secret, act, busy, ch }: GameProps) {
++  const st = g.state, round: number = st.round
++  const playing = g.status === 'playing'
++  const iDraw = st.drawer === me
++  const drawing = st.phase === 'draw' && playing
++  const cv = useRef<HTMLCanvasElement>(null)
++  const strokes = useRef<Stroke[]>([])
++  const cur = useRef<Stroke | null>(null)
++  const queue = useRef<[number, number][]>([])
++  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
++  const [color, setColor] = useState(COLORS[0]); const [size, setSize] = useState(SIZES[1])
++  const [guess, setGuess] = useState(''); const [fb, setFb] = useState('')
++  const [custom, setCustom] = useState(''); const [seed, setSeed] = useState(0)
++  const suggestions = useMemo(() => sample(WORDS, 3), [round, seed])    // eslint-disable-line react-hooks/exhaustive-deps
++
++  const render = useCallback(() => {
++    const c = cv.current; if (!c) return
++    const dpr = window.devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight
++    if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr) }
++    const x = c.getContext('2d'); if (!x) return
++    x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, W, H); x.lineCap = 'round'; x.lineJoin = 'round'
++    for (const s of strokes.current) {
++      x.strokeStyle = s.color; x.lineWidth = s.w * W / 400; x.beginPath()
++      s.pts.forEach(([px, py], i) => i ? x.lineTo(px * W, py * H) : x.moveTo(px * W, py * H))
++      if (s.pts.length === 1) x.lineTo(s.pts[0][0] * W + 0.01, s.pts[0][1] * H)
++      x.stroke()
++    }
++  }, [])
++
++  useEffect(() => { strokes.current = []; render(); setFb(''); setGuess('') }, [round, render])
++  useEffect(() => { const f = () => render(); window.addEventListener('resize', f); render(); return () => window.removeEventListener('resize', f) }, [render])
++
++  // Nhận nét vẽ từ người kia
++  useEffect(() => ch.listen((ev, p) => {
++    if (ev === 'stroke' && p.round === round) {
++      let s = strokes.current.find(x => x.id === p.id)
++      if (!s) { s = { id: p.id, color: p.color, w: p.w, pts: [] }; strokes.current.push(s) }
++      s.pts.push(...(p.pts as [number, number][])); render()
++    } else if (ev === 'clear' && p.round === round) { strokes.current = []; render() }
++    else if (ev === 'sync_req' && iDraw) ch.send('sync', { round, strokes: strokes.current })
++    else if (ev === 'sync' && !iDraw && p.round === round) { strokes.current = p.strokes ?? []; render() }
++  }), [ch, round, iDraw, render])
++  // Người xem vào muộn hoặc vào lại thì xin vẽ lại từ đầu
++  useEffect(() => {
++    if (st.phase === 'pick') return
++    const ask = () => { if (!iDraw) ch.send('sync_req', { round }) }
++    const t1 = setTimeout(ask, 800), t2 = setTimeout(ask, 3000)
++    return () => { clearTimeout(t1); clearTimeout(t2) }
++  }, [round, st.phase, iDraw, ch])
++  useEffect(() => { if (ch.partnerHere) { if (iDraw) ch.send('sync', { round, strokes: strokes.current }); else ch.send('sync_req', { round }) } }, [ch.partnerHere])  // eslint-disable-line react-hooks/exhaustive-deps
++
++  const flush = () => {
++    timer.current = null
++    if (!cur.current || !queue.current.length) return
++    ch.send('stroke', { round, id: cur.current.id, color: cur.current.color, w: cur.current.w, pts: queue.current })
++    queue.current = []
++  }
++  const pos = (e: React.PointerEvent): [number, number] => {
++    const r = cv.current!.getBoundingClientRect()
++    return [Math.round(((e.clientX - r.left) / r.width) * 1000) / 1000, Math.round(((e.clientY - r.top) / r.height) * 1000) / 1000]
++  }
++  const down = (e: React.PointerEvent) => {
++    if (!iDraw || !drawing) return
++    cv.current!.setPointerCapture(e.pointerId)
++    const p = pos(e)
++    cur.current = { id: `${Date.now().toString(36)}${rnd(1e6).toString(36)}`, color, w: size, pts: [p] }
++    strokes.current.push(cur.current); queue.current = [p]; render(); flush()
++  }
++  const move = (e: React.PointerEvent) => {
++    if (!cur.current) return
++    const p = pos(e); cur.current.pts.push(p); queue.current.push(p); render()
++    if (!timer.current) timer.current = setTimeout(flush, 60)
++  }
++  const up = () => { if (!cur.current) return; if (timer.current) clearTimeout(timer.current); flush(); cur.current = null }
++  const clear = () => { strokes.current = []; render(); ch.send('clear', { round }) }
++  const undo = () => { strokes.current = strokes.current.slice(0, -1); render(); ch.send('sync', { round, strokes: strokes.current }) }
++
++  async function submit() {
++    const t = guess.trim(); if (!t) return
++    const r = await act('vd_guess', { p_text: t })
++    if (r.ok) { setFb(r.data ? '' : 'Chưa đúng, thử lại nhé!'); setGuess('') }
++  }
++  const hint = (st.wl as number[] | null)?.map(n => Array.from({ length: n }, () => '＿').join(' ')).join('   ')
++
++  return <>
++    <Scores items={[{ name: 'Bạn', n: st.scores?.[me] ?? 0 }, { name: pn, n: st.scores?.[partnerId] ?? 0 }]} />
++    <div className="gm-sub">Lượt {round}/{st.rounds}. Người vẽ không được viết chữ. Đoán đúng được 1 điểm; hai đứa thay nhau vẽ.</div>
++
++    {st.phase === 'pick' && (iDraw
++      ? <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++        <b>Chọn từ để vẽ cho {pn} đoán</b>
++        <div className="gm-chips">{suggestions.map(w => <button key={w} className="pill on" disabled={busy} onClick={() => act('vd_set_word', { p_word: w })}>{w}</button>)}
++          <button className="pill" onClick={() => setSeed(s => s + 1)}>🔄 Gợi ý khác</button></div>
++        <div className="row"><label className="k"><input value={custom} maxLength={30} onChange={e => setCustom(e.target.value)} placeholder="Hoặc tự nghĩ một từ…" aria-label="Từ tự nghĩ" /></label>
++          <button className="rb" disabled={busy || !custom.trim()} onClick={() => act('vd_set_word', { p_word: custom })}>Vẽ</button></div>
++      </div>
++      : <div className="k li"><b>{pn} đang chọn từ để vẽ…</b></div>)}
++
++    {st.phase !== 'pick' && <>
++      <canvas ref={cv} className="gm-canvas" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
++        role="img" aria-label={iDraw ? 'Khung vẽ của bạn' : `Hình ${pn} đang vẽ`} />
++      {iDraw && st.phase === 'draw' && playing && <>
++        <div className="k pk gm-big">Từ cần vẽ: <b style={{ display: 'inline' }}>{secret?.word}</b></div>
++        <div className="gm-colors" role="group" aria-label="Màu bút">
++          {COLORS.map(c => <button key={c} className={`gm-sw ${color === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setColor(c)} aria-label={`Màu ${c}`} />)}
++          <button className={`gm-sw ${color === '#FFFFFF' ? 'on' : ''}`} style={{ background: '#fff' }} onClick={() => setColor('#FFFFFF')} aria-label="Cục tẩy">🧽</button>
++        </div>
++        <div className="gm-row">
++          {SIZES.map(s => <button key={s} className={`pill ${size === s ? 'on' : ''}`} onClick={() => setSize(s)}>{s < 5 ? 'Nét mảnh' : s < 10 ? 'Vừa' : 'Dày'}</button>)}
++          <button className="pill" onClick={undo}>↩ Hoàn tác</button><button className="pill" onClick={clear}>Xóa hết</button>
++        </div>
++      </>}
++      {!iDraw && st.phase === 'draw' && playing && <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++        <div className="gm-word" aria-label="Số chữ của từ cần đoán">{hint}</div>
++        <div className="row"><label className="k"><input value={guess} onChange={e => { setGuess(e.target.value); setFb('') }} onKeyDown={e => e.key === 'Enter' && submit()} placeholder="Đoán xem…" aria-label="Đáp án của bạn" maxLength={40} autoComplete="off" /></label>
++          <button className="rb" disabled={busy || !guess.trim()} onClick={submit}>Đoán</button></div>
++        {fb && <div className="gm-sub" role="status">{fb}</div>}
++        {(st.guesses as string[])?.length > 0 && <div className="gm-chips">{[...st.guesses].reverse().map((t: string, i: number) => <span key={i} className="pill" style={{ opacity: .7 }}>{t}</span>)}</div>}
++      </div>}
++      {iDraw && st.phase === 'draw' && (st.guesses as string[])?.length > 0 && <div className="gm-sub">{pn} đã đoán: {[...st.guesses].reverse().slice(0, 5).join(', ')}</div>}
++      {st.phase === 'draw' && playing && <button className="btn ghost" disabled={busy} onClick={() => { if (confirm('Bỏ qua từ này và xem đáp án? Lượt này sẽ không ai được điểm.')) act('vd_giveup') }}>Bỏ qua từ này</button>}
++      {st.phase === 'over' && st.last && <div className="k pe" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++        <div className="gm-big">{st.last.ok ? (iDraw ? `${pn} đã đoán đúng! 🎉` : 'Bạn đoán đúng rồi! 🎉') : 'Hết lượt, chưa ai đoán được'}<br />Từ đó là: <b style={{ display: 'inline' }}>{st.last.word}</b></div>
++        {playing && <button className="btn" disabled={busy} onClick={() => act('vd_next')}>{round >= st.rounds ? 'Xem kết quả' : 'Lượt tiếp theo (đổi người vẽ)'}</button>}
++      </div>}
++    </>}
++  </>
++}
+diff --git a/components/games/XiDach.tsx b/components/games/XiDach.tsx
+new file mode 100644
+index 0000000..4292fa6
+--- /dev/null
++++ b/components/games/XiDach.tsx
+@@ -0,0 +1,47 @@
++'use client'
++import type { GameProps } from '@/lib/games/types'
++import { xdEval, xdLabel } from '@/lib/games/cards'
++import { PCard, Scores } from './ui'
++
++export default function XiDach({ g, me, partnerId, pn, secret, act, busy }: GameProps) {
++  const st = g.state
++  const playing = g.status === 'playing'
++  const show = st.phase === 'show' || g.status === 'done'
++  const last = st.last
++  const iAmDealer = st.dealer === me
++  const myTurn = playing && st.phase === 'play' && st.turn === me
++  const myCards: number[] = secret?.cards ?? []
++  const ev = myCards.length ? xdEval(myCards) : null
++  const need = iAmDealer ? 15 : 16
++  const canStand = !!ev && (ev.kind !== 'diem' || ev.pts >= need)
++  const canHit = !!ev && myCards.length < 5 && ev.kind !== 'quac' && ev.kind !== 'nguli'
++  const theirCount: number = st.counts?.[partnerId] ?? 2
++
++  return <>
++    <div className="gm-sub">Rút bài sao cho gần 21 điểm nhất mà không quắc. J, Q, K = 10; A tính 1, 10 hoặc 11 tùy số lá. Con dằn khi từ 16 điểm, cái dằn khi từ 15 điểm. Xì bàng &gt; xì dách &gt; ngũ linh &gt; điểm cao. Ván {st.round}/{st.rounds}.</div>
++    <Scores items={[{ name: 'Bạn', n: st.scores?.[me] ?? 0, sub: iAmDealer ? 'Cái' : 'Con' }, { name: pn, n: st.scores?.[partnerId] ?? 0, sub: iAmDealer ? 'Con' : 'Cái' }]} />
++
++    {show && last ? <>
++      {[[pn, partnerId], ['Bạn', me]].map(([name, id]) => <div key={id} className={`k ${last.winner === id ? 'pe' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++        <b style={{ fontSize: 16 }}>{name}: {xdLabel(last.ev[id])} {last.winner === id ? '🏆' : ''}</b>
++        <div className="gm-hand">{last.hands[id].map((c: number, i: number) => <PCard key={i} c={c} />)}</div>
++      </div>)}
++      <div className="k li"><b>{last.winner === me ? 'Bạn thắng ván này 🎉' : last.winner ? `${pn} thắng ván này` : 'Ván này hòa'}</b></div>
++      {playing && <button className="btn" disabled={busy} onClick={() => act('xd_next')}>Ván tiếp theo (đổi cái)</button>}
++    </> : <>
++      <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++        <b style={{ fontSize: 16 }}>Bài của {pn} ({theirCount} lá) {st.stood?.[partnerId] ? '· đã dằn' : ''}</b>
++        <div className="gm-hand">{Array.from({ length: theirCount }, (_, i) => <PCard key={i} down sm />)}</div>
++      </div>
++      <div className="k pk" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++        <b style={{ fontSize: 16 }}>Bài của bạn {ev ? `· ${xdLabel(ev)}` : ''} {st.stood?.[me] ? '· đã dằn' : ''}</b>
++        <div className="gm-hand">{myCards.map((c, i) => <PCard key={i} c={c} />)}</div>
++        {myTurn ? <div className="gm-row">
++          <button className="btn" style={{ flex: 1 }} disabled={busy || !canHit} onClick={() => act('xd_hit')}>Rút thêm</button>
++          <button className="btn ghost" style={{ flex: 1 }} disabled={busy || !canStand} onClick={() => act('xd_stand')}>Dằn</button>
++        </div> : <div className="gm-sub" role="status">{st.stood?.[me] ? `Bạn đã dằn, chờ ${pn}…` : `Chờ ${pn}…`}</div>}
++        {myTurn && !canStand && ev && <div className="gm-sub">Chưa đủ tuổi: cần từ {need} điểm mới được dằn.</div>}
++      </div>
++    </>}
++  </>
++}
+diff --git a/components/games/ui.tsx b/components/games/ui.tsx
+new file mode 100644
+index 0000000..136dcb9
+--- /dev/null
++++ b/components/games/ui.tsx
+@@ -0,0 +1,11 @@
++'use client'
++import { isRed, rankOf, suitOf } from '@/lib/games/cards'
++
++export function PCard({ c, down, sm, onClick, label }: { c?: number; down?: boolean; sm?: boolean; onClick?: () => void; label?: string }) {
++  const cls = `gm-pc ${sm ? 'sm' : ''} ${down || c === undefined ? 'back' : isRed(c) ? 'red' : ''} ${onClick ? 'tap' : ''}`
++  if (down || c === undefined) return <button type="button" className={cls} onClick={onClick} disabled={!onClick} aria-label={label ?? 'Lá bài úp'}>🂠</button>
++  return <button type="button" className={cls} onClick={onClick} disabled={!onClick} aria-label={`${rankOf(c)} ${['bích', 'chuồn', 'rô', 'cơ'][Math.floor(c / 13)]}`}><span>{rankOf(c)}</span><small>{suitOf(c)}</small></button>
++}
++
++export const Scores = ({ items }: { items: { name: string; n: number | string; sub?: string }[] }) =>
++  <div className="gm-score">{items.map(i => <div key={i.name}><div className="gm-sub">{i.name}</div><b>{i.n}</b>{i.sub && <div className="gm-sub">{i.sub}</div>}</div>)}</div>
+diff --git a/lib/games/api.ts b/lib/games/api.ts
+new file mode 100644
+index 0000000..ce33d6b
+--- /dev/null
++++ b/lib/games/api.ts
+@@ -0,0 +1,30 @@
++import { sb } from '@/lib/supabase'
++import { KINDS, type Game, type GameKind } from './types'
++import { pickQuestions } from './content'
++import { notifyPartner } from '@/lib/push'
++
++// Tùy chọn mặc định khi bắt đầu một ván mới
++export function defaultOpts(kind: GameKind): Record<string, unknown> {
++  if (kind === 'hieu_nhau') return { qs: pickQuestions(10) }
++  return {}
++}
++// Chơi lại với cùng tùy chọn của ván vừa xong
++export function replayOpts(g: Game): Record<string, unknown> {
++  const s = g.state ?? {}
++  switch (g.kind) {
++    case 'caro': return { size: s.size }
++    case 'so_bi_mat': return { len: s.len }
++    case 'lat_bai': return { pairs: (s.n ?? 16) / 2, mode: s.mode }
++    case 'bai_cao': case 'xi_dach': case 've_doan': return { rounds: s.rounds }
++    case 'hieu_nhau': return { qs: pickQuestions(10) }
++    default: return {}
++  }
++}
++// Tạo ván mới; trả về id hoặc thông báo lỗi
++export async function createGame(kind: GameKind, opts: Record<string, unknown> = {}): Promise<{ id?: string; error?: string }> {
++  const r = await sb.rpc('game_create', { p_kind: kind, p_opts: opts })
++  if (r.error) return { error: r.error.message }
++  const id = String(r.data)
++  notifyPartner('game', `Rủ bạn chơi ${KINDS[kind].name}, vào xem nhé!`, id)
++  return { id }
++}
+diff --git a/lib/games/cards.ts b/lib/games/cards.ts
+new file mode 100644
+index 0000000..c6cd865
+--- /dev/null
++++ b/lib/games/cards.ts
+@@ -0,0 +1,31 @@
++// Bộ bài 52 lá, mã hóa 0..51 giống máy chủ: hạng = số % 13 (0 = A, 1..8 = 2..9, 9 = 10, 10 = J, 11 = Q, 12 = K), chất = số / 13 (♠ ♣ ♦ ♥).
++export const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
++export const SUITS = ['♠', '♣', '♦', '♥']
++export const rankOf = (c: number) => RANKS[c % 13]
++export const suitOf = (c: number) => SUITS[Math.floor(c / 13)]
++export const isRed = (c: number) => Math.floor(c / 13) >= 2
++export const cardName = (c: number) => rankOf(c) + suitOf(c)
++
++// Điểm bài cào để HIỂN THỊ (máy chủ mới là nơi quyết định thắng thua). 10 = ba cào (3 lá J/Q/K).
++export function baiCaoPts(cards: number[]): number {
++  if (cards.length === 3 && cards.every(c => c % 13 >= 10)) return 10
++  return cards.reduce((s, c) => s + (c % 13 === 0 ? 1 : c % 13 >= 9 ? 10 : (c % 13) + 1), 0) % 10
++}
++export const baiCaoLabel = (p: number) => p === 10 ? 'Ba cào!' : p === 0 ? '0 nút (bù)' : `${p} nút`
++
++export type XdEval = { n: number; pts: number; kind: 'xibang' | 'xidach' | 'nguli' | 'quac' | 'diem' }
++// Giống _xd_eval trong phase24.sql
++export function xdEval(cards: number[]): XdEval {
++  const n = cards.length
++  let base = 0, k = 0
++  for (const c of cards) { const r = c % 13; if (r === 0) k++; else base += Math.min(r + 1, 10) }
++  const opts = n <= 2 ? [1, 11] : n === 3 ? [1, 10, 11] : n === 4 ? [1, 10] : [1]
++  let totals = [base]
++  for (let i = 0; i < k; i++) totals = totals.flatMap(t => opts.map(d => t + d))
++  const ok = totals.filter(t => t <= 21)
++  const pts = ok.length ? Math.max(...ok) : Math.min(...totals)
++  const kind: XdEval['kind'] = n === 2 && k === 2 ? 'xibang' : n === 2 && k === 1 && base === 10 ? 'xidach' : n === 5 && pts <= 21 ? 'nguli' : pts > 21 ? 'quac' : 'diem'
++  return { n, pts, kind }
++}
++export const xdLabel = (e: XdEval) =>
++  e.kind === 'xibang' ? 'Xì bàng!' : e.kind === 'xidach' ? 'Xì dách!' : e.kind === 'nguli' ? 'Ngũ linh!' : e.kind === 'quac' ? `Quắc (${e.pts})` : `${e.pts} điểm`
+diff --git a/lib/games/content.ts b/lib/games/content.ts
+new file mode 100644
+index 0000000..f67cea4
+--- /dev/null
++++ b/lib/games/content.ts
+@@ -0,0 +1,113 @@
++// Nội dung tiếng Việt cho các game. Thêm/sửa tự do; không cần đổi gì ở máy chủ.
++export type Question = { q: string; o: string[] }
++
++export const QUESTIONS: Question[] = [
++  { q: 'Bữa sáng bạn thích nhất?', o: ['Phở', 'Bánh mì', 'Xôi', 'Bún hoặc cháo'] },
++  { q: 'Cuối tuần bạn thích làm gì nhất?', o: ['Nằm dài ở nhà', 'Đi cà phê', 'Ra ngoài trời', 'Ăn uống dạo phố'] },
++  { q: 'Nơi nghỉ dưỡng mơ ước của bạn?', o: ['Biển', 'Núi', 'Thành phố nhộn nhịp', 'Làng quê yên tĩnh'] },
++  { q: 'Bạn là người như thế nào?', o: ['Chim sớm', 'Cú đêm', 'Tùy ngày', 'Ngủ là chân ái'] },
++  { q: 'Đồ uống yêu thích của bạn?', o: ['Cà phê', 'Trà sữa', 'Nước ép hoặc sinh tố', 'Trà hoặc nước lọc'] },
++  { q: 'Thể loại phim bạn hay xem?', o: ['Tình cảm', 'Hành động', 'Kinh dị', 'Hài'] },
++  { q: 'Khi buồn bạn thường làm gì?', o: ['Ngủ một giấc', 'Ăn thật nhiều', 'Nghe nhạc một mình', 'Kể cho ai đó nghe'] },
++  { q: 'Món quà bạn thích nhận nhất?', o: ['Quà tự tay làm', 'Đồ dùng thiết thực', 'Một bữa ăn ngon', 'Lời nhắn thật dài'] },
++  { q: 'Mùa bạn yêu thích?', o: ['Xuân', 'Hạ', 'Thu', 'Đông'] },
++  { q: 'Đồ ăn vặt bạn khó từ chối nhất?', o: ['Đồ ngọt', 'Snack', 'Trái cây', 'Đồ chiên hoặc nướng'] },
++  { q: 'Kỳ nghỉ mơ ước của bạn?', o: ['Đi nước ngoài', 'Phượt trong nước', 'Resort thư giãn', 'Ở nhà không làm gì'] },
++  { q: 'Cách bạn thể hiện tình cảm nhiều nhất?', o: ['Lời nói', 'Chăm sóc bằng hành động', 'Tặng quà', 'Dành thời gian bên nhau', 'Ôm và chạm nhẹ'] },
++  { q: 'Điều bạn sợ nhất trong số này?', o: ['Độ cao', 'Côn trùng, bò sát', 'Bóng tối, ma', 'Cô đơn'] },
++  { q: 'Bữa tối lý tưởng của bạn?', o: ['Nhà hàng sang trọng', 'Quán vỉa hè', 'Tự nấu ở nhà', 'Lẩu hoặc nướng'] },
++  { q: 'Việc đầu tiên bạn làm khi thức dậy?', o: ['Cầm điện thoại', 'Uống nước', 'Vệ sinh cá nhân', 'Nằm thêm một lát'] },
++  { q: 'Buổi hẹn hò bạn thích nhất?', o: ['Xem phim', 'Dạo công viên, picnic', 'Chơi game, board game', 'Ăn uống cùng nhau'] },
++  { q: 'Bạn thích thú cưng nào nhất?', o: ['Mèo', 'Chó', 'Cả hai', 'Không nuôi'] },
++  { q: 'Bạn tự thấy mình?', o: ['Hướng nội', 'Hơi hướng nội', 'Hơi hướng ngoại', 'Hướng ngoại'] },
++  { q: 'Điều làm bạn bực nhất?', o: ['Phải chờ đợi', 'Ồn ào', 'Bừa bộn', 'Bị đánh thức'] },
++  { q: 'Siêu năng lực bạn muốn có?', o: ['Bay', 'Đọc suy nghĩ', 'Dừng thời gian', 'Dịch chuyển tức thời'] },
++  { q: 'Trúng số bạn sẽ làm gì đầu tiên?', o: ['Du lịch vòng quanh', 'Mua nhà', 'Gửi tiết kiệm', 'Chia cho người thân'] },
++  { q: 'Bạn ăn cay thế nào?', o: ['Không ăn được cay', 'Cay vừa', 'Cay nhiều', 'Càng cay càng thích'] },
++  { q: 'Cách bạn xả stress?', o: ['Vận động', 'Xem phim, series', 'Đi mua sắm', 'Ăn món ngon'] },
++  { q: 'Sau một ngày dài bạn cần gì nhất?', o: ['Một cái ôm', 'Yên tĩnh một mình', 'Bữa ăn ngon', 'Được trò chuyện'] },
++  { q: 'Thời điểm trong ngày bạn thích nhất?', o: ['Sáng sớm', 'Buổi trưa', 'Chiều tà', 'Đêm khuya'] },
++  { q: 'Loại nhạc bạn nghe nhiều nhất?', o: ['Nhạc trẻ Việt', 'Ballad', 'Nhạc nước ngoài', 'Nhạc không lời, lofi'] },
++  { q: 'Khi đi chơi bạn là người?', o: ['Lên lịch trình chi tiết', 'Thích tùy hứng', 'Nhờ người khác lo', 'Chỉ cần được đi'] },
++  { q: 'Phong cách ăn mặc của bạn?', o: ['Thoải mái', 'Lịch sự', 'Dễ thương', 'Cá tính'] },
++  { q: 'Đi du lịch bạn thích ở đâu?', o: ['Khách sạn tiện nghi', 'Homestay', 'Lều trại', 'Nhà người quen'] },
++  { q: 'Lời tỏ tình bạn thấy ấn tượng nhất?', o: ['Bất ngờ lãng mạn', 'Nhắn tin nhẹ nhàng', 'Nói thẳng trực tiếp', 'Thư tay'] },
++  { q: 'Khoảnh khắc ngọt ngào nhất với bạn?', o: ['Cùng nấu ăn', 'Cùng đi dạo', 'Nắm tay', 'Nhắn tin trước khi ngủ'] },
++  { q: 'Năm năm tới bạn mong điều gì nhất?', o: ['Sự nghiệp vững vàng', 'Một mái ấm', 'Đi được nhiều nơi', 'Bình yên giản dị'] },
++  { q: 'Ngày mưa bạn thích làm gì?', o: ['Cà phê và đọc sách', 'Ngủ nướng', 'Ra ngoài tắm mưa', 'Xem phim ở nhà'] },
++  { q: 'Điều bạn muốn người ấy làm nhiều hơn?', o: ['Nhắn tin', 'Gặp mặt', 'Ôm', 'Khen ngợi'] },
++]
++
++// Chọn ngẫu nhiên n câu không trùng, đảo thứ tự các lựa chọn không làm (giữ nguyên để dễ đọc)
++export function pickQuestions(n: number): Question[] {
++  const a = [...QUESTIONS]
++  for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1);[a[i], a[j]] = [a[j], a[i]] }
++  return a.slice(0, n)
++}
++
++// Số nguyên ngẫu nhiên đều trong [0, n), dùng bộ sinh số của trình duyệt (loại bỏ lệch modulo)
++export function rnd(n: number): number {
++  const lim = Math.floor(0x100000000 / n) * n, b = new Uint32Array(1)
++  do { crypto.getRandomValues(b) } while (b[0] >= lim)
++  return b[0] % n
++}
++export const sample = <T,>(a: T[], k: number): T[] => {
++  const x = [...a], out: T[] = []
++  while (out.length < k && x.length) out.push(x.splice(rnd(x.length), 1)[0])
++  return out
++}
++
++export const WORDS = [
++  'con mèo', 'con chó', 'ngôi nhà', 'cái cây', 'mặt trời', 'trái tim', 'bánh mì', 'ly trà sữa', 'xe đạp', 'máy bay', 'con cá', 'bông hoa',
++  'cái ô', 'điện thoại', 'cầu vồng', 'con voi', 'nón lá', 'áo dài', 'đôi giày', 'ngôi sao', 'trăng khuyết', 'quả dưa hấu', 'con ếch', 'cây đàn',
++  'chiếc thuyền', 'kem ốc quế', 'tô phở', 'hoa sen', 'con rồng', 'cái ghế', 'quạt máy', 'con gà', 'đèn lồng', 'ly cà phê', 'con bướm', 'xe máy',
++  'đồng hồ', 'nhẫn cưới', 'hoa hồng', 'bó hoa', 'hộp quà', 'bánh sinh nhật', 'đôi dép', 'vali du lịch', 'lều trại', 'pháo hoa', 'bữa tối nến',
++  'cặp đôi ôm nhau', 'gấu bông', 'con chim',
++]
++
++export type Card = { t: 'truth' | 'dare'; lvl: 1 | 2 | 3; text: string }
++export const LEVELS: Record<number, string> = { 1: 'Nhẹ nhàng', 2: 'Thân mật', 3: 'Sâu sắc' }
++export const CARDS: Card[] = [
++  { t: 'truth', lvl: 1, text: 'Món ăn nào bạn thấy ngon nhất khi hai đứa cùng ăn?' },
++  { t: 'truth', lvl: 1, text: 'Điều gì ở mình khiến bạn buồn cười nhất?' },
++  { t: 'truth', lvl: 1, text: 'Bộ phim hay bài hát nào làm bạn nhớ đến mình?' },
++  { t: 'truth', lvl: 1, text: 'Nếu cuối tuần này được đi đâu đó cùng nhau, bạn chọn đâu?' },
++  { t: 'truth', lvl: 1, text: 'Thói quen nhỏ nào của mình bạn thấy dễ thương nhất?' },
++  { t: 'truth', lvl: 1, text: 'Bạn đã từng giấu mình chuyện nhỏ nào chưa, kể thử nhé?' },
++  { t: 'truth', lvl: 2, text: 'Lần đầu gặp mình, bạn đã nghĩ gì?' },
++  { t: 'truth', lvl: 2, text: 'Khoảnh khắc nào bạn thấy mình thật sự rung động?' },
++  { t: 'truth', lvl: 2, text: 'Có điều gì bạn muốn mình làm nhiều hơn mà chưa dám nói?' },
++  { t: 'truth', lvl: 2, text: 'Kỷ niệm của hai đứa nào bạn muốn lặp lại nhất?' },
++  { t: 'truth', lvl: 2, text: 'Bạn hình dung buổi hẹn hò hoàn hảo của hai đứa thế nào?' },
++  { t: 'truth', lvl: 2, text: 'Lúc nào bạn thấy nhớ mình nhất trong ngày?' },
++  { t: 'truth', lvl: 3, text: 'Điều gì ở hai đứa khiến bạn thấy biết ơn nhất?' },
++  { t: 'truth', lvl: 3, text: 'Bạn mong hai đứa sẽ như thế nào sau năm năm nữa?' },
++  { t: 'truth', lvl: 3, text: 'Có lúc nào bạn thấy chưa được mình hiểu đúng không?' },
++  { t: 'truth', lvl: 3, text: 'Bạn muốn mình ủng hộ bạn nhiều hơn ở điều gì?' },
++  { t: 'truth', lvl: 3, text: 'Điều bạn tự hào nhất về mối quan hệ của hai đứa?' },
++  { t: 'truth', lvl: 3, text: 'Một nỗi lo nhỏ bạn chưa kể với mình là gì?' },
++  { t: 'dare', lvl: 1, text: 'Làm mặt hề hoặc bắt chước giọng của một nhân vật hoạt hình.' },
++  { t: 'dare', lvl: 1, text: 'Hát một câu bạn thích bằng giọng thật dễ thương.' },
++  { t: 'dare', lvl: 1, text: 'Nhắn cho người ấy ba biệt danh mới để đặt cho nhau.' },
++  { t: 'dare', lvl: 1, text: 'Kể một chuyện cười, người kia phải nhịn không được cười.' },
++  { t: 'dare', lvl: 1, text: 'Nhảy một điệu ngẫu hứng mười giây.' },
++  { t: 'dare', lvl: 1, text: 'Chụp một bức ảnh selfie thật ngố gửi cho người kia.' },
++  { t: 'dare', lvl: 2, text: 'Viết một lời khen thật lòng dành cho người kia.' },
++  { t: 'dare', lvl: 2, text: 'Gọi người kia bằng biệt danh ngọt ngào nhất suốt mười phút.' },
++  { t: 'dare', lvl: 2, text: 'Kể lại buổi hẹn đầu tiên bằng đúng ba câu.' },
++  { t: 'dare', lvl: 2, text: 'Ôm người kia thật chặt trong mười giây (hoặc gửi một cái ôm bằng lời nếu đang xa nhau).' },
++  { t: 'dare', lvl: 2, text: 'Tặng người kia một lời hứa nhỏ cho tuần này.' },
++  { t: 'dare', lvl: 2, text: 'Đọc to tin nhắn đầu tiên hai đứa từng nhắn nhau (nếu còn nhớ).' },
++  { t: 'dare', lvl: 3, text: 'Nói ba điều bạn trân trọng ở người kia, mỗi điều một câu.' },
++  { t: 'dare', lvl: 3, text: 'Viết một lá thư ngắn cho chính hai đứa của năm năm sau.' },
++  { t: 'dare', lvl: 3, text: 'Xin lỗi về một chuyện nhỏ mà bạn vẫn còn áy náy.' },
++  { t: 'dare', lvl: 3, text: 'Kể điều khiến bạn thấy được yêu thương nhất gần đây.' },
++  { t: 'dare', lvl: 3, text: 'Cùng nhau đặt một mục tiêu nhỏ cho tháng tới.' },
++  { t: 'dare', lvl: 3, text: 'Nói một điều bạn muốn cảm ơn người kia mà chưa từng nói.' },
++]
++
++export const VOUCHER_IDEAS = [
++  'Massage vai 15 phút', 'Nấu bữa tối do người thắng chọn món', 'Rửa bát ba ngày liền', 'Người thắng chọn phim tối nay',
++  'Một cái ôm thật lâu', 'Viết một lá thư tay', 'Đi ăn quán người thắng chọn', 'Làm theo một yêu cầu nhỏ trong một ngày',
++  'Mua trà sữa mang đến tận nơi', 'Chụp cho nhau một bộ ảnh', 'Hát tặng một bài', 'Ngày hôm đó người thắng được quyết định mọi thứ',
++]
+diff --git a/lib/games/types.ts b/lib/games/types.ts
+new file mode 100644
+index 0000000..2a2b06b
+--- /dev/null
++++ b/lib/games/types.ts
+@@ -0,0 +1,60 @@
++// Kiểu dữ liệu và thông tin chung của khu Trò chơi (supabase/phase24.sql).
++export type GameKind = 'caro' | 'so_bi_mat' | 'hieu_nhau' | 'lat_bai' | 'pha_thuyen' | 'bai_cao' | 'xi_dach' | 've_doan' | 'that_thach'
++
++export type Game = {
++  id: string; space_id: string; kind: GameKind
++  status: 'playing' | 'done' | 'abandoned'
++  p1: string; p2: string
++  waiting: string[]            // những người đang phải hành động (một người = đến lượt người đó)
++  winner: string | null        // null + status done = hòa (hoặc game không phân thắng thua)
++  state: any                   // phần công khai của ván, do máy chủ giữ
++  version: number; reward_drawn: boolean
++  created_at: string; updated_at: string
++}
++
++// Kết quả gọi hàm của máy chủ
++export type ActResult = { ok: boolean; data?: any }
++export type Act = (fn: string, args?: Record<string, unknown>) => Promise<ActResult>
++
++// Mọi màn chơi nhận các prop này
++export type GameProps = {
++  g: Game; me: string; partnerId: string; pn: string
++  mine: boolean                // đang đến lượt mình / cần mình hành động
++  secret: any                  // phần bí mật của riêng mình (game_my_secret)
++  act: Act; busy: boolean
++  ch: GameChannel
++}
++
++export type GameChannel = {
++  partnerHere: boolean         // người kia đang mở đúng ván này
++  send: (ev: string, payload: Record<string, unknown>) => void
++  listen: (h: (ev: string, p: any) => void) => () => void
++}
++
++export type KindInfo = { name: string; icon: string; blurb: string; players: string; group: 'board' | 'secret' | 'card' | 'bond' }
++
++export const KINDS: Record<GameKind, KindInfo> = {
++  caro: { name: 'Cờ caro', icon: '⭕', blurb: 'Nối đủ 5 quân liền nhau trước người kia.', players: 'Đối kháng', group: 'board' },
++  so_bi_mat: { name: 'Số bí mật', icon: '🔢', blurb: 'Mỗi người nghĩ một dãy số, lần lượt đoán số của nhau.', players: 'Đối kháng', group: 'secret' },
++  pha_thuyen: { name: 'Phá thuyền', icon: '🚢', blurb: 'Giấu đội tàu của mình, bắn đoán vị trí tàu người kia.', players: 'Đối kháng', group: 'secret' },
++  lat_bai: { name: 'Lật bài trí nhớ', icon: '🃏', blurb: 'Lật tìm các cặp giống nhau, chơi đối kháng hoặc cùng đội.', players: 'Đối kháng hoặc cùng đội', group: 'card' },
++  bai_cao: { name: 'Bài cào', icon: '🂡', blurb: 'Ba lá bài, tính nút, ba cào là lớn nhất.', players: 'Đối kháng', group: 'card' },
++  xi_dach: { name: 'Xì dách', icon: '🂱', blurb: 'Rút bài sao cho gần 21 điểm mà không quắc. Cái và con đổi vai mỗi ván.', players: 'Đối kháng', group: 'card' },
++  hieu_nhau: { name: 'Ai hiểu ai nhất', icon: '💞', blurb: 'Một người trả lời về mình, người kia đoán. Xem hai đứa hiểu nhau đến đâu.', players: 'Cùng vui', group: 'bond' },
++  ve_doan: { name: 'Vẽ và đoán', icon: '🎨', blurb: 'Một người vẽ trực tiếp, người kia đoán từ khóa.', players: 'Đối kháng nhẹ', group: 'bond' },
++  that_thach: { name: 'Thật hay thách', icon: '🎲', blurb: 'Rút thẻ câu hỏi hoặc thử thách dễ thương cho nhau.', players: 'Cùng vui', group: 'bond' },
++}
++export const KIND_ORDER: GameKind[] = ['caro', 'so_bi_mat', 'pha_thuyen', 'lat_bai', 'bai_cao', 'xi_dach', 'hieu_nhau', 've_doan', 'that_thach']
++
++export type Voucher = {
++  id: string; space_id: string; owner: string; title: string; status: 'pool' | 'won' | 'done'
++  holder: string | null; game_id: string | null; created_at: string; won_at: string | null; done_at: string | null
++}
++
++// Dòng chữ trạng thái ngắn cho danh sách ván
++export function statusText(g: Game, me: string, pn: string): string {
++  if (g.status === 'abandoned') return 'Đã kết thúc'
++  if (g.status === 'done') return g.winner === me ? 'Bạn thắng 🎉' : g.winner ? `${pn} thắng` : 'Hòa'
++  if (g.waiting.includes(me)) return 'Đến lượt bạn'
++  return `Chờ ${pn}`
++}
+diff --git a/lib/games/useGame.ts b/lib/games/useGame.ts
+new file mode 100644
+index 0000000..9550844
+--- /dev/null
++++ b/lib/games/useGame.ts
+@@ -0,0 +1,97 @@
++'use client'
++import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
++import { sb } from '@/lib/supabase'
++import { useApp } from '@/lib/ctx'
++import { notifyPartner } from '@/lib/push'
++import { KINDS, type Act, type ActResult, type Game, type GameChannel } from './types'
++
++// Kênh broadcast + presence private `game-<space>` (cần phase24.sql).
++// Dùng để (1) biết người kia có đang mở đúng ván này không, để khỏi gửi thông báo đẩy khi hai đứa đang chơi cùng lúc,
++// (2) truyền nét vẽ cho "Vẽ và đoán".
++export function useGameChannel(spaceId: string, myId: string, gameId: string): GameChannel {
++  const ch = useRef<ReturnType<typeof sb.channel> | null>(null)
++  const hs = useRef(new Set<(ev: string, p: any) => void>())
++  const [here, setHere] = useState(false)
++  useEffect(() => {
++    // Tên kênh phải đúng 'game-<space id>' để khớp chính sách realtime.messages trong phase24.sql
++    const c2 = sb.channel('game-' + spaceId, { config: { private: true, broadcast: { self: false }, presence: { key: myId } } })
++    for (const ev of ['stroke', 'clear', 'sync_req', 'sync']) c2.on('broadcast', { event: ev }, (m: any) => {
++      const p = m?.payload
++      if (!p || p.gid !== gameId || p.from === myId) return
++      hs.current.forEach(h => h(ev, p))
++    })
++    c2.on('presence', { event: 'sync' }, () => {
++      const st = c2.presenceState() as Record<string, any[]>
++      setHere(Object.entries(st).some(([k, arr]) => k !== myId && arr.some(p => p?.game === gameId)))
++    })
++    c2.subscribe(async s => { if (s === 'SUBSCRIBED') { try { await c2.track({ game: gameId }) } catch { /* không có presence thì vẫn chơi được */ } } })
++    ch.current = c2
++    return () => { ch.current = null; setHere(false); sb.removeChannel(c2) }
++  }, [spaceId, myId, gameId])
++  const send = useCallback((ev: string, payload: Record<string, unknown>) => {
++    ch.current?.send({ type: 'broadcast', event: ev, payload: { ...payload, gid: gameId, from: myId } })
++  }, [gameId, myId])
++  const listen = useCallback((h: (ev: string, p: any) => void) => { hs.current.add(h); return () => { hs.current.delete(h) } }, [])
++  return useMemo(() => ({ partnerHere: here, send, listen }), [here, send, listen])   // đối tượng ổn định để các effect không chạy lại mỗi lần render
++}
++
++// Một phòng chơi: tải ván, nghe realtime, gọi hàm máy chủ, nhắc người kia khi đến lượt họ.
++export function useGame(id: string) {
++  const { me, partner, space } = useApp()
++  const [g, setG] = useState<Game | null | undefined>(undefined)   // undefined: đang tải, null: không thấy
++  const [secret, setSecret] = useState<any>(null)
++  const [busy, setBusy] = useState(false)
++  const [msg, setMsg] = useState('')
++  const ch = useGameChannel(space.id, me.id, id)
++  const ver = useRef(-1), busyRef = useRef(false), lastPush = useRef(0), chRef = useRef(ch)
++  chRef.current = ch
++
++  const loadSecret = useCallback(async () => {
++    const r = await sb.rpc('game_my_secret', { p_id: id })
++    if (!r.error) setSecret(r.data ?? null)
++  }, [id])
++
++  const apply = useCallback((n: Game) => {
++    setG(prev => prev && prev.version > n.version ? prev : n)
++    if (n.version !== ver.current) { ver.current = n.version; loadSecret() }
++  }, [loadSecret])
++
++  const refresh = useCallback(async (): Promise<Game | null> => {
++    const r = await sb.from('games').select('*').eq('id', id).maybeSingle()
++    if (r.error) return null                       // lỗi mạng thoáng qua: giữ nguyên màn hình hiện tại
++    if (!r.data) { setG(null); return null }       // không có (đã xóa hoặc không thuộc Space của mình)
++    apply(r.data as Game); return r.data as Game
++  }, [id, apply])
++
++  useEffect(() => {
++    refresh()
++    const c = sb.channel('game-row-' + id)
++      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${id}` }, p => apply(p.new as Game))
++      .subscribe()
++    const onVis = () => { if (document.visibilityState === 'visible') refresh() }
++    document.addEventListener('visibilitychange', onVis)
++    // Phòng hờ realtime chưa bật hoặc rớt mạng: hỏi lại mỗi 12 giây khi đang xem
++    const t = setInterval(() => { if (document.visibilityState === 'visible') refresh() }, 12000)
++    return () => { sb.removeChannel(c); document.removeEventListener('visibilitychange', onVis); clearInterval(t) }
++  }, [id, refresh, apply])
++
++  const act: Act = useCallback(async (fn, args = {}): Promise<ActResult> => {
++    if (busyRef.current) return { ok: false }
++    busyRef.current = true; setBusy(true); setMsg('')
++    const r = await sb.rpc(fn, { p_id: id, ...args })
++    busyRef.current = false; setBusy(false)
++    if (r.error) { setMsg(r.error.message); refresh(); return { ok: false } }
++    const n = await refresh()
++    // Đến lượt người kia và họ không đang ở trong ván này: gửi thông báo đẩy (tối đa một lần mỗi 90 giây)
++    if (n && partner && n.status === 'playing' && n.waiting.includes(partner.id) && !n.waiting.includes(me.id)
++      && !chRef.current.partnerHere && Date.now() - lastPush.current > 90000) {
++      lastPush.current = Date.now()
++      notifyPartner('game', `${KINDS[n.kind].name}: đến lượt bạn rồi!`, id)
++    } else if (n && partner && n.status === 'done' && !chRef.current.partnerHere) {
++      notifyPartner('game', `${KINDS[n.kind].name}: ván đã xong, vào xem kết quả nhé!`, id)
++    }
++    return { ok: true, data: r.data }
++  }, [id, refresh, partner, me.id])
++
++  return { g, secret, busy, msg, setMsg, act, ch, refresh }
++}
+diff --git a/lib/push.ts b/lib/push.ts
+index b986f9d..4532f5f 100644
+--- a/lib/push.ts
++++ b/lib/push.ts
+@@ -1,9 +1,9 @@
+ import { sb } from '@/lib/supabase'
+ 
+-export type PushKind = 'message' | 'call' | 'clip-react' | 'clip-comment' | 'together'
++export type PushKind = 'message' | 'call' | 'clip-react' | 'clip-comment' | 'together' | 'game'
+ 
+ // Nhờ Edge Function `push` gửi thông báo đến máy người kia (chat, cuộc gọi, tương tác ở mục Giải trí).
+-// `clip` chỉ dùng cho 'together': mở thẳng đúng clip khi người kia bấm vào thông báo. Lỗi thì bỏ qua, không làm hỏng việc chính.
++// `clip` dùng cho 'together' (mở đúng clip) và 'game' (mở đúng ván trò chơi, phase24.sql) khi người kia bấm vào thông báo. Lỗi thì bỏ qua, không làm hỏng việc chính.
+ export const notifyPartner = (kind: PushKind, text?: string, clip?: string) => {
+   sb.functions.invoke('push', { body: { kind, text, clip } }).then(r => { if (r.error) console.warn('push', r.error.message) }, () => { })
+ }
+diff --git a/supabase/functions/push/index.ts b/supabase/functions/push/index.ts
+index 592b2a2..5f372f2 100644
+--- a/supabase/functions/push/index.ts
++++ b/supabase/functions/push/index.ts
+@@ -1,11 +1,11 @@
+ // Edge Function `push`: gửi thông báo đẩy đến máy người kia khi có tin nhắn mới, cuộc gọi đến (CHAT-04, CALL-05)
+-// và các tương tác ở mục Giải trí: thả cảm xúc, bình luận, rủ xem cùng (phase14).
++// các tương tác ở mục Giải trí: thả cảm xúc, bình luận, rủ xem cùng (phase14) và lời rủ/đến lượt ở khu Trò chơi (phase24).
+ // Gọi từ app bằng supabase.functions.invoke('push', { body: { kind, text, clip } }), kind là một trong KINDS bên dưới.
+ import { createClient } from 'npm:@supabase/supabase-js@2'
+ import webpush from 'npm:web-push@3.6.7'
+ 
+ const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
+-const KINDS = ['message', 'call', 'clip-react', 'clip-comment', 'together']
++const KINDS = ['message', 'call', 'clip-react', 'clip-comment', 'together', 'game']
+ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+ const reply = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
+ 
+@@ -33,6 +33,7 @@ Deno.serve(async req => {
+       'clip-react': { body: `Đã thả ${t || 'cảm xúc'} vào clip`, url: '/fun', tag: 'clip-react' },
+       'clip-comment': { body: t ? `Bình luận clip: ${t}` : 'Có bình luận mới ở một clip', url: '/fun', tag: 'clip-comment' },
+       together: { body: 'Rủ bạn xem clip cùng nhau, vào ngay nhé!', url: cid ? `/fun?together=${cid}` : '/fun', tag: 'together' },
++      game: { body: t || 'Đến lượt bạn trong ván trò chơi, vào chơi nhé!', url: cid ? `/games/${cid}` : '/games', tag: cid ? `game-${cid}` : 'game' },
+     }
+     const payload = JSON.stringify({ kind, title, ...msgs[kind] })
+     let sent = 0
+diff --git a/supabase/phase24.sql b/supabase/phase24.sql
+new file mode 100644
+index 0000000..fad3908
+--- /dev/null
++++ b/supabase/phase24.sql
+@@ -0,0 +1,726 @@
++-- Giai đoạn 24: Khu Trò chơi cho hai người (giai đoạn 0 + 1 + 2).
++-- Chạy trong Supabase > SQL Editor, một lần, SAU phase23.sql. Chạy lại nhiều lần vẫn an toàn.
++--
++-- Nguyên tắc:
++--  * Mọi luật chơi chạy ở MÁY CHỦ (hàm security definer). Trình duyệt chỉ gọi hàm, không tự ghi trạng thái ván.
++--  * Thông tin phải giấu (tàu của mình, lá bài trên tay, số bí mật, đáp án, từ cần vẽ, vị trí lá bài úp) nằm trong
++--    game_secrets. Bảng này bật RLS và KHÔNG có policy nào, nên trình duyệt không đọc được; chỉ hàm game_my_secret
++--    trả về đúng phần của người gọi. Phần công khai nằm ở games.state và được đẩy realtime cho cả hai.
++--  * Mỗi ván có p1 (người tạo) và p2 (người còn lại trong Space). Cột waiting là danh sách người đang phải hành động.
++
++-- ===== 1. Bảng =====
++create table if not exists games(
++  id uuid primary key default gen_random_uuid(),
++  space_id uuid not null references spaces on delete cascade,
++  kind text not null check (kind in ('caro','so_bi_mat','hieu_nhau','lat_bai','pha_thuyen','bai_cao','xi_dach','ve_doan','that_thach')),
++  status text not null default 'playing' check (status in ('playing','done','abandoned')),
++  p1 uuid not null references auth.users on delete cascade,
++  p2 uuid not null references auth.users on delete cascade,
++  waiting uuid[] not null default '{}',
++  winner uuid,
++  state jsonb not null default '{}'::jsonb,
++  version int not null default 0,
++  reward_drawn boolean not null default false,
++  created_at timestamptz not null default now(),
++  updated_at timestamptz not null default now(),
++  check (p1 <> p2));
++create index if not exists games_space_idx on games(space_id, status, updated_at desc);
++
++-- owner = '00000000-0000-0000-0000-000000000000' nghĩa là bí mật của máy chủ (bộ bài còn lại, vị trí lá úp...)
++create table if not exists game_secrets(
++  game_id uuid not null references games on delete cascade,
++  owner uuid not null,
++  data jsonb not null default '{}'::jsonb,
++  primary key (game_id, owner));
++
++create table if not exists game_vouchers(
++  id uuid primary key default gen_random_uuid(),
++  space_id uuid not null references spaces on delete cascade,
++  owner uuid not null references auth.users on delete cascade,          -- người sẽ thực hiện phần quà này
++  title text not null check (char_length(btrim(title)) between 1 and 120),
++  status text not null default 'pool' check (status in ('pool','won','done')),
++  holder uuid references auth.users on delete set null,                 -- người trúng quà (người được hưởng)
++  game_id uuid references games on delete set null,
++  created_at timestamptz not null default now(),
++  won_at timestamptz,
++  done_at timestamptz);
++create index if not exists game_vouchers_idx on game_vouchers(space_id, status);
++
++alter table games enable row level security;
++alter table game_secrets enable row level security;
++alter table game_vouchers enable row level security;
++drop policy if exists games_r on games;
++create policy games_r on games for select using (space_id = my_space());
++drop policy if exists gv_r on game_vouchers;
++create policy gv_r on game_vouchers for select using (space_id = my_space());
++-- Trình duyệt chỉ ĐỌC được games / game_vouchers; mọi thay đổi đi qua hàm bên dưới. game_secrets thì không đọc được.
++revoke all on games, game_secrets, game_vouchers from anon;
++revoke insert, update, delete on games from authenticated;
++revoke insert, update, delete on game_vouchers from authenticated;
++revoke all on game_secrets from authenticated;
++
++do $$ begin
++  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'games') then
++    alter publication supabase_realtime add table games;
++  end if;
++  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'game_vouchers') then
++    alter publication supabase_realtime add table game_vouchers;
++  end if;
++end $$;
++
++-- Kênh broadcast + presence private `game-<space>` (nét vẽ của "Vẽ và đoán", biết người kia đang ở trong ván để khỏi gửi thông báo đẩy).
++-- Tạo lại hai policy dùng chung của phase14 với thêm kênh game-.
++drop policy if exists call_rt_read on realtime.messages;
++drop policy if exists call_rt_write on realtime.messages;
++create policy call_rt_read on realtime.messages for select to authenticated
++  using ((realtime.messages.extension = 'broadcast'
++          and (select realtime.topic()) in ('call-'||my_space()::text, 'typing-'||my_space()::text, 'together-'||my_space()::text, 'game-'||my_space()::text))
++      or (realtime.messages.extension = 'presence' and (select realtime.topic()) = 'game-'||my_space()::text));
++create policy call_rt_write on realtime.messages for insert to authenticated
++  with check ((realtime.messages.extension = 'broadcast'
++          and (select realtime.topic()) in ('call-'||my_space()::text, 'typing-'||my_space()::text, 'together-'||my_space()::text, 'game-'||my_space()::text))
++      or (realtime.messages.extension = 'presence' and (select realtime.topic()) = 'game-'||my_space()::text));
++
++-- ===== 2. Hàm nội bộ (trình duyệt không gọi được) =====
++create or replace function _srv() returns uuid language sql immutable as $$ select '00000000-0000-0000-0000-000000000000'::uuid $$;
++
++create or replace function _ints(j jsonb) returns int[] language sql immutable as $$
++  select coalesce(array(select v::int from jsonb_array_elements_text(coalesce(j,'[]'::jsonb)) with ordinality t(v,o) order by o), '{}'::int[]) $$;
++
++-- Khóa và trả về ván đang chơi của Space mình, mình phải là một trong hai người chơi
++create or replace function _g(p_id uuid) returns games language plpgsql security definer set search_path=public as $$
++declare g games; begin
++  select * into g from games where id = p_id and space_id = my_space() and auth.uid() in (p1, p2) for update;
++  if g.id is null then raise exception 'Không tìm thấy ván chơi'; end if;
++  if g.status <> 'playing' then raise exception 'Ván này đã kết thúc'; end if;
++  return g; end $$;
++
++create or replace function _opp(g games) returns uuid language sql stable as $$ select case when auth.uid() = g.p1 then g.p2 else g.p1 end $$;
++
++create or replace function _save(g games, p_state jsonb, p_waiting uuid[], p_status text default 'playing', p_winner uuid default null)
++returns void language plpgsql security definer set search_path=public as $$
++begin
++  update games set state = p_state, waiting = case when p_status = 'playing' then p_waiting else '{}'::uuid[] end,
++    status = p_status, winner = p_winner, version = version + 1, updated_at = now() where id = g.id;
++end $$;
++
++create or replace function _sget(p_game uuid, p_owner uuid) returns jsonb language sql stable security definer set search_path=public as $$
++  select data from game_secrets where game_id = p_game and owner = p_owner $$;
++create or replace function _sset(p_game uuid, p_owner uuid, p_data jsonb) returns void language sql security definer set search_path=public as $$
++  insert into game_secrets(game_id, owner, data) values (p_game, p_owner, p_data)
++  on conflict (game_id, owner) do update set data = excluded.data $$;
++
++create or replace function _mine(g games) returns boolean language sql stable as $$ select g.waiting @> array[auth.uid()] $$;
++
++-- Chuẩn hóa chữ để so đáp án: bỏ dấu tiếng Việt, hạ chữ thường, gộp khoảng trắng
++create or replace function _norm(t text) returns text language sql immutable as $$
++  select btrim(regexp_replace(translate(lower(normalize(coalesce(t,''), NFC)), 'àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ', 'aaaaaaaaaaaaaaaaaeeeeeeeeeeeiiiiiooooooooooooooooouuuuuuuuuuuyyyyyd'), '\s+', ' ', 'g')) $$;
++
++-- Có ô (r,c) trong danh sách [[r,c],...] không. Không dùng jsonb @> vì nó bỏ qua thứ tự và trùng lặp ([9,0] @> [9,9] là đúng).
++create or replace function _has_cell(cells jsonb, p_r int, p_c int) returns boolean language sql immutable as $$
++  select exists (select 1 from jsonb_array_elements(cells) x where (x->>0)::int = p_r and (x->>1)::int = p_c) $$;
++-- Mọi ô của tàu đều nằm trong danh sách ô đã trúng
++create or replace function _ship_down(hits jsonb, cells jsonb) returns boolean language sql immutable as $$
++  select not exists (select 1 from jsonb_array_elements(cells) x where not _has_cell(hits, (x->>0)::int, (x->>1)::int)) $$;
++
++-- Người thắng theo điểm (null = hòa)
++create or replace function _winner(g games, st jsonb) returns uuid language sql immutable as $$
++  select case when (st->'scores'->>g.p1::text)::int > (st->'scores'->>g.p2::text)::int then g.p1
++              when (st->'scores'->>g.p1::text)::int < (st->'scores'->>g.p2::text)::int then g.p2 end $$;
++
++-- ===== 3. Chung: tạo ván, xem bí mật của mình, kết thúc =====
++create or replace function game_my_secret(p_id uuid) returns jsonb language plpgsql stable security definer set search_path=public as $$
++begin
++  if not exists (select 1 from games where id = p_id and space_id = my_space() and auth.uid() in (p1, p2)) then return null; end if;
++  return _sget(p_id, auth.uid());
++end $$;
++
++create or replace function game_end(p_id uuid) returns void language plpgsql security definer set search_path=public as $$
++declare g games; begin
++  g := _g(p_id);
++  perform _save(g, g.state, '{}', 'abandoned', null);
++end $$;
++
++create or replace function game_create(p_kind text, p_opts jsonb default '{}'::jsonb) returns uuid
++language plpgsql security definer set search_path=public as $$
++declare
++  me uuid := auth.uid(); sp uuid := my_space(); other uuid; gid uuid; g games; st jsonb; w uuid[];
++  a text; b text; n int; pool text[]; picked text[]; layout text[]; q jsonb; qs jsonb := '[]'::jsonb; o jsonb;
++begin
++  if me is null or sp is null then raise exception 'Bạn chưa vào Space nào'; end if;
++  select id into other from profiles where space_id = sp and id <> me limit 1;
++  if other is null then raise exception 'Người kia chưa vào Space, hãy mời họ trước nhé'; end if;
++  if p_kind not in ('caro','so_bi_mat','hieu_nhau','lat_bai','pha_thuyen','bai_cao','xi_dach','ve_doan','that_thach') then raise exception 'Trò chơi không hợp lệ'; end if;
++  if exists (select 1 from games where space_id = sp and kind = p_kind and status = 'playing') then
++    raise exception 'Đang có một ván chưa xong. Hãy tiếp tục hoặc kết thúc ván đó trước.'; end if;
++  p_opts := coalesce(p_opts, '{}'::jsonb);
++  a := me::text; b := other::text;
++  insert into games(space_id, kind, p1, p2) values (sp, p_kind, me, other) returning id into gid;
++  select * into g from games where id = gid;
++  w := array[me];
++
++  if p_kind = 'caro' then
++    n := case when (p_opts->>'size') = '10' then 10 else 15 end;
++    st := jsonb_build_object('size', n, 'board', repeat('0', n*n), 'last', null, 'win', null);
++  elsif p_kind = 'so_bi_mat' then
++    n := case (p_opts->>'len') when '3' then 3 when '5' then 5 else 4 end;
++    st := jsonb_build_object('len', n, 'phase', 'setup', 'ready', jsonb_build_object(a, false, b, false),
++      'guesses', jsonb_build_object(a, '[]'::jsonb, b, '[]'::jsonb), 'solved', false, 'reveal', null);
++    w := array[me, other];
++  elsif p_kind = 'pha_thuyen' then
++    st := jsonb_build_object('size', 10, 'fleet', '[5,4,3,3,2]'::jsonb, 'phase', 'setup',
++      'ready', jsonb_build_object(a, false, b, false),
++      'shots', jsonb_build_object(a, '[]'::jsonb, b, '[]'::jsonb), 'sunk', jsonb_build_object(a, '[]'::jsonb, b, '[]'::jsonb), 'reveal', null);
++    w := array[me, other];
++  elsif p_kind = 'lat_bai' then
++    n := least(12, greatest(4, coalesce((p_opts->>'pairs')::int, 8)));
++    pool := array['💗','🌹','🍓','🎀','🧸','🍰','🌙','⭐','🐱','🐶','🦋','🍀','🎈','🍩','☁️','🌻','🍒','🎵','🐰','🍉','🌈','🍭','🐼','🦄'];
++    picked := array(select s from unnest(pool) s order by random() limit n);
++    layout := array(select s from (select unnest(picked) s union all select unnest(picked)) x order by random());
++    perform _sset(gid, _srv(), jsonb_build_object('layout', to_jsonb(layout)));
++    st := jsonb_build_object('n', n*2, 'mode', case when p_opts->>'mode' = 'coop' then 'coop' else 'vs' end,
++      'matched', '{}'::jsonb, 'up', '[]'::jsonb, 'tries', 0, 'scores', jsonb_build_object(a, 0, b, 0));
++  elsif p_kind = 'bai_cao' then
++    st := jsonb_build_object('rounds', case (p_opts->>'rounds') when '5' then 5 when '1' then 1 else 3 end, 'round', 1, 'phase', 'play',
++      'revealed', jsonb_build_object(a, false, b, false), 'scores', jsonb_build_object(a, 0, b, 0), 'last', null);
++    perform _bc_deal(gid, me, other);
++    w := array[me, other];
++  elsif p_kind = 'xi_dach' then
++    st := jsonb_build_object('rounds', case (p_opts->>'rounds') when '5' then 5 when '1' then 1 else 3 end,
++      'scores', jsonb_build_object(a, 0, b, 0));
++    st := _xd_round(g, st, 1, me);
++    perform _xd_commit(g, st);
++    return gid;
++  elsif p_kind = 've_doan' then
++    st := jsonb_build_object('rounds', case (p_opts->>'rounds') when '6' then 6 when '2' then 2 else 4 end, 'round', 1, 'drawer', a,
++      'phase', 'pick', 'wl', null, 'scores', jsonb_build_object(a, 0, b, 0), 'guesses', '[]'::jsonb, 'last', null);
++  elsif p_kind = 'hieu_nhau' then
++    if jsonb_typeof(p_opts->'qs') <> 'array' or jsonb_array_length(p_opts->'qs') not between 4 and 20 then raise exception 'Bộ câu hỏi không hợp lệ'; end if;
++    for q in select * from jsonb_array_elements(p_opts->'qs') loop
++      if jsonb_typeof(q->'o') <> 'array' or jsonb_array_length(q->'o') not between 2 and 6 or char_length(coalesce(q->>'q','')) not between 1 and 200 then
++        raise exception 'Câu hỏi không hợp lệ'; end if;
++      qs := qs || jsonb_build_array(jsonb_build_object('q', left(q->>'q', 200),
++        'o', (select jsonb_agg(left(x, 80)) from jsonb_array_elements_text(q->'o') x)));
++    end loop;
++    st := jsonb_build_object('qs', qs, 'i', 0, 'answerer', a, 'phase', 'answer', 'scores', jsonb_build_object(a, 0, b, 0), 'log', '[]'::jsonb);
++  else  -- that_thach
++    st := jsonb_build_object('phase', 'pick', 'count', 0, 'card', null, 'target', null, 'log', '[]'::jsonb);
++  end if;
++  perform _save(g, st, w);
++  return gid;
++end $$;
++
++-- ===== 4. Cờ caro (5 quân liền nhau; bàn 15x15 hoặc 10x10) =====
++create or replace function caro_move(p_id uuid, p_r int, p_c int) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); size int; board text; idx int; mark text;
++  dirs int[] := array[[0,1],[1,0],[1,1],[1,-1]]; d int; dr int; dc int; k int; rr int; cc int; cells jsonb; win jsonb;
++begin
++  if g.kind <> 'caro' then raise exception 'Sai loại ván'; end if;
++  if not _mine(g) then raise exception 'Chưa đến lượt bạn'; end if;
++  st := g.state; size := (st->>'size')::int; board := st->>'board';
++  if p_r < 0 or p_r >= size or p_c < 0 or p_c >= size then raise exception 'Ô nằm ngoài bàn cờ'; end if;
++  idx := p_r * size + p_c;
++  if substr(board, idx + 1, 1) <> '0' then raise exception 'Ô này đã có quân'; end if;
++  mark := case when me = g.p1 then '1' else '2' end;
++  board := overlay(board placing mark from idx + 1 for 1);
++  for d in 1..4 loop
++    dr := dirs[d][1]; dc := dirs[d][2];
++    cells := jsonb_build_array(jsonb_build_array(p_r, p_c));
++    k := 1;
++    loop
++      rr := p_r + dr*k; cc := p_c + dc*k;
++      exit when rr < 0 or rr >= size or cc < 0 or cc >= size or substr(board, rr*size + cc + 1, 1) <> mark;
++      cells := cells || jsonb_build_array(jsonb_build_array(rr, cc)); k := k + 1;
++    end loop;
++    k := 1;
++    loop
++      rr := p_r - dr*k; cc := p_c - dc*k;
++      exit when rr < 0 or rr >= size or cc < 0 or cc >= size or substr(board, rr*size + cc + 1, 1) <> mark;
++      cells := cells || jsonb_build_array(jsonb_build_array(rr, cc)); k := k + 1;
++    end loop;
++    if jsonb_array_length(cells) >= 5 then win := cells; exit; end if;
++  end loop;
++  st := st || jsonb_build_object('board', board, 'last', jsonb_build_array(p_r, p_c), 'win', win);
++  if win is not null then perform _save(g, st, '{}', 'done', me);
++  elsif position('0' in board) = 0 then perform _save(g, st, '{}', 'done', null);
++  else perform _save(g, st, array[_opp(g)]); end if;
++end $$;
++
++-- ===== 5. Số bí mật (Bulls & Cows): mỗi người nghĩ một số, đoán số của nhau =====
++create or replace function sb_set(p_id uuid, p_code text) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); n int; ready jsonb;
++begin
++  if g.kind <> 'so_bi_mat' then raise exception 'Sai loại ván'; end if;
++  st := g.state; n := (st->>'len')::int;
++  if st->>'phase' <> 'setup' or (st->'ready'->>me::text)::boolean then raise exception 'Bạn đã chọn số rồi'; end if;
++  if p_code !~ ('^[0-9]{' || n || '}$') then raise exception 'Số bí mật phải gồm đúng % chữ số', n; end if;
++  if (select count(distinct ch) from regexp_split_to_table(p_code, '') ch) <> n then raise exception 'Các chữ số không được trùng nhau'; end if;
++  perform _sset(g.id, me, jsonb_build_object('code', p_code));
++  st := jsonb_set(st, array['ready', me::text], 'true');
++  if (st->'ready'->>g.p1::text)::boolean and (st->'ready'->>g.p2::text)::boolean then
++    st := jsonb_set(st, '{phase}', '"play"');
++    perform _save(g, st, array[g.p1]);
++  else perform _save(g, st, array[_opp(g)]); end if;
++end $$;
++
++create or replace function sb_guess(p_id uuid, p_guess text) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); opp uuid; n int; code text; bulls int := 0; cows int := 0; i int; ch text; entry jsonb;
++begin
++  if g.kind <> 'so_bi_mat' then raise exception 'Sai loại ván'; end if;
++  st := g.state; n := (st->>'len')::int; opp := _opp(g);
++  if st->>'phase' <> 'play' or not _mine(g) then raise exception 'Chưa đến lượt bạn'; end if;
++  if p_guess !~ ('^[0-9]{' || n || '}$') or (select count(distinct c) from regexp_split_to_table(p_guess, '') c) <> n then
++    raise exception 'Hãy đoán một số % chữ số, không trùng chữ số', n; end if;
++  code := _sget(g.id, opp)->>'code';
++  for i in 1..n loop
++    ch := substr(p_guess, i, 1);
++    if substr(code, i, 1) = ch then bulls := bulls + 1; elsif position(ch in code) > 0 then cows := cows + 1; end if;
++  end loop;
++  entry := jsonb_build_object('g', p_guess, 'b', bulls, 'c', cows);
++  st := jsonb_set(st, array['guesses', me::text], (st->'guesses'->(me::text)) || jsonb_build_array(entry));
++  -- Công bằng lượt: người đi trước đoán đúng thì người đi sau còn đúng một lượt cuối. Cùng đúng thì hòa.
++  if me = g.p1 then
++    if bulls = n then st := jsonb_set(st, '{solved}', 'true'); end if;
++    perform _save(g, st, array[opp]);
++  else
++    if bulls = n or (st->>'solved')::boolean then
++      st := jsonb_set(st, '{reveal}', jsonb_build_object(g.p1::text, _sget(g.id, g.p1)->>'code', g.p2::text, _sget(g.id, g.p2)->>'code'));
++      perform _save(g, st, '{}', 'done',
++        case when bulls = n and (st->>'solved')::boolean then null when bulls = n then g.p2 else g.p1 end);
++    else perform _save(g, st, array[opp]); end if;
++  end if;
++end $$;
++
++-- ===== 6. Lật bài trí nhớ =====
++create or replace function lb_flip(p_id uuid, p_i int) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); n int; layout jsonb; up jsonb; sym text; i0 int; s0 text; vs boolean; done boolean;
++begin
++  if g.kind <> 'lat_bai' then raise exception 'Sai loại ván'; end if;
++  if not _mine(g) then raise exception 'Chưa đến lượt bạn'; end if;
++  st := g.state; n := (st->>'n')::int; vs := st->>'mode' = 'vs';
++  if p_i < 0 or p_i >= n then raise exception 'Ô không hợp lệ'; end if;
++  if st->'matched' ? p_i::text then raise exception 'Ô này đã ghép rồi'; end if;
++  up := st->'up';
++  if jsonb_array_length(up) >= 2 then up := '[]'::jsonb; end if;      -- hai lá lật hụt của lượt trước được úp lại
++  if jsonb_array_length(up) = 1 and (up->0->>'i')::int = p_i then raise exception 'Bạn vừa lật ô này rồi'; end if;
++  layout := _sget(g.id, _srv())->'layout';
++  sym := layout->>p_i;
++  up := up || jsonb_build_array(jsonb_build_object('i', p_i, 's', sym));
++  if jsonb_array_length(up) = 1 then
++    st := jsonb_set(st, '{up}', up);
++    perform _save(g, st, array[me]);
++    return;
++  end if;
++  i0 := (up->0->>'i')::int; s0 := up->0->>'s';
++  st := jsonb_set(st, '{tries}', to_jsonb((st->>'tries')::int + 1));
++  if s0 = sym then
++    st := jsonb_set(st, '{matched}', (st->'matched') || jsonb_build_object(i0::text, s0, p_i::text, sym));
++    st := jsonb_set(st, '{up}', '[]'::jsonb);
++    if vs then st := jsonb_set(st, array['scores', me::text], to_jsonb((st->'scores'->>me::text)::int + 1)); end if;
++    done := (select count(*) from jsonb_object_keys(st->'matched')) = n;
++    if done then perform _save(g, st, '{}', 'done', case when vs then _winner(g, st) end);
++    else perform _save(g, st, array[me]); end if;       -- ghép đúng thì được lật tiếp
++  else
++    st := jsonb_set(st, '{up}', up);
++    perform _save(g, st, array[_opp(g)]);
++  end if;
++end $$;
++
++-- ===== 7. Hiểu nhau đến đâu: một người trả lời về mình, người kia đoán =====
++create or replace function kn_answer(p_id uuid, p_choice int) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); q jsonb;
++begin
++  if g.kind <> 'hieu_nhau' then raise exception 'Sai loại ván'; end if;
++  st := g.state;
++  if st->>'phase' <> 'answer' or (st->>'answerer')::uuid <> me then raise exception 'Chưa đến lượt bạn trả lời'; end if;
++  q := st->'qs'->((st->>'i')::int);
++  if p_choice < 0 or p_choice >= jsonb_array_length(q->'o') then raise exception 'Lựa chọn không hợp lệ'; end if;
++  perform _sset(g.id, me, jsonb_build_object('a', p_choice, 'i', (st->>'i')::int));
++  st := jsonb_set(st, '{phase}', '"guess"');
++  perform _save(g, st, array[_opp(g)]);
++end $$;
++
++create or replace function kn_guess(p_id uuid, p_choice int) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); asr uuid; q jsonb; sec jsonb; is_ok boolean; i int;
++begin
++  if g.kind <> 'hieu_nhau' then raise exception 'Sai loại ván'; end if;
++  st := g.state; asr := (st->>'answerer')::uuid; i := (st->>'i')::int;
++  if st->>'phase' <> 'guess' or asr = me then raise exception 'Chưa đến lượt bạn đoán'; end if;
++  q := st->'qs'->i;
++  if p_choice < 0 or p_choice >= jsonb_array_length(q->'o') then raise exception 'Lựa chọn không hợp lệ'; end if;
++  sec := _sget(g.id, asr);
++  if (sec->>'i')::int <> i then raise exception 'Chưa có câu trả lời để đoán'; end if;
++  is_ok := (sec->>'a')::int = p_choice;
++  if is_ok then st := jsonb_set(st, array['scores', me::text], to_jsonb((st->'scores'->>me::text)::int + 1)); end if;
++  st := jsonb_set(st, '{log}', (st->'log') || jsonb_build_array(jsonb_build_object('i', i, 'by', asr, 'a', (sec->>'a')::int, 'g', p_choice, 'ok', is_ok)));
++  if i + 1 >= jsonb_array_length(st->'qs') then
++    perform _save(g, st, '{}', 'done', _winner(g, st) );
++  else
++    st := st || jsonb_build_object('i', i + 1, 'answerer', me::text, 'phase', 'answer');
++    perform _save(g, st, array[me]);
++  end if;
++end $$;
++
++-- ===== 8. Phá thuyền ẩn (Hải chiến) =====
++create or replace function pt_place(p_id uuid, p_ships jsonb) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); size int; fleet int[]; lens int[]; s jsonb; len int; r int; c int; d text; k int; rr int; cc int;
++  occ text[] := '{}'; cells jsonb; outp jsonb := '[]'::jsonb; key text;
++begin
++  if g.kind <> 'pha_thuyen' then raise exception 'Sai loại ván'; end if;
++  st := g.state; size := (st->>'size')::int;
++  if st->>'phase' <> 'setup' or (st->'ready'->>me::text)::boolean then raise exception 'Bạn đã xếp tàu rồi'; end if;
++  if jsonb_typeof(p_ships) <> 'array' then raise exception 'Đội tàu không hợp lệ'; end if;
++  fleet := array(select v::int from jsonb_array_elements_text(st->'fleet') v order by v::int);
++  fleet := array(select x from unnest(fleet) x order by x);
++  lens := array(select (e->>'len')::int from jsonb_array_elements(p_ships) e order by 1);
++  lens := array(select x from unnest(lens) x order by x);
++  if lens is distinct from fleet then raise exception 'Đội tàu phải đủ các tàu: %', fleet; end if;
++  for s in select * from jsonb_array_elements(p_ships) loop
++    len := (s->>'len')::int; r := (s->>'r')::int; c := (s->>'c')::int; d := s->>'d';
++    if d not in ('h','v') then raise exception 'Hướng tàu không hợp lệ'; end if;
++    cells := '[]'::jsonb;
++    for k in 0..len-1 loop
++      rr := r + case when d = 'v' then k else 0 end; cc := c + case when d = 'h' then k else 0 end;
++      if rr < 0 or rr >= size or cc < 0 or cc >= size then raise exception 'Có tàu nằm ngoài bàn'; end if;
++      key := rr || ',' || cc;
++      if key = any(occ) then raise exception 'Các tàu không được đè lên nhau'; end if;
++      occ := occ || key; cells := cells || jsonb_build_array(jsonb_build_array(rr, cc));
++    end loop;
++    outp := outp || jsonb_build_array(jsonb_build_object('len', len, 'cells', cells));
++  end loop;
++  perform _sset(g.id, me, jsonb_build_object('ships', outp));
++  st := jsonb_set(st, array['ready', me::text], 'true');
++  if (st->'ready'->>g.p1::text)::boolean and (st->'ready'->>g.p2::text)::boolean then
++    st := jsonb_set(st, '{phase}', '"battle"');
++    perform _save(g, st, array[g.p1]);
++  else perform _save(g, st, array[_opp(g)]); end if;
++end $$;
++
++create or replace function pt_fire(p_id uuid, p_r int, p_c int) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); opp uuid; size int; ships jsonb; ship jsonb; hit boolean := false; hitship jsonb;
++  shots jsonb; hits jsonb; total int := 0; allsunk boolean := true;
++begin
++  if g.kind <> 'pha_thuyen' then raise exception 'Sai loại ván'; end if;
++  st := g.state; size := (st->>'size')::int; opp := _opp(g);
++  if st->>'phase' <> 'battle' or not _mine(g) then raise exception 'Chưa đến lượt bạn'; end if;
++  if p_r < 0 or p_r >= size or p_c < 0 or p_c >= size then raise exception 'Ô nằm ngoài bàn'; end if;
++  shots := st->'shots'->(me::text);
++  if exists (select 1 from jsonb_array_elements(shots) x where (x->>'r')::int = p_r and (x->>'c')::int = p_c) then raise exception 'Bạn đã bắn ô này rồi'; end if;
++  ships := _sget(g.id, opp)->'ships';
++  for ship in select * from jsonb_array_elements(ships) loop
++    if _has_cell(ship->'cells', p_r, p_c) then hit := true; hitship := ship; end if;
++  end loop;
++  shots := shots || jsonb_build_array(jsonb_build_object('r', p_r, 'c', p_c, 'h', hit));
++  st := jsonb_set(st, array['shots', me::text], shots);
++  hits := coalesce((select jsonb_agg(jsonb_build_array(x->'r', x->'c')) from jsonb_array_elements(shots) x where (x->>'h')::boolean), '[]'::jsonb);
++  if hit and _ship_down(hits, hitship->'cells') then
++    st := jsonb_set(st, array['sunk', opp::text], (st->'sunk'->(opp::text)) || jsonb_build_array(hitship));
++  end if;
++  for ship in select * from jsonb_array_elements(ships) loop
++    total := total + (ship->>'len')::int;
++    if not _ship_down(hits, ship->'cells') then allsunk := false; end if;
++  end loop;
++  if allsunk then
++    st := jsonb_set(st, '{reveal}', jsonb_build_object(g.p1::text, _sget(g.id, g.p1)->'ships', g.p2::text, _sget(g.id, g.p2)->'ships'));
++    perform _save(g, st, '{}', 'done', me);
++  else perform _save(g, st, array[opp]); end if;
++end $$;
++
++-- ===== 9. Bài cào (3 lá, tính nút; ba cào = 3 lá J/Q/K là lớn nhất) =====
++-- Lá bài mã hóa 0..51: hạng = số % 13 (0 = A, 1..8 = 2..9, 9 = 10, 10 = J, 11 = Q, 12 = K), chất = số / 13.
++create or replace function _bc_pts(cards int[]) returns int language sql immutable as $$
++  select case when (select bool_and(c % 13 >= 10) from unnest(cards) c) then 10
++    else (select sum(case when c % 13 = 0 then 1 when c % 13 >= 9 then 10 else c % 13 + 1 end) from unnest(cards) c)::int % 10 end $$;
++
++create or replace function _bc_deal(p_game uuid, a uuid, b uuid) returns void language plpgsql security definer set search_path=public as $$
++declare deck int[] := array(select i from generate_series(0, 51) i order by random());
++begin
++  perform _sset(p_game, a, jsonb_build_object('cards', to_jsonb(deck[1:3])));
++  perform _sset(p_game, b, jsonb_build_object('cards', to_jsonb(deck[4:6])));
++end $$;
++
++create or replace function bc_reveal(p_id uuid) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); ha int[]; hb int[]; pa int; pb int; w uuid; is_last boolean;
++begin
++  if g.kind <> 'bai_cao' then raise exception 'Sai loại ván'; end if;
++  st := g.state;
++  if st->>'phase' <> 'play' or (st->'revealed'->>me::text)::boolean then raise exception 'Bạn đã lật bài rồi'; end if;
++  st := jsonb_set(st, array['revealed', me::text], 'true');
++  if not ((st->'revealed'->>g.p1::text)::boolean and (st->'revealed'->>g.p2::text)::boolean) then
++    perform _save(g, st, array[_opp(g)]); return; end if;
++  ha := _ints(_sget(g.id, g.p1)->'cards'); hb := _ints(_sget(g.id, g.p2)->'cards');
++  pa := _bc_pts(ha); pb := _bc_pts(hb);
++  w := case when pa > pb then g.p1 when pa < pb then g.p2 end;
++  if w is not null then st := jsonb_set(st, array['scores', w::text], to_jsonb((st->'scores'->>w::text)::int + 1)); end if;
++  st := jsonb_set(st, '{phase}', '"show"');
++  st := jsonb_set(st, '{last}', jsonb_build_object('hands', jsonb_build_object(g.p1::text, to_jsonb(ha), g.p2::text, to_jsonb(hb)),
++    'pts', jsonb_build_object(g.p1::text, pa, g.p2::text, pb), 'winner', w));
++  is_last := (st->>'round')::int >= (st->>'rounds')::int;
++  if is_last then perform _save(g, st, '{}', 'done', _winner(g, st));
++  else perform _save(g, st, array[g.p1, g.p2]); end if;
++end $$;
++
++create or replace function bc_next(p_id uuid) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb;
++begin
++  if g.kind <> 'bai_cao' then raise exception 'Sai loại ván'; end if;
++  st := g.state;
++  if st->>'phase' <> 'show' then raise exception 'Chưa lật hết bài'; end if;
++  perform _bc_deal(g.id, g.p1, g.p2);
++  st := st || jsonb_build_object('round', (st->>'round')::int + 1, 'phase', 'play', 'last', null,
++    'revealed', jsonb_build_object(g.p1::text, false, g.p2::text, false));
++  perform _save(g, st, array[g.p1, g.p2]);
++end $$;
++
++-- ===== 10. Xì dách 2 người (cái và con đổi vai mỗi ván) =====
++-- A tính 1 / 11 (2 lá), 1 / 10 / 11 (3 lá), 1 / 10 (4 lá), 1 (5 lá); J Q K = 10. Xì bàng (2 A) > xì dách (A + 10) > ngũ linh (5 lá <= 21) > điểm > quắc.
++-- Con dằn khi từ 16 điểm, cái dằn khi từ 15 điểm. Bằng nhau thì hòa.
++create or replace function _xd_eval(cards int[]) returns jsonb language plpgsql immutable as $$
++declare n int := coalesce(array_length(cards, 1), 0); base int := 0; k int := 0; c int; rk int; totals int[]; opts int[]; best int; kind text; i int;
++begin
++  foreach c in array cards loop rk := c % 13; if rk = 0 then k := k + 1; else base := base + least(rk + 1, 10); end if; end loop;
++  opts := case when n <= 2 then array[1,11] when n = 3 then array[1,10,11] when n = 4 then array[1,10] else array[1] end;
++  totals := array[base];
++  for i in 1..k loop totals := array(select t + d from unnest(totals) t, unnest(opts) d); end loop;
++  best := (select max(t) from unnest(totals) t where t <= 21);
++  if best is null then best := (select min(t) from unnest(totals) t); end if;
++  kind := case when n = 2 and k = 2 then 'xibang' when n = 2 and k = 1 and base = 10 then 'xidach'
++               when n = 5 and best <= 21 then 'nguli' when best > 21 then 'quac' else 'diem' end;
++  return jsonb_build_object('n', n, 'pts', best, 'kind', kind);
++end $$;
++create or replace function _xd_rank(e jsonb) returns int language sql immutable as $$
++  select case e->>'kind' when 'xibang' then 5 when 'xidach' then 4 when 'nguli' then 3 when 'diem' then 2 else 1 end $$;
++create or replace function _xd_cmp(x jsonb, y jsonb) returns int language sql immutable as $$
++  select case when _xd_rank(x) > _xd_rank(y) then 1 when _xd_rank(x) < _xd_rank(y) then -1
++    when _xd_rank(x) in (2, 3) then sign((x->>'pts')::int - (y->>'pts')::int)::int else 0 end $$;
++
++create or replace function _xd_show(g games, st jsonb) returns jsonb language plpgsql security definer set search_path=public as $$
++declare a text := g.p1::text; b text := g.p2::text; ha int[]; hb int[]; ea jsonb; eb jsonb; w text;
++begin
++  ha := _ints(_sget(g.id, g.p1)->'cards'); hb := _ints(_sget(g.id, g.p2)->'cards');
++  ea := _xd_eval(ha); eb := _xd_eval(hb);
++  w := case _xd_cmp(ea, eb) when 1 then a when -1 then b end;
++  if w is not null then st := jsonb_set(st, array['scores', w], to_jsonb((st->'scores'->>w)::int + 1)); end if;
++  st := jsonb_set(st, '{phase}', '"show"');
++  st := jsonb_set(st, '{last}', jsonb_build_object('hands', jsonb_build_object(a, to_jsonb(ha), b, to_jsonb(hb)),
++    'ev', jsonb_build_object(a, ea, b, eb), 'winner', w));
++  return st;
++end $$;
++
++create or replace function _xd_round(g games, st jsonb, p_round int, p_dealer uuid) returns jsonb language plpgsql security definer set search_path=public as $$
++declare deck int[] := array(select i from generate_series(0, 51) i order by random()); ha int[]; hb int[]; fst uuid; a text := g.p1::text; b text := g.p2::text; ea jsonb; eb jsonb;
++begin
++  ha := deck[1:2]; hb := deck[3:4]; deck := deck[5:52];
++  perform _sset(g.id, g.p1, jsonb_build_object('cards', to_jsonb(ha)));
++  perform _sset(g.id, g.p2, jsonb_build_object('cards', to_jsonb(hb)));
++  perform _sset(g.id, _srv(), jsonb_build_object('deck', to_jsonb(deck)));
++  fst := case when p_dealer = g.p1 then g.p2 else g.p1 end;
++  st := st || jsonb_build_object('round', p_round, 'dealer', p_dealer::text, 'turn', fst::text, 'phase', 'play',
++    'stood', jsonb_build_object(a, false, b, false), 'counts', jsonb_build_object(a, 2, b, 2), 'last', null);
++  ea := _xd_eval(ha); eb := _xd_eval(hb);
++  if ea->>'kind' in ('xibang', 'xidach') or eb->>'kind' in ('xibang', 'xidach') then st := _xd_show(g, st); end if;
++  return st;
++end $$;
++
++create or replace function _xd_commit(g games, st jsonb) returns void language plpgsql security definer set search_path=public as $$
++begin
++  if st->>'phase' = 'show' then
++    if (st->>'round')::int >= (st->>'rounds')::int then perform _save(g, st, '{}', 'done', _winner(g, st));
++    else perform _save(g, st, array[g.p1, g.p2]); end if;
++  else perform _save(g, st, array[(st->>'turn')::uuid]); end if;
++end $$;
++
++-- sau khi mình dằn: người kia đã dằn thì lật bài, chưa thì đến lượt họ
++create or replace function _xd_after_stand(g games, st jsonb, me uuid) returns jsonb language plpgsql security definer set search_path=public as $$
++declare opp uuid := case when me = g.p1 then g.p2 else g.p1 end;
++begin
++  st := jsonb_set(st, array['stood', me::text], 'true');
++  if (st->'stood'->>opp::text)::boolean then return _xd_show(g, st); end if;
++  return jsonb_set(st, '{turn}', to_jsonb(opp::text));
++end $$;
++
++create or replace function xd_hit(p_id uuid) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); hand int[]; deck int[]; ev jsonb;
++begin
++  if g.kind <> 'xi_dach' then raise exception 'Sai loại ván'; end if;
++  st := g.state;
++  if st->>'phase' <> 'play' or (st->>'turn')::uuid <> me then raise exception 'Chưa đến lượt bạn'; end if;
++  hand := _ints(_sget(g.id, me)->'cards');
++  if array_length(hand, 1) >= 5 then raise exception 'Đã đủ 5 lá'; end if;
++  deck := _ints(_sget(g.id, _srv())->'deck');
++  hand := hand || deck[1]; deck := deck[2:array_length(deck, 1)];
++  perform _sset(g.id, me, jsonb_build_object('cards', to_jsonb(hand)));
++  perform _sset(g.id, _srv(), jsonb_build_object('deck', to_jsonb(deck)));
++  st := jsonb_set(st, array['counts', me::text], to_jsonb(array_length(hand, 1)));
++  ev := _xd_eval(hand);
++  if ev->>'kind' in ('quac', 'nguli') then st := _xd_after_stand(g, st, me); end if;   -- quắc hoặc ngũ linh thì không rút thêm được nữa
++  perform _xd_commit(g, st);
++end $$;
++
++create or replace function xd_stand(p_id uuid) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); ev jsonb; need int;
++begin
++  if g.kind <> 'xi_dach' then raise exception 'Sai loại ván'; end if;
++  st := g.state;
++  if st->>'phase' <> 'play' or (st->>'turn')::uuid <> me then raise exception 'Chưa đến lượt bạn'; end if;
++  ev := _xd_eval(_ints(_sget(g.id, me)->'cards'));
++  need := case when (st->>'dealer')::uuid = me then 15 else 16 end;
++  if ev->>'kind' = 'diem' and (ev->>'pts')::int < need then raise exception 'Chưa đủ tuổi, cần từ % điểm mới được dằn', need; end if;
++  st := _xd_after_stand(g, st, me);
++  perform _xd_commit(g, st);
++end $$;
++
++create or replace function xd_next(p_id uuid) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb;
++begin
++  if g.kind <> 'xi_dach' then raise exception 'Sai loại ván'; end if;
++  st := g.state;
++  if st->>'phase' <> 'show' then raise exception 'Ván này chưa lật bài'; end if;
++  st := _xd_round(g, st, (st->>'round')::int + 1, case when (st->>'dealer')::uuid = g.p1 then g.p2 else g.p1 end);
++  perform _xd_commit(g, st);
++end $$;
++
++-- ===== 11. Vẽ và đoán (nét vẽ gửi realtime qua kênh game-<space>; máy chủ chỉ giữ từ khóa và chấm đáp án) =====
++create or replace function vd_set_word(p_id uuid, p_word text) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); w text := regexp_replace(btrim(coalesce(p_word, '')), '\s+', ' ', 'g');
++begin
++  if g.kind <> 've_doan' then raise exception 'Sai loại ván'; end if;
++  st := g.state;
++  if st->>'phase' <> 'pick' or (st->>'drawer')::uuid <> me then raise exception 'Chưa đến lượt bạn chọn từ'; end if;
++  if char_length(w) not between 1 and 30 then raise exception 'Từ cần vẽ dài 1 đến 30 ký tự'; end if;
++  perform _sset(g.id, me, jsonb_build_object('word', w, 'round', (st->>'round')::int));
++  st := st || jsonb_build_object('phase', 'draw', 'guesses', '[]'::jsonb, 'last', null,
++    'wl', (select jsonb_agg(char_length(x)) from regexp_split_to_table(w, ' ') x));
++  perform _save(g, st, array[_opp(g)]);
++end $$;
++
++create or replace function vd_guess(p_id uuid, p_text text) returns boolean language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); dr uuid; word text; ok boolean; lg jsonb; t text := left(btrim(coalesce(p_text, '')), 40);
++begin
++  if g.kind <> 've_doan' then raise exception 'Sai loại ván'; end if;
++  st := g.state; dr := (st->>'drawer')::uuid;
++  if st->>'phase' <> 'draw' or dr = me then raise exception 'Bạn chưa đoán được lúc này'; end if;
++  if t = '' then raise exception 'Hãy nhập đáp án'; end if;
++  word := _sget(g.id, dr)->>'word';
++  ok := _norm(t) = _norm(word);
++  if ok then
++    st := jsonb_set(st, array['scores', me::text], to_jsonb((st->'scores'->>me::text)::int + 1));
++    st := st || jsonb_build_object('phase', 'over', 'last', jsonb_build_object('word', word, 'ok', true));
++    perform _save(g, st, array[g.p1, g.p2]);
++  else
++    lg := coalesce(st->'guesses', '[]'::jsonb) || jsonb_build_array(t);
++    lg := (select jsonb_agg(x order by o) from (select x, o from jsonb_array_elements(lg) with ordinality t2(x, o) order by o desc limit 12) z);
++    st := jsonb_set(st, '{guesses}', lg);
++    perform _save(g, st, array[me]);
++  end if;
++  return ok;
++end $$;
++
++create or replace function vd_giveup(p_id uuid) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; dr uuid; word text;
++begin
++  if g.kind <> 've_doan' then raise exception 'Sai loại ván'; end if;
++  st := g.state; dr := (st->>'drawer')::uuid;
++  if st->>'phase' <> 'draw' then raise exception 'Chưa có từ để bỏ qua'; end if;
++  word := _sget(g.id, dr)->>'word';
++  st := st || jsonb_build_object('phase', 'over', 'last', jsonb_build_object('word', word, 'ok', false));
++  perform _save(g, st, array[g.p1, g.p2]);
++end $$;
++
++create or replace function vd_next(p_id uuid) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; nd uuid;
++begin
++  if g.kind <> 've_doan' then raise exception 'Sai loại ván'; end if;
++  st := g.state;
++  if st->>'phase' <> 'over' then raise exception 'Lượt này chưa kết thúc'; end if;
++  if (st->>'round')::int >= (st->>'rounds')::int then perform _save(g, st, '{}', 'done', _winner(g, st)); return; end if;
++  nd := case when (st->>'drawer')::uuid = g.p1 then g.p2 else g.p1 end;
++  st := st || jsonb_build_object('round', (st->>'round')::int + 1, 'drawer', nd::text, 'phase', 'pick', 'wl', null, 'guesses', '[]'::jsonb);
++  perform _save(g, st, array[nd]);
++end $$;
++
++-- ===== 12. Thật hay thách (thẻ do app chọn; không có thắng thua, kết thúc khi muốn) =====
++create or replace function td_card(p_id uuid, p_card jsonb) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); t uuid := _opp(g);
++begin
++  if g.kind <> 'that_thach' then raise exception 'Sai loại ván'; end if;
++  st := g.state;
++  if st->>'phase' <> 'pick' or not _mine(g) then raise exception 'Chưa đến lượt bạn ra đề'; end if;
++  if p_card->>'t' not in ('truth', 'dare') or char_length(coalesce(p_card->>'text', '')) not between 1 and 240 then raise exception 'Thẻ không hợp lệ'; end if;
++  st := st || jsonb_build_object('phase', 'card', 'card', jsonb_build_object('t', p_card->>'t', 'text', left(p_card->>'text', 240)), 'target', t::text);
++  perform _save(g, st, array[t]);
++end $$;
++
++create or replace function td_done(p_id uuid, p_skip boolean default false) returns void language plpgsql security definer set search_path=public as $$
++declare g games := _g(p_id); st jsonb; me uuid := auth.uid(); entry jsonb; lg jsonb;
++begin
++  if g.kind <> 'that_thach' then raise exception 'Sai loại ván'; end if;
++  st := g.state;
++  if st->>'phase' <> 'card' or (st->>'target')::uuid <> me then raise exception 'Chưa đến lượt bạn'; end if;
++  entry := (st->'card') || jsonb_build_object('who', me::text, 'skip', coalesce(p_skip, false));
++  lg := (jsonb_build_array(entry) || coalesce(st->'log', '[]'::jsonb));
++  lg := (select coalesce(jsonb_agg(x), '[]'::jsonb) from (select x from jsonb_array_elements(lg) with ordinality t(x, o) order by o limit 8) z);
++  st := st || jsonb_build_object('phase', 'pick', 'card', null, 'target', null, 'log', lg, 'count', (st->>'count')::int + case when coalesce(p_skip, false) then 0 else 1 end);
++  perform _save(g, st, array[me]);       -- người vừa làm xong sẽ ra đề cho người kia
++end $$;
++
++-- ===== 13. Hộp quà thử thách: người thắng rút một phần quà người thua đã tự viết sẵn =====
++create or replace function voucher_add(p_title text) returns uuid language plpgsql security definer set search_path=public as $$
++declare vid uuid; begin
++  if auth.uid() is null or my_space() is null then raise exception 'Bạn chưa vào Space nào'; end if;
++  if char_length(btrim(coalesce(p_title, ''))) not between 1 and 120 then raise exception 'Quà tặng dài 1 đến 120 ký tự'; end if;
++  if (select count(*) from game_vouchers where space_id = my_space() and owner = auth.uid() and status = 'pool') >= 40 then raise exception 'Hộp quà của bạn đã đầy (tối đa 40)'; end if;
++  insert into game_vouchers(space_id, owner, title) values (my_space(), auth.uid(), btrim(p_title)) returning id into vid;
++  return vid; end $$;
++
++create or replace function voucher_remove(p_id uuid) returns void language plpgsql security definer set search_path=public as $$
++begin
++  delete from game_vouchers where id = p_id and space_id = my_space() and owner = auth.uid() and status = 'pool';
++  if not found then raise exception 'Không xóa được phần quà này'; end if;
++end $$;
++
++create or replace function voucher_draw(p_game uuid) returns game_vouchers language plpgsql security definer set search_path=public as $$
++declare g games; loser uuid; v game_vouchers;
++begin
++  select * into g from games where id = p_game and space_id = my_space() and auth.uid() in (p1, p2) for update;
++  if g.id is null then raise exception 'Không tìm thấy ván chơi'; end if;
++  if g.status <> 'done' or g.winner is distinct from auth.uid() then raise exception 'Chỉ người thắng mới được rút quà'; end if;
++  if g.reward_drawn then raise exception 'Ván này đã rút quà rồi'; end if;
++  loser := case when auth.uid() = g.p1 then g.p2 else g.p1 end;
++  select * into v from game_vouchers where space_id = g.space_id and owner = loser and status = 'pool' order by random() limit 1 for update skip locked;
++  if v.id is null then raise exception 'Người kia chưa có phần quà nào trong hộp'; end if;
++  update game_vouchers set status = 'won', holder = auth.uid(), game_id = g.id, won_at = now() where id = v.id returning * into v;
++  update games set reward_drawn = true where id = g.id;
++  return v;
++end $$;
++
++create or replace function voucher_done(p_id uuid) returns void language plpgsql security definer set search_path=public as $$
++begin
++  update game_vouchers set status = 'done', done_at = now()
++   where id = p_id and space_id = my_space() and status = 'won' and auth.uid() in (holder, owner);
++  if not found then raise exception 'Không cập nhật được phần quà này'; end if;
++end $$;
++
++-- ===== 14. Quyền gọi =====
++do $$
++declare f text;
++begin
++  -- hàm nội bộ: không ai gọi trực tiếp từ trình duyệt
++  for f in select unnest(array[
++    '_srv()', '_ints(jsonb)', '_g(uuid)', '_opp(games)', '_save(games,jsonb,uuid[],text,uuid)', '_sget(uuid,uuid)', '_sset(uuid,uuid,jsonb)',
++    '_mine(games)', '_norm(text)', '_has_cell(jsonb,int,int)', '_ship_down(jsonb,jsonb)', '_winner(games,jsonb)', '_bc_pts(int[])', '_bc_deal(uuid,uuid,uuid)', '_xd_eval(int[])', '_xd_rank(jsonb)',
++    '_xd_cmp(jsonb,jsonb)', '_xd_show(games,jsonb)', '_xd_round(games,jsonb,int,uuid)', '_xd_commit(games,jsonb)', '_xd_after_stand(games,jsonb,uuid)'])
++  loop
++    execute format('revoke all on function %s from public, anon, authenticated', f);
++  end loop;
++  -- hàm công khai cho người đã đăng nhập
++  for f in select unnest(array[
++    'game_my_secret(uuid)', 'game_end(uuid)', 'game_create(text,jsonb)', 'caro_move(uuid,int,int)', 'sb_set(uuid,text)', 'sb_guess(uuid,text)',
++    'lb_flip(uuid,int)', 'kn_answer(uuid,int)', 'kn_guess(uuid,int)', 'pt_place(uuid,jsonb)', 'pt_fire(uuid,int,int)', 'bc_reveal(uuid)', 'bc_next(uuid)',
++    'xd_hit(uuid)', 'xd_stand(uuid)', 'xd_next(uuid)', 'vd_set_word(uuid,text)', 'vd_guess(uuid,text)', 'vd_giveup(uuid)', 'vd_next(uuid)',
++    'td_card(uuid,jsonb)', 'td_done(uuid,boolean)', 'voucher_add(text)', 'voucher_remove(uuid)', 'voucher_draw(uuid)', 'voucher_done(uuid)'])
++  loop
++    execute format('revoke all on function %s from public, anon', f);
++    execute format('grant execute on function %s to authenticated', f);
++  end loop;
++end $$;
+diff --git a/supabase/tests/phase24_stub.sql b/supabase/tests/phase24_stub.sql
+new file mode 100644
+index 0000000..1151962
+--- /dev/null
++++ b/supabase/tests/phase24_stub.sql
+@@ -0,0 +1,19 @@
++-- Môi trường giả lập tối thiểu của Supabase (auth, realtime, spaces, profiles, my_space) để chạy thử phase24.sql trên Postgres thường.
++-- Cách chạy: xem mục "Trò chơi cho hai người" trong README.
++do $$ begin
++  if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
++  if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
++end $$;
++create schema auth; create table auth.users(id uuid primary key);
++create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
++create schema realtime; create table realtime.messages(extension text, topic text);
++create function realtime.topic() returns text language sql as $$ select 'x'::text $$;
++alter table realtime.messages enable row level security;
++create publication supabase_realtime;
++grant usage on schema public, auth to authenticated, anon;
++create table spaces(id uuid primary key default gen_random_uuid(), name text, start_date date);
++create table profiles(id uuid primary key references auth.users, space_id uuid references spaces, display_name text);
++create function my_space() returns uuid language sql stable security definer as $$ select space_id from profiles where id=auth.uid() $$;
++alter table spaces enable row level security; alter table profiles enable row level security;
++create policy p1 on profiles for select using (true);
++grant select on spaces, profiles to authenticated;
+diff --git a/supabase/tests/phase24_test_1.sql b/supabase/tests/phase24_test_1.sql
+new file mode 100644
+index 0000000..146b7ba
+--- /dev/null
++++ b/supabase/tests/phase24_test_1.sql
+@@ -0,0 +1,154 @@
++-- Kiểm thử luật chơi phase24: cờ caro, số bí mật, lật bài, ai hiểu ai nhất, phá thuyền.
++\set ON_ERROR_STOP on
++create or replace function t_as(u uuid) returns void language plpgsql as $$ begin perform set_config('request.jwt.claim.sub', u::text, false); end $$;
++truncate game_vouchers, games, game_secrets cascade; delete from profiles; delete from spaces; delete from auth.users;
++insert into auth.users values ('11111111-1111-1111-1111-111111111111'),('22222222-2222-2222-2222-222222222222');
++insert into spaces(id) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
++insert into profiles values ('11111111-1111-1111-1111-111111111111','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','An'),('22222222-2222-2222-2222-222222222222','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','Binh');
++
++-- ===== CARO =====
++do $$ declare u1 uuid:='11111111-1111-1111-1111-111111111111'; u2 uuid:='22222222-2222-2222-2222-222222222222'; gid uuid; g games; i int; failed boolean;
++begin
++  perform t_as(u1); gid:=game_create('caro','{"size":10}');
++  perform t_as(u2);
++  begin perform caro_move(gid,0,0); failed:=false; exception when others then failed:=true; assert sqlerrm like '%Chưa đến lượt%', sqlerrm; end; assert failed,'out of turn must fail';
++  begin perform game_create('caro'); failed:=false; exception when others then failed:=true; end; assert failed,'second active caro must fail';
++  for i in 0..3 loop
++    perform t_as(u1); perform caro_move(gid,0,i);
++    perform t_as(u2); perform caro_move(gid,1,i);
++  end loop;
++  perform t_as(u1);
++  begin perform caro_move(gid,0,0); failed:=false; exception when others then failed:=true; end; -- not his turn? it is u1's turn, cell taken
++  assert failed,'occupied cell must fail';
++  perform caro_move(gid,0,4);
++  select * into g from games where id=gid;
++  assert g.status='done' and g.winner=u1, 'caro win';
++  assert jsonb_array_length(g.state->'win')=5, 'win cells '||(g.state->'win')::text;
++  raise notice 'CARO ok';
++end $$;
++
++-- caro diagonal win for u2 and draw-less check on 15 board
++do $$ declare u1 uuid:='11111111-1111-1111-1111-111111111111'; u2 uuid:='22222222-2222-2222-2222-222222222222'; gid uuid; g games; i int;
++begin
++  perform t_as(u1); gid:=game_create('caro');
++  for i in 0..4 loop
++    perform t_as(u1); perform caro_move(gid,i,14-i-0 - (case when i<5 then 0 else 0 end)+0 - 0 - 0 + 0 - 0 + 0 - 0 + 0 - 0 + 0 - 0 + 0 - 0 + 0 - 0 + 0 - 0 + 0 - 0 + 0 - 0 + 0 - 0 + 0); -- anti-diagonal for u1
++    exit when i=4;
++    perform t_as(u2); perform caro_move(gid,13,i);
++  end loop;
++  select * into g from games where id=gid;
++  assert g.status='done' and g.winner=u1, 'anti diagonal win';
++  raise notice 'CARO diag ok';
++end $$;
++
++-- ===== SO BI MAT =====
++do $$ declare u1 uuid:='11111111-1111-1111-1111-111111111111'; u2 uuid:='22222222-2222-2222-2222-222222222222'; gid uuid; g games; failed boolean;
++begin
++  perform t_as(u1); gid:=game_create('so_bi_mat','{"len":4}');
++  begin perform sb_set(gid,'1123'); failed:=false; exception when others then failed:=true; end; assert failed,'dup digits rejected';
++  perform sb_set(gid,'1234');
++  select * into g from games where id=gid; assert g.waiting=array[u2],'waiting u2';
++  perform t_as(u2); perform sb_set(gid,'5678');
++  select * into g from games where id=gid; assert g.state->>'phase'='play' and g.waiting=array[u1],'play phase';
++  perform t_as(u1); perform sb_guess(gid,'5678');   -- u1 solves first
++  select * into g from games where id=gid; assert g.status='playing' and g.waiting=array[u2] and (g.state->>'solved')::boolean,'final chance';
++  perform t_as(u2); perform sb_guess(gid,'1235');   -- u2 misses -> u1 wins
++  select * into g from games where id=gid; assert g.status='done' and g.winner=u1,'u1 wins'; assert g.state->'reveal'->>u2::text='5678','reveal';
++  -- bulls/cows counts
++  perform t_as(u1); gid:=game_create('so_bi_mat','{"len":4}'); perform sb_set(gid,'1234'); perform t_as(u2); perform sb_set(gid,'1234');
++  perform t_as(u1); perform sb_guess(gid,'1243'); select * into g from games where id=gid;
++  assert (g.state->'guesses'->(u1::text)->0->>'b')::int=2 and (g.state->'guesses'->(u1::text)->0->>'c')::int=2,'bulls cows '||(g.state->'guesses')::text;
++  perform t_as(u2); perform sb_guess(gid,'1234');   -- u2 solves first as 2nd player -> immediate win for u2 (u1 had equal turns)
++  select * into g from games where id=gid; assert g.status='done' and g.winner=u2,'p2 immediate win';
++  -- both solve -> draw
++  perform t_as(u1); gid:=game_create('so_bi_mat','{"len":3}'); perform sb_set(gid,'123'); perform t_as(u2); perform sb_set(gid,'456');
++  perform t_as(u1); perform sb_guess(gid,'456'); perform t_as(u2); perform sb_guess(gid,'123');
++  select * into g from games where id=gid; assert g.status='done' and g.winner is null,'draw';
++  raise notice 'SO BI MAT ok';
++end $$;
++
++-- ===== LAT BAI (memory) =====
++do $$ declare u1 uuid:='11111111-1111-1111-1111-111111111111'; u2 uuid:='22222222-2222-2222-2222-222222222222'; gid uuid; g games; lay jsonb; n int; i int; j int; cur uuid; done_ boolean:=false; found boolean; guard int:=0; tries int;
++begin
++  perform t_as(u1); gid:=game_create('lat_bai','{"pairs":4,"mode":"vs"}');
++  lay:=(select data->'layout' from game_secrets where game_id=gid and owner=_srv());
++  assert jsonb_array_length(lay)=8,'layout 8';
++  -- mismatch first: find two different cards
++  perform lb_flip(gid,0);
++  select * into g from games where id=gid; assert jsonb_array_length(g.state->'up')=1 and g.waiting=array[u1],'first flip keeps turn';
++  j:=1; while lay->>j = lay->>0 loop j:=j+1; end loop;
++  perform lb_flip(gid,j);
++  select * into g from games where id=gid; assert g.waiting=array[u2] and jsonb_array_length(g.state->'up')=2,'mismatch passes turn';
++  -- now play perfectly, alternating as required
++  loop
++    guard:=guard+1; assert guard<60,'loop';
++    select * into g from games where id=gid; exit when g.status<>'playing';
++    cur:=g.waiting[1]; perform t_as(cur);
++    -- pick first unmatched card i, then its partner
++    for i in 0..7 loop
++      if not (g.state->'matched' ? i::text) then
++        for j in 0..7 loop
++          if j<>i and lay->>j=lay->>i and not (g.state->'matched' ? j::text) then
++            perform lb_flip(gid,i); perform lb_flip(gid,j); exit;
++          end if;
++        end loop; exit;
++      end if;
++    end loop;
++  end loop;
++  select * into g from games where id=gid;
++  assert g.status='done','memory done'; assert (g.state->'scores'->>u2::text)::int=4,'u2 got all pairs '||(g.state->'scores')::text; assert g.winner=u2,'winner';
++  raise notice 'LAT BAI ok';
++end $$;
++
++-- ===== HIEU NHAU =====
++do $$ declare u1 uuid:='11111111-1111-1111-1111-111111111111'; u2 uuid:='22222222-2222-2222-2222-222222222222'; gid uuid; g games; qs jsonb; i int; failed boolean;
++begin
++  qs:=(select jsonb_agg(jsonb_build_object('q','Câu '||x,'o',jsonb_build_array('a','b','c'))) from generate_series(1,4) x);
++  perform t_as(u1); gid:=game_create('hieu_nhau',jsonb_build_object('qs',qs));
++  for i in 0..3 loop
++    select * into g from games where id=gid;
++    perform t_as((g.state->>'answerer')::uuid); perform kn_answer(gid,1);
++    select * into g from games where id=gid; perform t_as(g.waiting[1]);
++    begin perform kn_answer(gid,0); failed:=false; exception when others then failed:=true; end; assert failed,'guesser cannot answer';
++    perform kn_guess(gid,case when i%2=0 then 1 else 2 end);   -- right on even, wrong on odd
++  end loop;
++  select * into g from games where id=gid; assert g.status='done','hieu done';
++  assert (g.state->'scores'->>u2::text)::int=2 and (g.state->'scores'->>u1::text)::int=0 and g.winner=u2,'scores '||(g.state->'scores')::text;
++  assert jsonb_array_length(g.state->'log')=4,'log';
++  raise notice 'HIEU NHAU ok';
++end $$;
++
++-- ===== PHA THUYEN =====
++do $$ declare u1 uuid:='11111111-1111-1111-1111-111111111111'; u2 uuid:='22222222-2222-2222-2222-222222222222'; gid uuid; g games; ships jsonb; failed boolean; s jsonb; c jsonb; secret1 jsonb; r int; cc int; hit boolean; guard int:=0;
++begin
++  ships:='[{"len":5,"r":0,"c":0,"d":"h"},{"len":4,"r":2,"c":0,"d":"h"},{"len":3,"r":4,"c":0,"d":"h"},{"len":3,"r":6,"c":0,"d":"h"},{"len":2,"r":8,"c":0,"d":"v"}]';
++  perform t_as(u1); gid:=game_create('pha_thuyen');
++  begin perform pt_place(gid,'[{"len":5,"r":0,"c":0,"d":"h"}]'); failed:=false; exception when others then failed:=true; end; assert failed,'incomplete fleet rejected';
++  begin perform pt_place(gid,'[{"len":5,"r":0,"c":7,"d":"h"},{"len":4,"r":2,"c":0,"d":"h"},{"len":3,"r":4,"c":0,"d":"h"},{"len":3,"r":6,"c":0,"d":"h"},{"len":2,"r":8,"c":0,"d":"v"}]'); failed:=false; exception when others then failed:=true; end; assert failed,'out of bounds rejected';
++  begin perform pt_place(gid,'[{"len":5,"r":0,"c":0,"d":"h"},{"len":4,"r":0,"c":2,"d":"h"},{"len":3,"r":4,"c":0,"d":"h"},{"len":3,"r":6,"c":0,"d":"h"},{"len":2,"r":8,"c":0,"d":"v"}]'); failed:=false; exception when others then failed:=true; end; assert failed,'overlap rejected';
++  perform pt_place(gid,ships);
++  perform t_as(u2); perform pt_place(gid,ships);
++  select * into g from games where id=gid; assert g.state->>'phase'='battle' and g.waiting=array[u1],'battle';
++  -- u1 fires: miss then hits; u2 fires at empty water
++  perform t_as(u1); perform pt_fire(gid,9,9);
++  select * into g from games where id=gid; assert (g.state->'shots'->(u1::text)->0->>'h')::boolean=false and g.waiting=array[u2],'miss';
++  perform t_as(u2); perform pt_fire(gid,9,9);
++  perform t_as(u1);
++  begin perform pt_fire(gid,9,9); failed:=false; exception when others then failed:=true; end; assert failed,'repeat shot rejected';
++  perform t_as(u1);  -- (turn is u1)
++  select * into g from games where id=gid; assert g.waiting=array[u1],'turn u1';
++  perform pt_fire(gid,8,0); perform t_as(u2); perform pt_fire(gid,9,8); perform t_as(u1); perform pt_fire(gid,9,0);
++  select * into g from games where id=gid; assert jsonb_array_length(g.state->'sunk'->(u2::text))=1,'one ship sunk';
++  -- finish: u1 hits all other cells; u2 wastes shots in empty water
++  for r in 0..8 loop for cc in 0..4 loop
++    select * into g from games where id=gid; exit when g.status<>'playing';
++    if g.waiting=array[u2] then perform t_as(u2); perform pt_fire(gid,1+2*((guard/10)%4),guard%10); guard:=guard+1; end if;
++    perform t_as(u1);
++    if ((r=0 and cc<5) or (r=2 and cc<4) or (r=4 and cc<3) or (r=6 and cc<3))
++       and not exists(select 1 from jsonb_array_elements((select state->'shots'->(u1::text) from games where id=gid)) x where (x->>'r')::int=r and (x->>'c')::int=cc) then
++      perform pt_fire(gid,r,cc);
++    end if;
++  end loop; end loop;
++  select * into g from games where id=gid; assert g.status='done' and g.winner=u1,'u1 wins battleship '||g.status; assert g.state->'reveal' is not null,'reveal fleets';
++  raise notice 'PHA THUYEN ok';
++end $$;
+diff --git a/supabase/tests/phase24_test_2.sql b/supabase/tests/phase24_test_2.sql
+new file mode 100644
+index 0000000..5ed9686
+--- /dev/null
++++ b/supabase/tests/phase24_test_2.sql
+@@ -0,0 +1,157 @@
++-- Kiểm thử luật chơi phase24: bài cào, xì dách (40 ván ngẫu nhiên), vẽ và đoán, thật hay thách, hộp quà, cách ly giữa các Space.
++\set ON_ERROR_STOP on
++truncate game_vouchers, games, game_secrets cascade;
++insert into auth.users values ('33333333-3333-3333-3333-333333333333') on conflict do nothing;
++insert into spaces(id) values ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb') on conflict do nothing;
++insert into profiles values ('33333333-3333-3333-3333-333333333333','bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb','Lạ') on conflict do nothing;
++
++-- pure functions
++do $$ begin
++  assert _bc_pts(array[10,11,12])=10,'ba cao';
++  assert _bc_pts(array[0,1])=3,'A+2'; assert _bc_pts(array[9,10,11])=0,'10 J Q = 0';
++  assert _bc_pts(array[8,21,34])=7,'9+9+9=27 -> 7';
++  assert _xd_eval(array[0,13])->>'kind'='xibang','xi bang';
++  assert _xd_eval(array[0,9])->>'kind'='xidach' and _xd_eval(array[12,0])->>'kind'='xidach','xi dach';
++  assert _xd_eval(array[5,6,7])->>'pts'='21','6+7+8';
++  assert _xd_eval(array[12,11,5])->>'kind'='quac','quac';
++  assert _xd_eval(array[0,1,2,3,4])->>'kind'='nguli','ngu linh';
++  assert _xd_eval(array[0,13,8])->>'pts'='21','A A 9 = 21';
++  assert _xd_eval(array[0,5])->>'pts'='17','A+6 = 17';
++  assert _xd_cmp(_xd_eval(array[0,13]),_xd_eval(array[0,9]))=1,'xi bang > xi dach';
++  assert _xd_cmp(_xd_eval(array[0,1,2,3,4]),_xd_eval(array[5,6,7]))=1,'ngu linh > 21';
++  assert _xd_cmp(_xd_eval(array[12,11,5]),_xd_eval(array[12,11,5]))=0,'quac vs quac hoa';
++  assert _norm('  Đồng   HỒ ')='dong ho','norm '||_norm('  Đồng   HỒ ');
++  assert _norm('Trái tim')=_norm('TRAI TIM'),'norm2';
++  raise notice 'PURE ok';
++end $$;
++
++-- BAI CAO
++do $$ declare u1 uuid:='11111111-1111-1111-1111-111111111111'; u2 uuid:='22222222-2222-2222-2222-222222222222'; gid uuid; g games; failed boolean; c1 int[]; c2 int[];
++begin
++  perform t_as(u1); gid:=game_create('bai_cao','{"rounds":1}');
++  select * into g from games where id=gid; assert g.waiting @> array[u1,u2],'both waiting';
++  assert jsonb_array_length(game_my_secret(gid)->'cards')=3,'own 3 cards';
++  perform t_as(u2); assert game_my_secret(gid)<>(select data from game_secrets where game_id=gid and owner=u1),'different hands';
++  perform t_as(u1); perform bc_reveal(gid);
++  select * into g from games where id=gid; assert g.state->'last' is null or g.state->'last'='null'::jsonb,'hands hidden until both reveal';
++  begin perform bc_reveal(gid); failed:=false; exception when others then failed:=true; end; assert failed,'reveal twice rejected';
++  perform t_as(u2); perform bc_reveal(gid);
++  select * into g from games where id=gid; assert g.status='done','1 round done';
++  c1:=_ints(g.state->'last'->'hands'->(u1::text)); c2:=_ints(g.state->'last'->'hands'->(u2::text));
++  assert g.winner is not distinct from case when _bc_pts(c1)>_bc_pts(c2) then u1 when _bc_pts(c1)<_bc_pts(c2) then u2 end,'winner matches points';
++  -- multi round
++  perform t_as(u1); gid:=game_create('bai_cao','{"rounds":3}');
++  for i in 1..3 loop
++    perform t_as(u1); perform bc_reveal(gid); perform t_as(u2); perform bc_reveal(gid);
++    select * into g from games where id=gid; exit when g.status='done';
++    perform bc_next(gid);
++  end loop;
++  select * into g from games where id=gid; assert g.status='done' and (g.state->>'round')::int=3,'3 rounds';
++  raise notice 'BAI CAO ok';
++end $$;
++
++-- XI DACH: 40 random full games driven by a simple bot
++do $$ declare u1 uuid:='11111111-1111-1111-1111-111111111111'; u2 uuid:='22222222-2222-2222-2222-222222222222'; gid uuid; g games; k int; guard int; actor uuid; hand int[]; ev jsonb; need int; shows int:=0; naturals int:=0; leak boolean:=false;
++begin
++  for k in 1..40 loop
++    perform t_as(u1); gid:=game_create('xi_dach',jsonb_build_object('rounds',3)); guard:=0;
++    loop
++      guard:=guard+1; assert guard<80,'xi dach loop';
++      select * into g from games where id=gid; exit when g.status<>'playing';
++      if g.state->>'phase'='show' then
++        shows:=shows+1; perform t_as(u1); perform xd_next(gid);
++      else
++        actor:=(g.state->>'turn')::uuid; assert g.waiting=array[actor],'waiting equals turn'; perform t_as(actor);
++        hand:=_ints((select data->'cards' from game_secrets where game_id=gid and owner=actor));
++        ev:=_xd_eval(hand); need:=case when (g.state->>'dealer')::uuid=actor then 15 else 16 end;
++        -- the opponent must not see my cards in public state
++        if g.state::text like '%"cards"%' then leak:=true; end if;
++        if ev->>'kind'='diem' and (ev->>'pts')::int<need then perform xd_hit(gid); else perform xd_stand(gid); end if;
++      end if;
++    end loop;
++    select * into g from games where id=gid; assert g.status='done','xi dach done';
++    assert (g.state->'scores'->>u1::text)::int+(g.state->'scores'->>u2::text)::int<=3,'scores bounded';
++  end loop;
++  assert not leak,'public state leaked a hand';
++  raise notice 'XI DACH ok (% rounds shown)', shows;
++  -- standing under age is rejected
++  perform t_as(u1); delete from games where kind='xi_dach';
++  loop
++    gid:=game_create('xi_dach','{"rounds":1}'); select * into g from games where id=gid;
++    if g.status='playing' then
++      actor:=(g.state->>'turn')::uuid; perform t_as(actor); hand:=_ints((select data->'cards' from game_secrets where game_id=gid and owner=actor)); ev:=_xd_eval(hand);
++      if (ev->>'pts')::int<15 then
++        begin perform xd_stand(gid); assert false,'should reject'; exception when others then assert sqlerrm like '%Chưa đủ tuổi%', sqlerrm; end;
++        exit;
++      end if;
++    end if;
++    perform t_as(u1); delete from games where kind='xi_dach';
++  end loop;
++  raise notice 'XI DACH min-age ok';
++end $$;
++
++-- VE DOAN
++do $$ declare u1 uuid:='11111111-1111-1111-1111-111111111111'; u2 uuid:='22222222-2222-2222-2222-222222222222'; gid uuid; g games; r boolean; failed boolean; i int;
++begin
++  perform t_as(u1); gid:=game_create('ve_doan','{"rounds":2}');
++  perform t_as(u2); begin perform vd_set_word(gid,'abc'); failed:=false; exception when others then failed:=true; end; assert failed,'only drawer sets word';
++  perform t_as(u1); perform vd_set_word(gid,'Con Mèo');
++  select * into g from games where id=gid; assert g.state::text not like '%Mèo%' and g.state->'wl'='[3,3]'::jsonb,'word hidden, lengths shown '||g.state::text;
++  begin perform vd_guess(gid,'x'); failed:=false; exception when others then failed:=true; end; assert failed,'drawer cannot guess';
++  perform t_as(u2); r:=vd_guess(gid,'con chó'); assert r=false,'wrong';
++  r:=vd_guess(gid,'  CON   MEO '); assert r=true,'right, case/diacritics/space insensitive';
++  select * into g from games where id=gid; assert g.state->>'phase'='over' and (g.state->'scores'->>u2::text)::int=1,'scored';
++  perform vd_next(gid);
++  select * into g from games where id=gid; assert g.state->>'phase'='pick' and (g.state->>'drawer')::uuid=u2 and (g.state->>'round')::int=2,'swap drawer';
++  perform t_as(u2); perform vd_set_word(gid,'Trái tim');
++  perform t_as(u1); for i in 1..15 loop perform vd_guess(gid,'sai '||i); end loop;
++  select * into g from games where id=gid; assert jsonb_array_length(g.state->'guesses')=12 and g.state->'guesses'->>11='sai 15','guess cap '||(g.state->'guesses')::text;
++  perform vd_giveup(gid); perform vd_next(gid);
++  select * into g from games where id=gid; assert g.status='done' and g.winner=u2,'ve doan winner';
++  raise notice 'VE DOAN ok';
++end $$;
++
++-- THAT THACH
++do $$ declare u1 uuid:='11111111-1111-1111-1111-111111111111'; u2 uuid:='22222222-2222-2222-2222-222222222222'; gid uuid; g games; failed boolean;
++begin
++  perform t_as(u1); gid:=game_create('that_thach');
++  begin perform td_card(gid,'{"t":"x","text":"hi"}'); failed:=false; exception when others then failed:=true; end; assert failed,'bad card';
++  perform td_card(gid,'{"t":"truth","text":"Điều gì khiến bạn rung động đầu tiên?"}');
++  select * into g from games where id=gid; assert g.waiting=array[u2] and g.state->>'phase'='card','card sent';
++  begin perform td_done(gid); failed:=false; exception when others then null; failed:=false; end;
++  perform t_as(u2); perform td_done(gid);
++  select * into g from games where id=gid; assert g.waiting=array[u2] and g.state->>'phase'='pick' and (g.state->>'count')::int=1,'u2 asks next';
++  perform td_card(gid,'{"t":"dare","text":"Hát một câu"}'); perform t_as(u1); perform td_done(gid,true);
++  select * into g from games where id=gid; assert (g.state->>'count')::int=1 and jsonb_array_length(g.state->'log')=2,'skip not counted';
++  perform game_end(gid); select * into g from games where id=gid; assert g.status='abandoned','ended';
++  raise notice 'THAT THACH ok';
++end $$;
++
++-- VOUCHERS + cross-space isolation
++do $$ declare u1 uuid:='11111111-1111-1111-1111-111111111111'; u2 uuid:='22222222-2222-2222-2222-222222222222'; u3 uuid:='33333333-3333-3333-3333-333333333333'; gid uuid; g1 uuid; g2 uuid; g3 uuid; v game_vouchers; failed boolean; vid uuid;
++begin
++  perform t_as(u2); vid:=voucher_add('Massage 15 phút'); perform t_as(u1); perform voucher_add('Rửa bát');
++  -- make three finished caro games: u1 wins, u2 wins, u1 wins
++  perform t_as(u1); g1:=game_create('caro','{"size":10}');
++  for i in 0..3 loop perform t_as(u1); perform caro_move(g1,0,i); perform t_as(u2); perform caro_move(g1,1,i); end loop; perform t_as(u1); perform caro_move(g1,0,4);
++  g2:=game_create('caro','{"size":10}'); -- u1 is p1 and moves first; let u2 win
++  perform t_as(u1); perform caro_move(g2,5,5);
++  for i in 0..3 loop perform t_as(u2); perform caro_move(g2,0,i); perform t_as(u1); perform caro_move(g2,9,i); end loop; perform t_as(u2); perform caro_move(g2,0,4);
++  -- isolation: outsider cannot touch or draw
++  perform t_as(u3);
++  begin perform caro_move(g1,3,3); failed:=false; exception when others then failed:=true; end; assert failed,'outsider cannot move';
++  begin perform voucher_draw(g1); failed:=false; exception when others then failed:=true; end; assert failed,'outsider cannot draw';
++  assert game_my_secret(g1) is null,'outsider no secret';
++  perform t_as(u2); begin perform voucher_draw(g1); failed:=false; exception when others then failed:=true; assert sqlerrm like '%người thắng%', sqlerrm; end; assert failed,'loser cannot draw';
++  perform t_as(u1); v:=voucher_draw(g1); assert v.title='Massage 15 phút' and v.holder=u1 and v.status='won','u1 draws u2 voucher';
++  begin perform voucher_draw(g1); failed:=false; exception when others then failed:=true; end; assert failed,'draw only once';
++  perform voucher_done(v.id);
++  perform t_as(u2); v:=voucher_draw(g2); assert v.title='Rửa bát' and v.holder=u2,'u2 draws u1 voucher';
++  -- no vouchers left in pool for u1 winning again
++  perform t_as(u1); g3:=game_create('caro','{"size":10}');
++  for i in 0..3 loop perform t_as(u1); perform caro_move(g3,0,i); perform t_as(u2); perform caro_move(g3,1,i); end loop; perform t_as(u1); perform caro_move(g3,0,4);
++  begin perform voucher_draw(g3); failed:=false; exception when others then failed:=true; assert sqlerrm like '%chưa có phần quà%', sqlerrm; end; assert failed,'empty pool message';
++  perform t_as(u2); perform voucher_add('x'); begin perform voucher_remove(vid); failed:=false; exception when others then failed:=true; end; assert failed,'cannot remove won voucher';
++  raise notice 'VOUCHERS + ISOLATION ok';
++end $$;
++
+diff --git a/supabase/tests/phase24_test_rls.sql b/supabase/tests/phase24_test_rls.sql
+new file mode 100644
+index 0000000..2443a4d
+--- /dev/null
++++ b/supabase/tests/phase24_test_rls.sql
+@@ -0,0 +1,23 @@
++-- Kiểm thử quyền truy cập phase24: trình duyệt không đọc được game_secrets, không ghi trực tiếp, không gọi được hàm nội bộ.
++\set ON_ERROR_STOP on
++grant select, insert, update, delete on games, game_secrets, game_vouchers to authenticated, anon;  -- giống quyền mặc định của Supabase
++\i supabase/phase24.sql
++select t_as('11111111-1111-1111-1111-111111111111');
++set role authenticated;
++do $$ declare n int; failed boolean;
++begin
++  select count(*) into n from games; assert n>0,'can read own games';
++  begin perform 1 from game_secrets; failed:=false; exception when insufficient_privilege then failed:=true; end; assert failed,'secrets readable!';
++  begin update games set winner=null; failed:=false; exception when insufficient_privilege then failed:=true; end; assert failed,'direct update allowed!';
++  begin insert into game_vouchers(space_id,owner,title) values (my_space(),auth.uid(),'x'); failed:=false; exception when insufficient_privilege then failed:=true; end; assert failed,'direct voucher insert allowed!';
++  begin perform _g(gen_random_uuid()); failed:=false; exception when insufficient_privilege then failed:=true; end; assert failed,'internal helper callable!';
++  begin perform _sget(gen_random_uuid(), auth.uid()); failed:=false; exception when insufficient_privilege then failed:=true; end; assert failed,'_sget callable!';
++  perform game_my_secret(gen_random_uuid());
++  raise notice 'RLS ok';
++end $$;
++reset role;
++-- user of another space sees no games
++select t_as('33333333-3333-3333-3333-333333333333');
++set role authenticated;
++do $$ begin assert (select count(*) from games)=0,'other space sees games!'; raise notice 'ISOLATION read ok'; end $$;
++reset role;

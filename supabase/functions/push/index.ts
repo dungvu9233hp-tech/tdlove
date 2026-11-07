@@ -1,11 +1,11 @@
 // Edge Function `push`: gửi thông báo đẩy đến máy người kia khi có tin nhắn mới, cuộc gọi đến (CHAT-04, CALL-05)
-// và các tương tác ở mục Giải trí: thả cảm xúc, bình luận, rủ xem cùng (phase14).
+// các tương tác ở mục Giải trí: thả cảm xúc, bình luận, rủ xem cùng (phase14) và lời rủ/đến lượt ở khu Trò chơi (phase24).
 // Gọi từ app bằng supabase.functions.invoke('push', { body: { kind, text, clip } }), kind là một trong KINDS bên dưới.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import webpush from 'npm:web-push@3.6.7'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
-const KINDS = ['message', 'call', 'clip-react', 'clip-comment', 'together']
+const KINDS = ['message', 'call', 'clip-react', 'clip-comment', 'together', 'game']
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const reply = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
 
@@ -33,6 +33,7 @@ Deno.serve(async req => {
       'clip-react': { body: `Đã thả ${t || 'cảm xúc'} vào clip`, url: '/fun', tag: 'clip-react' },
       'clip-comment': { body: t ? `Bình luận clip: ${t}` : 'Có bình luận mới ở một clip', url: '/fun', tag: 'clip-comment' },
       together: { body: 'Rủ bạn xem clip cùng nhau, vào ngay nhé!', url: cid ? `/fun?together=${cid}` : '/fun', tag: 'together' },
+      game: { body: t || 'Đến lượt bạn trong ván trò chơi, vào chơi nhé!', url: cid ? `/games/${cid}` : '/games', tag: cid ? `game-${cid}` : 'game' },
     }
     const payload = JSON.stringify({ kind, title, ...msgs[kind] })
     let sent = 0
