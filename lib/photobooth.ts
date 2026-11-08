@@ -8,8 +8,9 @@ export type Item = {
   text?: string; fs?: number; color?: string                 // chữ
 }
 export type Slot = { x: number; y: number; w: number; h: number; r?: number; bd?: number; bb?: number; rd?: number }
-export type Frame = { id: string; name: string; W: number; H: number; slots: Slot[] }
-export type Sticker = { id: string; name: string; src: string; w: number }
+export type Frame = { id: string; name: string; W: number; H: number; slots: Slot[]; overlay?: string }   // overlay: ảnh frame PNG có lỗ trong suốt, nằm trên ảnh
+export type Sticker = { id: string; name: string; src: string; w: number; cat: string }
+export const CATS = ['Tất cả', 'Dâu & đỏ', 'Quán cà phê', 'Hồng nhạt', 'Nét vẽ']
 
 const P = (x: number, y: number, w: number, h: number, r = 0, bd = 0, bb = 0, rd = 0): Slot => ({ x, y, w, h, r, bd, bb, rd })
 export const FRAMES: Frame[] = [
@@ -19,13 +20,64 @@ export const FRAMES: Frame[] = [
   { id: 'duo', name: 'Polaroid đôi', W: 1000, H: 1600, slots: [P(120, 60, 760, 720, -3, 28, 100), P(120, 810, 760, 720, 3, 28, 100)] },
   { id: 'one', name: 'Polaroid lớn', W: 1000, H: 1250, slots: [P(80, 80, 840, 1000, 0, 40, 160)] },
   { id: 'collage', name: 'Collage 3 ảnh', W: 1000, H: 1333, slots: [P(400, 50, 540, 560, 4, 24, 70), P(50, 330, 560, 760, -3, 24, 24), P(450, 830, 500, 430, 3, 24, 24)] },
+  { id: 'film4', name: 'Phim 4 ô', W: 444, H: 1071, overlay: '/photobooth/frames/film4.png', slots: [{ x: 61.2, y: 20.3, w: 325.6, h: 247.3 }, { x: 60.6, y: 289.6, w: 322.7, h: 243.6 }, { x: 59.2, y: 555.9, w: 319.7, h: 240.1 }, { x: 59.0, y: 817.0, w: 316.0, h: 237.0 }] },
+  { id: 'camera-sony', name: 'Máy ảnh', W: 392, H: 297, overlay: '/photobooth/frames/camera-sony.png', slots: [{ x: 51.1, y: 63.1, w: 213.7, h: 159.8, r: 14.9 }] },
+  { id: 'caro-1', name: 'Polaroid caro hồng', W: 680, H: 770, overlay: '/photobooth/frames/caro-1.png', slots: [{ x: 88.0, y: 83.0, w: 504, h: 504 }] },
+  { id: 'caro-3', name: 'Caro 3 polaroid', W: 1000, H: 1500, overlay: '/photobooth/frames/caro-3.png', slots: [{ x: 124.5, y: 88.2, w: 404.0, h: 404.0, r: -5 }, { x: 460.8, y: 518.1, w: 404.0, h: 404.0, r: 4 }, { x: 145.9, y: 928.1, w: 404.0, h: 404.0, r: -3 }] },
+  { id: 'strip-white3', name: 'Dải trắng 3 ảnh', W: 599, H: 1694, overlay: '/photobooth/frames/strip-white3.png', slots: [{ x: 50, y: 53, w: 491, h: 494 }, { x: 50, y: 593, w: 491, h: 494 }, { x: 50, y: 1133, w: 491, h: 494 }] },
+  { id: 'strip-grey3', name: 'Dải xám 3 ảnh', W: 420, H: 1205, overlay: '/photobooth/frames/strip-grey3.png', slots: [{ x: 38, y: 35, w: 339, h: 344 }, { x: 38, y: 390, w: 339, h: 344 }, { x: 38, y: 745, w: 339, h: 344 }] },
 ]
-const SK = (id: string, name: string, ext: string, w: number): Sticker => ({ id, name, src: `/photobooth/stickers/${id}.${ext}`, w })
+const SK = (id: string, name: string, ext: string, w: number, cat: string): Sticker => ({ id, name, src: `/photobooth/stickers/${id}.${ext}`, w, cat })
 export const STICKERS: Sticker[] = [
-  SK('cake', 'Bánh dâu', 'png', 300), SK('bear', 'Gấu bông', 'png', 340), SK('phone-rotary', 'Điện thoại', 'png', 320), SK('phone-handset', 'Ống nghe', 'png', 130),
-  SK('clip-1', 'Kẹp đỏ', 'png', 120), SK('clip-2', 'Kẹp đỏ 2', 'png', 130), SK('tag-1', 'Nhãn 1', 'png', 260), SK('tag-2', 'Nhãn 2', 'png', 380),
-  SK('heart-line', 'Tim trắng', 'svg', 160), SK('heart-pink', 'Tim hồng', 'svg', 160), SK('sparkle', 'Lấp lánh', 'svg', 120), SK('star-doodle', 'Sao', 'svg', 120),
-  SK('squiggle', 'Nét lượn', 'svg', 240), SK('swirl', 'Xoáy', 'svg', 150), SK('arrow-dash', 'Mũi tên', 'svg', 220), SK('tape', 'Băng dính', 'svg', 220),
+  SK('cake', 'Bánh dâu', 'png', 300, 'Dâu & đỏ'),
+  SK('bear', 'Gấu bông', 'png', 340, 'Dâu & đỏ'),
+  SK('phone-rotary', 'Điện thoại', 'png', 320, 'Dâu & đỏ'),
+  SK('phone-handset', 'Ống nghe', 'png', 130, 'Dâu & đỏ'),
+  SK('clip-1', 'Kẹp đỏ', 'png', 120, 'Dâu & đỏ'),
+  SK('clip-2', 'Kẹp đỏ 2', 'png', 130, 'Dâu & đỏ'),
+  SK('tag-1', 'Nhãn 1', 'png', 260, 'Dâu & đỏ'),
+  SK('tag-2', 'Nhãn 2', 'png', 380, 'Dâu & đỏ'),
+  SK('croissant', 'Bánh sừng bò', 'png', 240, 'Quán cà phê'),
+  SK('pretzel', 'Bánh pretzel', 'png', 230, 'Quán cà phê'),
+  SK('receipt', 'Hóa đơn', 'png', 200, 'Quán cà phê'),
+  SK('bubble-hello', 'Bong bóng hỏi', 'png', 330, 'Quán cà phê'),
+  SK('bubble-caramel', 'Bong bóng đáp', 'png', 280, 'Quán cà phê'),
+  SK('tag-open', 'Nhãn we’re open', 'png', 320, 'Quán cà phê'),
+  SK('flower-pink', 'Hoa hồng nhạt', 'png', 230, 'Hồng nhạt'),
+  SK('camera-pink', 'Máy ảnh hồng', 'png', 260, 'Hồng nhạt'),
+  SK('shark-cat', 'Mèo cá mập', 'png', 230, 'Hồng nhạt'),
+  SK('flower-dark', 'Hoa tím', 'png', 120, 'Hồng nhạt'),
+  SK('bow', 'Nơ hồng', 'png', 200, 'Hồng nhạt'),
+  SK('lips', 'Dấu môi', 'png', 220, 'Hồng nhạt'),
+  SK('disco-ball', 'Bóng disco', 'png', 190, 'Hồng nhạt'),
+  SK('flower-sticker', 'Hoa viền trắng', 'png', 300, 'Hồng nhạt'),
+  SK('disco-heart', 'Tim disco', 'png', 220, 'Hồng nhạt'),
+  SK('seal-bow', 'Dấu sáp nơ', 'png', 130, 'Hồng nhạt'),
+  SK('lily', 'Hoa lily', 'png', 160, 'Hồng nhạt'),
+  SK('lip-balm', 'Son dưỡng dâu', 'png', 230, 'Hồng nhạt'),
+  SK('chrome-star', 'Sao bạc', 'png', 240, 'Hồng nhạt'),
+  SK('gold-stars', 'Sao vàng', 'png', 260, 'Hồng nhạt'),
+  SK('butterfly', 'Bướm', 'png', 220, 'Hồng nhạt'),
+  SK('camera-nikon', 'Máy ảnh cũ', 'png', 240, 'Hồng nhạt'),
+  SK('basket', 'Giỏ đỏ', 'png', 520, 'Dâu & đỏ'),
+  SK('tag-favorite', 'Favorite person', 'png', 260, 'Dâu & đỏ'),
+  SK('babygirl', 'Baby girl', 'png', 200, 'Dâu & đỏ'),
+  SK('strawberry', 'Dâu tây', 'png', 260, 'Dâu & đỏ'),
+  SK('cherry-bow', 'Cherry nơ', 'png', 200, 'Dâu & đỏ'),
+  SK('rocket', 'Tên lửa', 'png', 200, 'Dâu & đỏ'),
+  SK('clips', 'Kẹp tóc đỏ', 'png', 200, 'Dâu & đỏ'),
+  SK('girls', 'Chữ girls', 'png', 220, 'Dâu & đỏ'),
+  SK('my-girl', 'Tim my girl', 'png', 160, 'Dâu & đỏ'),
+  SK('plate', 'Biển memories', 'png', 130, 'Dâu & đỏ'),
+  SK('stars-red', 'Sao đỏ', 'png', 160, 'Dâu & đỏ'),
+  SK('heart-line', 'Tim trắng', 'svg', 160, 'Nét vẽ'),
+  SK('heart-pink', 'Tim hồng', 'svg', 160, 'Nét vẽ'),
+  SK('sparkle', 'Lấp lánh', 'svg', 120, 'Nét vẽ'),
+  SK('star-doodle', 'Sao', 'svg', 120, 'Nét vẽ'),
+  SK('squiggle', 'Nét lượn', 'svg', 240, 'Nét vẽ'),
+  SK('swirl', 'Xoáy', 'svg', 150, 'Nét vẽ'),
+  SK('arrow-dash', 'Mũi tên', 'svg', 220, 'Nét vẽ'),
+  SK('tape', 'Băng dính', 'svg', 220, 'Nét vẽ'),
 ]
 export const BGS = ['#FFE9F1', '#FFFAFC', '#F8DDE8', '#F3E8FF', '#EBD9C3', '#B4476E', '#4A1D35', '#FFFFFF']
 

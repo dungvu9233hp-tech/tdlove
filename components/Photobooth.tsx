@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BGS, FONT, FRAMES, STICKERS, fit, fitText, findHoles, loadImg, loadPhoto, render, slotToItem, uid, type Frame, type Item, type Sticker } from '@/lib/photobooth'
+import { BGS, CATS, FONT, FRAMES, STICKERS, fit, fitText, findHoles, loadImg, loadPhoto, render, slotToItem, uid, type Frame, type Item, type Sticker } from '@/lib/photobooth'
 
 type Pic = { id: string; url: string; iw: number; ih: number }
 type Drag = { t: 'move' | 'size' | 'rot' | 'pan'; id: string; sx: number; sy: number; it: Item }
@@ -11,7 +11,7 @@ export default function Photobooth() {
   const [items, setItems] = useState<Item[]>(() => FRAMES[1].slots.map(slotToItem))
   const [sel, setSel] = useState<string | null>(null)
   const [bg, setBg] = useState(BGS[0]); const [bgImg, setBgImg] = useState<string | null>(null); const [overlay, setOverlay] = useState<string | null>(null)
-  const [pics, setPics] = useState<Pic[]>([]); const [pan, setPan] = useState(false)
+  const [pics, setPics] = useState<Pic[]>([]); const [pan, setPan] = useState(false); const [cat, setCat] = useState(CATS[0])
   const [msg, setMsg] = useState(''); const [busy, setBusy] = useState(false); const [canShare, setCanShare] = useState(false)
   const [sc, setSc] = useState(0.4)
   const wrap = useRef<HTMLDivElement>(null); const stage = useRef<HTMLDivElement>(null); const drag = useRef<Drag | null>(null)
@@ -33,7 +33,7 @@ export default function Photobooth() {
     const have = items.filter(i => i.k === 'photo' && i.src), kx = f.W / frame.W, ky = f.H / frame.H
     const slots = f.slots.map(slotToItem).map((s, n) => have[n] ? { ...s, src: have[n].src, iw: have[n].iw, ih: have[n].ih } : s)
     const rest = items.filter(i => i.k !== 'photo').map(i => ({ ...i, x: i.x * kx, y: i.y * ky }))
-    setFrame(f); setItems([...slots, ...rest]); setSel(null); setOverlay(null); setBgImg(null)
+    setFrame(f); setItems([...slots, ...rest]); setSel(null); setOverlay(f.overlay ?? null); setBgImg(null)
   }
   // ---- ảnh ----
   const fill = (id: string, p: Pic) => upd(id, { src: p.url, iw: p.iw, ih: p.ih, z: 1, ox: 0, oy: 0 })
@@ -175,7 +175,8 @@ export default function Photobooth() {
 
     <div className="k pb-box"><b>3. Trang trí</b>
       <div className="s">Bấm hoặc kéo thả vào khung. Chọn vật rồi kéo nút tròn ở góc để đổi cỡ, nút ở trên để xoay.</div>
-      <div className="pb-stk">{STICKERS.map(s => <button key={s.id} title={s.name} aria-label={s.name} draggable onDragStart={e => e.dataTransfer.setData('text/sticker', s.id)} onClick={() => addSticker(s)}><img src={s.src} alt="" draggable={false} /></button>)}</div>
+      <div className="pb-row">{CATS.map(k => <button key={k} className={`pill${cat === k ? ' on' : ''}`} onClick={() => setCat(k)}>{k}</button>)}</div>
+      <div className="pb-stk">{STICKERS.filter(s => cat === CATS[0] || s.cat === cat).map(s => <button key={s.id} title={s.name} aria-label={s.name} draggable onDragStart={e => e.dataTransfer.setData('text/sticker', s.id)} onClick={() => addSticker(s)}><img src={s.src} alt="" draggable={false} /></button>)}</div>
       <div className="pb-row"><button className="pill" onClick={addText}>＋ Chữ</button></div></div>
 
     <div className="pb-row pb-act"><button className="btn" disabled={busy} onClick={save}>{busy ? 'Đang xử lý…' : 'Lưu ảnh photobooth'}</button>
