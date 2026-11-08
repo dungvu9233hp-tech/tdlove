@@ -212,7 +212,8 @@ export function findHoles(img: HTMLImageElement, W: number, H: number): Slot[] {
 }
 
 const rr = (c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => { c.beginPath(); c.roundRect(x, y, w, h, Math.min(r, w / 2, h / 2)) }
-export async function render(W: number, H: number, bg: string, bgImg: string | null, overlay: string | null, items: Item[], px = 1200) {
+// ph = true: ô ảnh còn trống được vẽ thành ô trắng mờ có chữ "＋ ảnh" (dùng làm ảnh xem trước của mẫu)
+export async function render(W: number, H: number, bg: string, bgImg: string | null, overlay: string | null, items: Item[], px = 1200, ph = false) {
   await document.fonts?.ready
   const k = px / W, cv = document.createElement('canvas'); cv.width = px; cv.height = Math.round(H * k)
   const c = cv.getContext('2d')!; c.scale(k, k); c.fillStyle = bg; c.fillRect(0, 0, W, H)
@@ -223,13 +224,22 @@ export async function render(W: number, H: number, bg: string, bgImg: string | n
       const f = fit(it), card = f.bd > 0 || f.bb > 0
       if (card) { c.shadowColor = 'rgba(74,29,53,.25)'; c.shadowBlur = 18; c.shadowOffsetY = 6; c.fillStyle = '#fff'; rr(c, -it.w / 2, -it.h / 2, it.w, it.h, it.rd ?? 0); c.fill(); c.shadowColor = 'transparent' }
       const ax = -it.w / 2 + f.bd, ay = -it.h / 2 + f.bd
+      if (!it.src) { c.fillStyle = 'rgba(255,255,255,.62)'; rr(c, ax, ay, f.aw, f.ah, card ? 0 : it.rd ?? 0); c.fill(); c.fillStyle = 'rgba(74,29,53,.42)'; c.font = `700 ${Math.max(14, Math.min(f.aw, f.ah) * 0.16)}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('＋ ảnh', ax + f.aw / 2, ay + f.ah / 2) }
       if (it.src) { c.save(); rr(c, ax, ay, f.aw, f.ah, card ? 0 : it.rd ?? 0); c.clip(); c.drawImage(await loadImg(it.src), ax + f.aw / 2 - f.dw / 2 + f.ox, ay + f.ah / 2 - f.dh / 2 + f.oy, f.dw, f.dh); c.restore() }
     } else if (it.k === 'sticker' && it.src) c.drawImage(await loadImg(it.src), -it.w / 2, -it.h / 2, it.w, it.h)
     else if (it.k === 'text') { c.font = `700 ${it.fs}px ${FONT}`; c.fillStyle = it.color || '#4A1D35'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(it.text || '', 0, 0) }
     c.restore()
   }
-  for (const it of items.filter(i => i.k === 'photo' && i.src)) await draw(it)
+  for (const it of items.filter(i => i.k === 'photo' && (i.src || ph))) await draw(it)
   if (overlay) c.drawImage(await loadImg(overlay), 0, 0, W, H)
   for (const it of items.filter(i => i.k !== 'photo')) await draw(it)
   return new Promise<Blob>(r => cv.toBlob(b => r(b!), 'image/png'))
 }
+
+// ---------- Mẫu đã lưu (phase26): bố cục không có ảnh, chỉ cần chèn ảnh ----------
+// overlay/bgImg: '/...' là tệp có sẵn trong app; còn lại là đường dẫn trong bucket `pbooth`
+export type Tpl = { v: 1; frame: Frame; bg: string; bgImg: string | null; overlay: string | null; items: Item[] }
+export const toTpl = (frame: Frame, bg: string, bgImg: string | null, overlay: string | null, items: Item[]): Tpl => ({
+  v: 1, frame, bg, bgImg, overlay,
+  items: items.map(i => i.k === 'photo' ? { ...i, src: undefined, iw: undefined, ih: undefined, z: 1, ox: 0, oy: 0 } : i),
+})

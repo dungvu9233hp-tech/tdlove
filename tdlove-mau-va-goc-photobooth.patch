@@ -1,0 +1,1145 @@
+diff --git a/README.md b/README.md
+index a96c466..a94b33b 100644
+--- a/README.md
++++ b/README.md
+@@ -218,3 +218,17 @@ Thiết kế:
+ - Dùng GIPHY nghĩa là trình duyệt gọi `api.giphy.com` và tải ảnh từ `media*.giphy.com` (kèm chữ "Powered by GIPHY" theo điều khoản của họ). Chỉ gửi từ khóa tìm, không gửi gì khác của hai đứa.
+ 
+ Chạy thử SQL trên Postgres thường (không cần Supabase): tạo một database rỗng rồi chạy `psql -v ON_ERROR_STOP=1 -f supabase/tests/phase25_stub.sql -f supabase/phase25.sql -f supabase/tests/phase25_test.sql` từ thư mục gốc dự án. Kiểm tra trigger thông báo, trả lời một cấp, ràng buộc GIF, quyền truy cập bảng/Storage, và chạy lại không nhân đôi trigger; cuối cùng in `ALL phase25 tests passed`.
++
++## Mẫu photobooth và Góc Photobooth (phase26)
++
++**Mẫu đã lưu.** Ở Photobooth, làm xong một bố cục (frame, màu nền, sticker, chữ, các ô ảnh) thì bấm "💾 Lưu làm mẫu". Mẫu là của chung hai người. Lần sau chọn mẫu ở mục "Mẫu của hai đứa" là vào **chế độ mẫu**: khung và sticker bị khóa, chỉ cần thêm ảnh vào các ô (ảnh đang chọn tự điền theo thứ tự, kéo ảnh trong ô để chọn phần giữ). Bấm "Chỉnh sửa mẫu" để mở khóa, rồi "Cập nhật mẫu này" hoặc "Lưu thành mẫu mới". Chỉ người tạo mới sửa/xóa được mẫu của mình.
++
++**Góc Photobooth** (`/photobooth/gallery`, có ở Trang chủ và đầu trang Photobooth). Đăng thành phẩm bằng "💞 Đăng lên Góc chung", hoặc đăng mẫu khi lưu mẫu (tích ô "Đăng mẫu này…"). Mỗi bài có thả tim, bình luận và trả lời một cấp. Bài mẫu có nút "Dùng mẫu này" mở thẳng Photobooth ở chế độ mẫu; bài thành phẩm có nút "Tải ảnh". Người đăng sửa tên/ghi chú, xóa bài của mình. Có thông báo trong app (chuông) khi người kia đăng bài hoặc bình luận.
++
++Cách bật:
++1. Supabase > SQL Editor, chạy `supabase/phase26.sql` (sau phase25, chạy lại nhiều lần vẫn an toàn). File này: tạo bucket riêng `pbooth` (private, thư mục `<space_id>/<user_id>/`), bảng `pb_templates`, `pb_posts`, `pb_hearts`, `pb_comments` (RLS theo Space), mở rộng `notifications` với 3 loại mới và bật realtime.
++2. Triển khai lại app. Chưa chạy SQL thì Photobooth vẫn dùng bình thường, chỉ báo "chưa bật được mẫu đã lưu".
++
++Lưu ý: thông báo đẩy (push) ra máy chưa có cho phần này vì Edge Function `push` chỉ biết các loại thông báo cũ; thông báo trong app (chuông, toast) thì có.
++
++Chạy thử SQL trên Postgres thường: tạo database rỗng rồi chạy `psql -v ON_ERROR_STOP=1 -f supabase/tests/phase25_stub.sql -f supabase/phase25.sql -f supabase/phase26.sql -f supabase/tests/phase26_test.sql` từ thư mục gốc dự án; cuối cùng in `ALL phase26 tests passed`.
+diff --git a/app/(app)/page.tsx b/app/(app)/page.tsx
+index 64cb531..883c617 100644
+--- a/app/(app)/page.tsx
++++ b/app/(app)/page.tsx
+@@ -105,7 +105,8 @@ export default function Home() {
+         <Link href="/games" className="rowl"><div><b>Trò chơi</b><div className="s">{gm ? `${gm} ván đang chờ bạn, vào chơi nhé!` : 'Caro, phá thuyền, bài, vẽ và đoán…'}</div></div>{gm > 0 && <i className="pulse" aria-hidden="true" />}</Link>
+         <Link href="/chat" className="rowl"><div><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></div>{unread > 0 && <i className="pulse" aria-hidden="true" />}</Link>
+         <Link href="/moments" className="rowl"><div><b>Khoảnh khắc</b><div className="s">Lưu thêm một kỷ niệm</div></div></Link>
+-        <Link href="/photobooth" className="rowl"><div><b>Photobooth</b><div className="s">Chọn frame, ghép ảnh, trang trí sticker</div></div></Link>
++        <Link href="/photobooth" className="rowl"><div><b>Photobooth</b><div className="s">Chọn frame, ghép ảnh, lưu mẫu để dùng lại</div></div></Link>
++        <Link href="/photobooth/gallery" className="rowl"><div><b>Góc Photobooth</b><div className="s">Đăng thành phẩm và mẫu, thả tim, bình luận</div></div></Link>
+       </div>
+     </div>
+   </>
+diff --git a/app/(app)/photobooth/gallery/page.tsx b/app/(app)/photobooth/gallery/page.tsx
+new file mode 100644
+index 0000000..37130fa
+--- /dev/null
++++ b/app/(app)/photobooth/gallery/page.tsx
+@@ -0,0 +1,13 @@
++'use client'
++import '../photobooth.css'
++import Link from 'next/link'
++import Head from '@/components/Head'
++import PbGallery from '@/components/PbGallery'
++import { NotifBell } from '@/components/Notifs'
++
++export default function PhotoboothGalleryPage() {
++  return <>
++    <Head t="Góc Photobooth"><NotifBell /><Link href="/photobooth" className="pill">Photobooth</Link></Head>
++    <div className="b"><PbGallery /></div>
++  </>
++}
+diff --git a/app/(app)/photobooth/page.tsx b/app/(app)/photobooth/page.tsx
+index 703128d..234042d 100644
+--- a/app/(app)/photobooth/page.tsx
++++ b/app/(app)/photobooth/page.tsx
+@@ -6,7 +6,7 @@ import Photobooth from '@/components/Photobooth'
+ 
+ export default function PhotoboothPage() {
+   return <>
+-    <Head t="Photobooth"><Link href="/" className="pill">Trang chủ</Link></Head>
++    <Head t="Photobooth"><Link href="/photobooth/gallery" className="pill">💞 Góc chung</Link><Link href="/" className="pill">Trang chủ</Link></Head>
+     <div className="b"><Photobooth /></div>
+   </>
+ }
+diff --git a/app/(app)/photobooth/photobooth.css b/app/(app)/photobooth/photobooth.css
+index 1a7c431..afd8ff9 100644
+--- a/app/(app)/photobooth/photobooth.css
++++ b/app/(app)/photobooth/photobooth.css
+@@ -23,3 +23,25 @@
+ .pb-stk button{aspect-ratio:1;background:#fff;border:1.5px solid var(--stitch);border-radius:14px;padding:6px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+ .pb-stk img{max-width:100%;max-height:100%;object-fit:contain}
+ .pb-act .btn{flex:1 1 160px}
++/* Mẫu đã lưu (phase26) */
++.pb-tpls{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 6px;scroll-snap-type:x proximity}
++.pb-tp{position:relative;flex:none;width:92px;scroll-snap-align:start}
++.pb-tp>button:first-child{width:100%;display:flex;flex-direction:column;align-items:center;gap:3px;background:#fff;border:1.5px solid var(--stitch);border-radius:14px;padding:6px;cursor:pointer;font:inherit;color:inherit}
++.pb-tp.on>button:first-child{box-shadow:0 0 0 3px var(--rose-d)}
++.pb-tp img,.pb-tph{width:100%;height:96px;object-fit:contain;border-radius:8px;background:rgba(255,233,241,.6);display:flex;align-items:center;justify-content:center}
++.pb-tp b{font:700 12px var(--f2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
++.pb-tp small{font:600 11px var(--f2);color:var(--ink2)}
++.pb-tdel{position:absolute;top:-6px;right:-6px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:var(--rose-d);color:#fff;font:700 14px/1 var(--f2);cursor:pointer;padding:0}
++.pb-chk{display:flex;gap:10px;align-items:flex-start;font:600 14px var(--f2)}
++.pb-chk input{width:20px;height:20px;flex:none;margin-top:1px}
++textarea.pb-txt{resize:vertical;min-height:72px;flex:none}
++/* Góc Photobooth (phase26) */
++.pg-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
++.pg-card{display:flex;flex-direction:column;gap:4px;text-align:left;padding:8px;cursor:pointer;font:inherit;color:inherit;min-width:0}
++.pg-img{position:relative;aspect-ratio:3/4;border-radius:12px;background:rgba(255,233,241,.6);display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:30px}
++.pg-img img{width:100%;height:100%;object-fit:contain}
++.pg-badge{position:absolute;left:6px;top:6px;background:var(--rose-d);color:#fff;border-radius:999px;padding:2px 10px;font:700 12px var(--f2)}
++.pg-new{position:absolute;right:8px;top:4px;color:var(--rose-d);font-size:16px}
++.pg-t{font:700 15px var(--f2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
++.pg-big{display:flex;justify-content:center;align-items:center;min-height:120px;border-radius:14px;background:rgba(255,233,241,.6);padding:8px;font-size:40px}
++.pg-big img{max-width:100%;max-height:70vh;object-fit:contain;border-radius:8px}
+diff --git a/components/Notifs.tsx b/components/Notifs.tsx
+index 9844d03..c0b320d 100644
+--- a/components/Notifs.tsx
++++ b/components/Notifs.tsx
+@@ -8,7 +8,7 @@ import { useApp } from '@/lib/ctx'
+ // Thông báo trong app (phase25.sql): khoảnh khắc mới, bình luận mới, trả lời bình luận.
+ // Dòng thông báo do trigger ở cơ sở dữ liệu tạo ra cho người còn lại; ở đây chỉ đọc, nghe realtime và đánh dấu đã đọc.
+ export type Notif = {
+-  id: string; kind: 'moment' | 'moment_comment' | 'moment_reply'; moment_id: string | null; comment_id: string | null
++  id: string; kind: 'moment' | 'moment_comment' | 'moment_reply' | 'pb_post' | 'pb_comment' | 'pb_reply'; moment_id: string | null; comment_id: string | null; pb_post_id?: string | null
+   actor: string | null; moment_title: string; body: string; read_at: string | null; created_at: string
+ }
+ type Ctx = {
+@@ -21,10 +21,12 @@ const Ctx = createContext<Ctx>({ items: [], unread: 0, unreadMoments: new Set(),
+ export const useNotifs = () => useContext(Ctx)
+ 
+ const LIMIT = 60
+-const VERB: Record<Notif['kind'], string> = { moment: 'đã đăng khoảnh khắc mới', moment_comment: 'đã bình luận ở', moment_reply: 'đã trả lời bình luận ở' }
+-const ICON: Record<Notif['kind'], string> = { moment: '🖼️', moment_comment: '💬', moment_reply: '↩️' }
++const VERB: Record<Notif['kind'], string> = { moment: 'đã đăng khoảnh khắc mới', moment_comment: 'đã bình luận ở', moment_reply: 'đã trả lời bình luận ở', pb_post: 'đã đăng lên Góc Photobooth', pb_comment: 'đã bình luận ở', pb_reply: 'đã trả lời bình luận ở' }
++const ICON: Record<Notif['kind'], string> = { moment: '🖼️', moment_comment: '💬', moment_reply: '↩️', pb_post: '🎞️', pb_comment: '💬', pb_reply: '↩️' }
++const isNew = (k: Notif['kind']) => k === 'moment' || k === 'pb_post'      // thông báo "có bài mới" (không phải bình luận)
+ export const MOMENTS_CHANGED = 'tdlove-moments-changed'
+ export const OPEN_MOMENT = 'tdlove-open-moment'
++export const OPEN_PBPOST = 'tdlove-open-pbpost'
+ 
+ function ago(s: string) {
+   const d = (Date.now() - new Date(s).getTime()) / 1000
+@@ -57,7 +59,7 @@ export function NotifProvider({ children }: { children: React.ReactNode }) {
+           const n = p.new as Notif
+           setItems(a => a.some(x => x.id === n.id) ? a : [n, ...a].slice(0, LIMIT))
+           window.dispatchEvent(new Event(MOMENTS_CHANGED))                 // trang Khoảnh khắc đang mở thì nạp lại danh sách / số bình luận
+-          if (document.visibilityState === 'visible' && !(n.moment_id && viewing.current === n.moment_id)) {
++          if (document.visibilityState === 'visible' && !((n.moment_id || n.pb_post_id) && viewing.current === (n.moment_id || n.pb_post_id))) {
+             setToast(n); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(null), 6000)
+           }
+         } else if (p.eventType === 'UPDATE') { const n = p.new as Notif; setItems(a => a.map(x => x.id === n.id ? n : x)) }
+@@ -81,6 +83,11 @@ export function NotifProvider({ children }: { children: React.ReactNode }) {
+ 
+   const go = useCallback((n: Notif) => {
+     markRead([n.id]); setOpen(false); setToast(null)
++    if (n.pb_post_id) {      // bài ở Góc Photobooth
++      if (path.startsWith('/photobooth/gallery')) window.dispatchEvent(new CustomEvent(OPEN_PBPOST, { detail: { id: n.pb_post_id } }))
++      else router.push('/photobooth/gallery?open=' + n.pb_post_id)
++      return
++    }
+     if (!n.moment_id) return
+     if (path === '/moments') window.dispatchEvent(new CustomEvent(OPEN_MOMENT, { detail: { id: n.moment_id } }))
+     else router.push('/moments?open=' + n.moment_id)
+@@ -95,7 +102,7 @@ export function NotifProvider({ children }: { children: React.ReactNode }) {
+     {toast && !open && <div className="k pk ntoast" role="status">
+       <button className="ntoast-main" onClick={() => go(toast)}>
+         <b>{ICON[toast.kind]} {who(toast)} {VERB[toast.kind]}</b>
+-        <span className="nclamp s">{toast.kind === 'moment' ? toast.moment_title : toast.body || toast.moment_title}</span>
++        <span className="nclamp s">{isNew(toast.kind) ? toast.moment_title : toast.body || toast.moment_title}</span>
+       </button>
+       <button className="pill" style={{ flex: 'none', padding: '0 10px' }} onClick={() => setToast(null)} aria-label="Đóng thông báo">×</button>
+     </div>}
+@@ -106,8 +113,8 @@ export function NotifProvider({ children }: { children: React.ReactNode }) {
+       {!items.length && <div className="k pe"><b>Chưa có thông báo</b><div className="s">Khi {pn} đăng khoảnh khắc hay bình luận, thông báo sẽ hiện ở đây.</div></div>}
+       {items.map(n => <button key={n.id} className={`k nitem ${n.read_at ? '' : 'pk'}`} onClick={() => go(n)}>
+         <span className="s">{ICON[n.kind]} {ago(n.created_at)}{!n.read_at && <span className="ndot" aria-label="Chưa đọc"> ●</span>}</span>
+-        <b>{who(n)} {VERB[n.kind]}{n.kind !== 'moment' && ` “${n.moment_title}”`}</b>
+-        {(n.kind === 'moment' ? n.moment_title : n.body) && <span className="nclamp">{n.kind === 'moment' ? `“${n.moment_title}”` : n.body}</span>}
++        <b>{who(n)} {VERB[n.kind]}{!isNew(n.kind) && ` “${n.moment_title}”`}</b>
++        {(isNew(n.kind) ? n.moment_title : n.body) && <span className="nclamp">{isNew(n.kind) ? `“${n.moment_title}”` : n.body}</span>}
+       </button>)}
+     </div>}
+   </Ctx.Provider>
+diff --git a/components/PbGallery.tsx b/components/PbGallery.tsx
+new file mode 100644
+index 0000000..d289fae
+--- /dev/null
++++ b/components/PbGallery.tsx
+@@ -0,0 +1,201 @@
++'use client'
++import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
++import Link from 'next/link'
++import { sb } from '@/lib/supabase'
++import { useApp } from '@/lib/ctx'
++import { ok } from '@/lib/util'
++import { removePb, signPb } from '@/lib/pbstore'
++import { OPEN_PBPOST, useNotifs } from '@/components/Notifs'
++
++// Góc Photobooth (phase26.sql): hai người đăng thành phẩm và mẫu, thả tim, bình luận.
++const when = (d: string) => new Date(d).toLocaleString('vi-VN', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })
++const SHOW_REPLIES = 2
++type Tab = 'all' | 'result' | 'template'
++const TABS: [Tab, string][] = [['all', 'Tất cả'], ['result', 'Thành phẩm'], ['template', 'Mẫu']]
++const thumbOf = (p: any): string | null => p.kind === 'template' ? p.tpl?.thumb_path ?? null : p.thumb_path
++const fullOf = (p: any): string | null => p.kind === 'template' ? p.tpl?.preview_path ?? null : p.image_path
++
++export default function PbGallery() {
++  const { me, partner } = useApp()
++  const { items, viewing } = useNotifs()
++  const [posts, setPosts] = useState<any[]>([]); const [hearts, setHearts] = useState<any[]>([]); const [cc, setCc] = useState<Record<string, number>>({})
++  const [url, setUrl] = useState<Record<string, string>>({}); const [tab, setTab] = useState<Tab>('all')
++  const [open, setOpen] = useState<string | null>(null); const [off, setOff] = useState(false); const [ready, setReady] = useState(false)
++  const name = useCallback((id: string) => id === me.id ? 'Mình' : partner?.display_name ?? 'Người ấy', [me.id, partner])
++
++  const load = useCallback(async () => {
++    const [p, h, c] = await Promise.all([
++      sb.from('pb_posts').select('*, tpl:pb_templates(id,name,thumb_path,preview_path,owner)').order('created_at', { ascending: false }),
++      sb.from('pb_hearts').select('post_id,user_id'),
++      sb.from('pb_comments').select('post_id'),
++    ])
++    if (p.error) { console.warn('pb_posts', p.error.message); setOff(true); setReady(true); return }      // chưa chạy phase26.sql
++    setOff(false); setPosts(p.data ?? []); setHearts(h.data ?? [])
++    const n: Record<string, number> = {}; for (const x of c.data ?? []) n[x.post_id] = (n[x.post_id] ?? 0) + 1
++    setCc(n); setReady(true)
++    setUrl(await signPb((p.data ?? []).map(thumbOf)))
++  }, [])
++  useEffect(() => {
++    load()
++    const ch = sb.channel('pb-gal')
++    for (const table of ['pb_posts', 'pb_hearts', 'pb_comments', 'pb_templates']) ch.on('postgres_changes', { event: '*', schema: 'public', table }, load)
++    ch.subscribe()
++    return () => { sb.removeChannel(ch) }
++  }, [load])
++
++  // mở thẳng một bài: /photobooth/gallery?open=<id> hoặc từ thông báo
++  useEffect(() => { const id = new URLSearchParams(location.search).get('open'); if (id) setOpen(id) }, [])
++  useEffect(() => {
++    const h = (e: Event) => { const id = (e as CustomEvent).detail?.id; if (id) setOpen(id) }
++    window.addEventListener(OPEN_PBPOST, h); return () => window.removeEventListener(OPEN_PBPOST, h)
++  }, [])
++
++  const unread = useMemo(() => new Set(items.filter(n => !n.read_at && n.pb_post_id).map(n => n.pb_post_id as string)), [items])
++  const shown = posts.filter(p => tab === 'all' || p.kind === tab)
++  const cur = open ? posts.find(p => p.id === open) : null
++  const hc = (id: string) => hearts.filter(h => h.post_id === id)
++
++  return <>
++    <div className="pb-row" role="tablist" aria-label="Lọc bài đăng">{TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={`pill${tab === k ? ' on' : ''}`} onClick={() => setTab(k)}>{l}</button>)}</div>
++    {off && <div className="k pe"><b>Chưa bật được Góc Photobooth</b><div className="s">Hãy chạy supabase/phase26.sql trong Supabase SQL Editor rồi tải lại trang.</div></div>}
++    {!off && ready && !shown.length && <div className="k pe"><b>{tab === 'template' ? 'Chưa có mẫu nào được đăng' : 'Chưa có bài nào'}</b>
++      <div className="s">Ghép ảnh ở Photobooth rồi bấm “Đăng lên Góc chung”, hoặc lưu một bố cục làm mẫu để cả hai cùng dùng.</div>
++      <Link href="/photobooth" className="btn" style={{ marginTop: 8 }}>Mở Photobooth</Link></div>}
++    <div className="pg-grid">{shown.map(p => {
++      const mine = hc(p.id).some(h => h.user_id === me.id), u = url[thumbOf(p) ?? '']
++      return <button key={p.id} className="k pg-card" onClick={() => setOpen(p.id)} aria-label={`Mở ${p.title}`}>
++        <span className="pg-img">{u ? <img src={u} alt="" loading="lazy" decoding="async" /> : <span aria-hidden="true">🖼️</span>}
++          {p.kind === 'template' && <span className="pg-badge">Mẫu</span>}{unread.has(p.id) && <span className="pg-new" aria-label="Mới">●</span>}</span>
++        <b className="pg-t">{p.title}</b>
++        <span className="s">{name(p.author)} · {when(p.created_at)}</span>
++        <span className="s">{mine ? '💗' : '🤍'} {hc(p.id).length} · 💬 {cc[p.id] ?? 0}</span>
++      </button>
++    })}</div>
++    {open && !cur && ready && !off && <div className="k pe"><b>Bài này không còn nữa</b><button className="pill" onClick={() => setOpen(null)}>Đóng</button></div>}
++    {cur && <PostView key={cur.id} post={cur} me={me} name={name} viewing={viewing} onClose={() => setOpen(null)} onChanged={load} />}
++  </>
++}
++
++function PostView({ post, me, name, viewing, onClose, onChanged }: { post: any; me: any; name: (id: string) => string; viewing: { current: string | null }; onClose: () => void; onChanged: () => void }) {
++  const [img, setImg] = useState<string | null>(null); const [hearts, setHearts] = useState<string[]>([]); const [cm, setCm] = useState<any[]>([])
++  const [text, setText] = useState(''); const [sending, setSending] = useState(false); const [replyTo, setReplyTo] = useState<any>(null); const [expanded, setExpanded] = useState<string[]>([])
++  const [edit, setEdit] = useState(false); const [t1, setT1] = useState(post.title); const [t2, setT2] = useState(post.caption ?? ''); const [busy, setBusy] = useState(false)
++  const inp = useRef<HTMLInputElement>(null)
++  const path = fullOf(post), mine = post.author === me.id
++
++  const fresh = useCallback(async () => { if (path) { const m = await signPb([path], 3600); setImg(m[path] ?? null) } }, [path])
++  useEffect(() => { fresh() }, [fresh])
++  const load = useCallback(async () => {
++    const [h, c] = await Promise.all([
++      sb.from('pb_hearts').select('user_id').eq('post_id', post.id),
++      sb.from('pb_comments').select('*').eq('post_id', post.id).order('created_at'),
++    ])
++    setHearts((h.data ?? []).map((x: any) => x.user_id)); setCm(c.data ?? [])
++  }, [post.id])
++  useEffect(() => {
++    load()
++    const ch = sb.channel('pb-post-' + post.id)
++      .on('postgres_changes', { event: '*', schema: 'public', table: 'pb_hearts', filter: `post_id=eq.${post.id}` }, load)
++      .on('postgres_changes', { event: '*', schema: 'public', table: 'pb_comments', filter: `post_id=eq.${post.id}` }, load).subscribe()
++    return () => { sb.removeChannel(ch) }
++  }, [post.id, load])
++  // Đang xem bài này thì thông báo về nó coi như đã đọc
++  useEffect(() => { viewing.current = post.id; return () => { if (viewing.current === post.id) viewing.current = null } }, [post.id, viewing])
++  useEffect(() => {
++    sb.from('notifications').update({ read_at: new Date().toISOString() }).eq('pb_post_id', post.id).is('read_at', null)
++      .then(r => { if (r.error) console.warn('notifications', r.error.message) })
++  }, [post.id, cm.length])
++  useEffect(() => { if (replyTo && !cm.some(c => c.id === replyTo.id)) setReplyTo(null) }, [cm, replyTo])
++
++  const liked = hearts.includes(me.id)
++  const heart = async () => {
++    setHearts(a => liked ? a.filter(x => x !== me.id) : [...a, me.id])
++    const q = liked ? sb.from('pb_hearts').delete().eq('post_id', post.id).eq('user_id', me.id) : sb.from('pb_hearts').insert({ post_id: post.id, space_id: post.space_id })
++    if (!await ok(q, 'Không thả tim được')) load(); else onChanged()
++  }
++  const send = async () => {
++    const body = text.trim(); if (!body || sending) return
++    setSending(true)
++    const root = replyTo ? (replyTo.parent_id ?? replyTo.id) : null
++    if (await ok(sb.from('pb_comments').insert({ post_id: post.id, space_id: post.space_id, parent_id: root, body }), 'Không gửi được bình luận')) {
++      if (root) setExpanded(a => a.includes(root) ? a : [...a, root])
++      setText(''); setReplyTo(null); await load(); onChanged()
++    }
++    setSending(false)
++  }
++  const kids = (id: string) => cm.filter(c => c.parent_id === id)
++  const delCm = async (c: any) => {
++    const n = kids(c.id).length
++    if (n && !confirm(`Xóa bình luận này và ${n} câu trả lời của nó?`)) return
++    if (await ok(sb.from('pb_comments').delete().eq('id', c.id), 'Không xóa được bình luận')) { await load(); onChanged() }
++  }
++  const saveEdit = async () => {
++    if (!t1.trim()) return alert('Tên bài không được để trống')
++    setBusy(true)
++    if (await ok(sb.from('pb_posts').update({ title: t1.trim(), caption: t2.trim() }).eq('id', post.id), 'Không lưu được')) { setEdit(false); onChanged() }
++    setBusy(false)
++  }
++  const delPost = async () => {
++    if (!confirm(post.kind === 'template' ? 'Gỡ mẫu này khỏi Góc Photobooth? Mẫu vẫn còn trong danh sách mẫu của hai đứa.' : 'Xóa bài này cùng các bình luận?')) return
++    setBusy(true)
++    if (await ok(sb.from('pb_posts').delete().eq('id', post.id), 'Không xóa được bài')) {
++      if (post.kind === 'result') await removePb([post.image_path, post.thumb_path])      // ảnh của mẫu thuộc về mẫu nên không xóa theo bài
++      onChanged(); onClose()
++    }
++    setBusy(false)
++  }
++  const download = async () => {
++    const m = await signPb([path], 600); const u = m[path ?? '']; if (!u) return alert('Không tải được ảnh')
++    const r = await fetch(u); if (!r.ok) return alert('Không tải được ảnh')
++    const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `tdlove-${post.title.replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 40) || 'photobooth'}.jpg`
++    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000)
++  }
++
++  const row = (c: any, isReply: boolean) => <div key={c.id} style={isReply ? { marginLeft: 12, paddingLeft: 10, borderLeft: '3px solid var(--ink2)' } : undefined}>
++    <span className="s">{name(c.author)} · {when(c.created_at)}</span>
++    <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{c.body}</div>
++    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
++      <button className="pill" style={{ padding: '0 10px' }} onClick={() => { setReplyTo(c); inp.current?.focus() }} aria-label={`Trả lời bình luận của ${name(c.author)}`}>Trả lời</button>
++      {c.author === me.id && <button className="pill" style={{ padding: '0 10px' }} onClick={() => delCm(c)}>Xóa</button>}
++    </div>
++  </div>
++  const tops = cm.filter(c => !c.parent_id)
++
++  return <div className="sheet" role="dialog" aria-label={post.title}>
++    <div className="row"><b style={{ flex: 1 }}>{post.title}</b><button className="pill" style={{ flex: 'none' }} onClick={onClose}>Đóng</button></div>
++    <div className="s">{post.kind === 'template' ? 'Mẫu' : 'Thành phẩm'} · {name(post.author)} · {when(post.created_at)}</div>
++    <div className="pg-big">{img ? <img src={img} alt={post.title} onError={fresh} /> : <span aria-hidden="true">🖼️</span>}</div>
++    {edit ? <div className="k" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++      <input className="pb-txt" maxLength={80} value={t1} onChange={e => setT1(e.target.value)} aria-label="Tên bài" />
++      <textarea className="pb-txt" rows={3} maxLength={500} value={t2} onChange={e => setT2(e.target.value)} aria-label="Ghi chú" />
++      <div className="row"><button className="btn" disabled={busy} onClick={saveEdit}>Lưu</button><button className="pill" onClick={() => { setEdit(false); setT1(post.title); setT2(post.caption ?? '') }}>Hủy</button></div></div>
++      : post.caption && <div className="k" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{post.caption}</div>}
++    <div className="row">
++      <button className={'pill heartbtn' + (liked ? ' on' : '')} style={{ flex: 'none' }} onClick={heart} aria-pressed={liked}>{liked ? '💗' : '🤍'} {hearts.length || ''} Thả tim</button>
++      {hearts.length > 0 && <div className="s">{hearts.map(name).join(' và ')} đã thả tim</div>}</div>
++    <div className="pb-row">
++      {post.kind === 'template' && post.template_id && <Link className="btn" href={`/photobooth?tpl=${post.template_id}`}>Dùng mẫu này</Link>}
++      {post.kind === 'result' && <button className="pill" onClick={download}>Tải ảnh</button>}
++      {mine && !edit && <button className="pill" onClick={() => setEdit(true)}>Sửa</button>}
++      {mine && <button className="pill" disabled={busy} onClick={delPost}>{post.kind === 'template' ? 'Gỡ khỏi Góc chung' : 'Xóa'}</button>}
++    </div>
++    <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
++      <b>Bình luận ({cm.length})</b>
++      {!cm.length && <div className="s">Chưa có bình luận. Viết lời đầu tiên nhé.</div>}
++      {tops.map(c => {
++        const rs = kids(c.id), all = expanded.includes(c.id), hidden = all ? 0 : Math.max(0, rs.length - SHOW_REPLIES)
++        return <div key={c.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
++          {row(c, false)}
++          {hidden > 0 && <button className="pill" style={{ alignSelf: 'flex-start', marginLeft: 12 }} onClick={() => setExpanded(a => [...a, c.id])}>Xem {hidden} trả lời trước đó</button>}
++          {rs.slice(hidden).map(r => row(r, true))}
++        </div>
++      })}
++      {replyTo && <div className="k s" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 14px', background: '#fff' }} role="status">
++        <span style={{ flex: 1, overflowWrap: 'anywhere' }}>Đang trả lời {name(replyTo.author)}: {String(replyTo.body).slice(0, 60)}</span>
++        <button className="pill" style={{ flex: 'none' }} onClick={() => setReplyTo(null)} aria-label="Hủy trả lời">×</button></div>}
++      <div className="row k" style={{ padding: '6px 14px', background: '#fff' }}>
++        <input ref={inp} placeholder={replyTo ? `Trả lời ${name(replyTo.author)}…` : 'Viết bình luận…'} maxLength={1000} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} aria-label="Bình luận" />
++        <button className="pill on" style={{ flex: 'none' }} onClick={send} disabled={sending}>Gửi</button></div>
++    </div>
++  </div>
++}
+diff --git a/components/Photobooth.tsx b/components/Photobooth.tsx
+index 79b23b6..ea88258 100644
+--- a/components/Photobooth.tsx
++++ b/components/Photobooth.tsx
+@@ -1,6 +1,10 @@
+ 'use client'
+ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+-import { BGS, CATS, FONT, FRAMES, STICKERS, fit, fitText, findHoles, loadImg, loadPhoto, render, slotToItem, uid, type Frame, type Item, type Sticker } from '@/lib/photobooth'
++import Link from 'next/link'
++import { sb } from '@/lib/supabase'
++import { useApp } from '@/lib/ctx'
++import { BGS, CATS, FONT, FRAMES, STICKERS, fit, fitText, findHoles, loadImg, loadPhoto, render, slotToItem, toTpl, uid, type Frame, type Item, type Sticker, type Tpl } from '@/lib/photobooth'
++import { assetRef, assetUrl, putPair, removePb, signPb } from '@/lib/pbstore'
+ 
+ type Pic = { id: string; url: string; iw: number; ih: number }
+ type Drag = { t: 'move' | 'size' | 'rot' | 'pan'; id: string; sx: number; sy: number; it: Item }
+@@ -17,6 +21,13 @@ export default function Photobooth() {
+   const wrap = useRef<HTMLDivElement>(null); const stage = useRef<HTMLDivElement>(null); const drag = useRef<Drag | null>(null)
+   const slotIn = useRef<HTMLInputElement>(null); const sel0 = useRef<string | null>(null)
+   const cur = items.find(i => i.id === sel) ?? null
++  // ---- mẫu đã lưu (phase26) ----
++  const { me, partner } = useApp()
++  const [tpls, setTpls] = useState<any[]>([]); const [tth, setTth] = useState<Record<string, string>>({}); const [tplOff, setTplOff] = useState(false)
++  const [tpl, setTpl] = useState<any | null>(null); const [adv, setAdv] = useState(false)       // tpl: mẫu đang dùng; adv: đang mở khóa để chỉnh mẫu
++  const [dlg, setDlg] = useState<null | 'tpl' | 'post'>(null); const [nm, setNm] = useState(''); const [cap, setCap] = useState(''); const [pub, setPub] = useState(false)
++  const refs = useRef(new Map<string, string>()); const wanted = useRef<string | null>(null)   // refs: blob url -> đường dẫn đã lưu, để lưu lại không tải lên lần nữa
++  const locked = !!tpl && !adv                                                                  // dùng mẫu: chỉ chèn ảnh, bố cục bị khóa
+ 
+   useEffect(() => {
+     const el = wrap.current; if (!el) return
+@@ -68,8 +79,10 @@ export default function Photobooth() {
+   }
+   // ---- kéo / đổi cỡ / xoay / dịch ảnh bằng con trỏ (chuột + cảm ứng) ----
+   const down = (e: React.PointerEvent, it: Item, t: Drag['t']) => {
+-    e.stopPropagation(); e.preventDefault(); stage.current!.setPointerCapture(e.pointerId)
+-    const p = pt(e); drag.current = { t: t === 'move' && pan && it.k === 'photo' && sel === it.id ? 'pan' : t, id: it.id, sx: p.x, sy: p.y, it }; setSel(it.id)
++    e.stopPropagation(); e.preventDefault()
++    if (locked && (it.k !== 'photo' || !it.src)) { if (it.k === 'photo') setSel(it.id); return }   // chế độ mẫu: ô trống chỉ để chọn, kéo ảnh trong ô thì dịch ảnh
++    stage.current!.setPointerCapture(e.pointerId)
++    const p = pt(e); drag.current = { t: locked ? 'pan' : t === 'move' && pan && it.k === 'photo' && sel === it.id ? 'pan' : t, id: it.id, sx: p.x, sy: p.y, it }; setSel(it.id)
+   }
+   const move = (e: React.PointerEvent) => {
+     const d = drag.current; if (!d) return; const p = pt(e), it = d.it, dx = p.x - d.sx, dy = p.y - d.sy
+@@ -88,7 +101,7 @@ export default function Photobooth() {
+   // ---- thanh công cụ cho vật đang chọn ----
+   const z = (to: 'front' | 'back') => cur && setItems(a => { const o = a.find(i => i.id === cur.id)!, r = a.filter(i => i.id !== cur.id); return to === 'front' ? [...r, o] : [o, ...r] })
+   const dup = () => { if (!cur) return; const n = { ...cur, id: uid(), x: cur.x + 40, y: cur.y + 40 }; setItems(a => [...a, n]); setSel(n.id) }
+-  const del = () => { if (cur) { setItems(a => a.filter(i => i.id !== cur.id)); setSel(null) } }
++  const del = () => { if (cur && !locked) { setItems(a => a.filter(i => i.id !== cur.id)); setSel(null) } }
+   useEffect(() => {
+     const k = (e: KeyboardEvent) => { if ((e.key === 'Delete' || e.key === 'Backspace') && sel0.current && !(e.target as HTMLElement).closest('input,textarea')) del() }
+     sel0.current = sel; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k)
+@@ -110,12 +123,95 @@ export default function Photobooth() {
+   const save = async () => { const b = await out(); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name(); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000) }
+   const share = async () => { const b = await out(), f = new File([b], name(), { type: 'image/png' }); try { await navigator.share({ files: [f] }) } catch { /* người dùng huỷ */ } }
+ 
++  // ---- mẫu: nạp, mở, lưu, xóa ----
++  const loadTpls = useCallback(async () => {
++    const { data, error } = await sb.from('pb_templates').select('*').order('created_at', { ascending: false })
++    if (error) { console.warn('pb_templates', error.message); setTplOff(true); return }    // chưa chạy phase26.sql
++    setTplOff(false); setTpls(data ?? []); setTth(await signPb((data ?? []).map((t: any) => t.thumb_path)))
++  }, [])
++  useEffect(() => {
++    loadTpls()
++    const ch = sb.channel('pb-tpl').on('postgres_changes', { event: '*', schema: 'public', table: 'pb_templates' }, loadTpls).subscribe()
++    return () => { sb.removeChannel(ch) }
++  }, [loadTpls])
++  const openTpl = async (t: any) => {
++    setBusy(true)
++    try {
++      const d: Tpl = t.data
++      const ov = d.overlay ? await assetUrl(d.overlay) : null, bi = d.bgImg ? await assetUrl(d.bgImg) : null
++      if (ov && d.overlay) refs.current.set(ov, d.overlay); if (bi && d.bgImg) refs.current.set(bi, d.bgImg)
++      const slots = d.items.filter(i => i.k === 'photo').map((sl, n) => pics[n] ? { ...sl, src: pics[n].url, iw: pics[n].iw, ih: pics[n].ih } : sl)   // ảnh đã chọn tự điền vào ô theo thứ tự
++      setFrame(d.frame); setBg(d.bg); setBgImg(bi); setOverlay(ov)
++      setItems([...slots, ...d.items.filter(i => i.k !== 'photo')]); setSel(null); setPan(false); setTpl(t); setAdv(false)
++      setMsg(`Đang dùng mẫu “${t.name}”. Chỉ cần thêm ảnh vào các ô.`)
++    } catch (e: any) { setMsg(e?.message || 'Không mở được mẫu này.') } finally { setBusy(false) }
++  }
++  useEffect(() => { wanted.current = new URLSearchParams(location.search).get('tpl') }, [])
++  useEffect(() => {          // mở từ Góc Photobooth: /photobooth?tpl=<id>
++    if (!wanted.current || !tpls.length) return
++    const t = tpls.find(x => x.id === wanted.current); wanted.current = null; if (t) openTpl(t)
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [tpls])
++  const leaveTpl = () => { setTpl(null); setAdv(false); setSel(null) }
++  const refOf = async (u: string | null, kind: 'overlay' | 'bg') => {
++    if (!u) return null
++    const k = refs.current.get(u); if (k) return k
++    const r = await assetRef(me.space_id, me.id, u, kind); refs.current.set(u, r); return r
++  }
++  const openDlg = (k: 'tpl' | 'post', name = '') => { setNm(name); setCap(''); setPub(false); setDlg(k) }
++  const saveTpl = async (update: boolean) => {
++    const name = nm.trim(); if (!name) { setMsg('Đặt tên cho mẫu nhé.'); return }
++    setBusy(true)
++    let made: { image_path: string; thumb_path: string } | null = null
++    try {
++      const data = toTpl(frame, bg, await refOf(bgImg, 'bg'), await refOf(overlay, 'overlay'), items)
++      made = await putPair(me.space_id, me.id, await render(frame.W, frame.H, bg, bgImg, overlay, items, 900, true))     // ảnh xem trước: ô trống hiện "＋ ảnh"
++      const cols = { name, data, thumb_path: made.thumb_path, preview_path: made.image_path }
++      let id: string
++      if (update && tpl) {
++        const { error } = await sb.from('pb_templates').update(cols).eq('id', tpl.id); if (error) throw error
++        id = tpl.id; await removePb([tpl.thumb_path, tpl.preview_path]); setTpl({ ...tpl, ...cols })
++      } else {
++        const { data: row, error } = await sb.from('pb_templates').insert({ space_id: me.space_id, ...cols }).select('id').single(); if (error) throw error
++        id = row.id
++      }
++      made = null
++      if (pub) {
++        const { error } = await sb.from('pb_posts').insert({ space_id: me.space_id, kind: 'template', title: name, caption: cap.trim(), template_id: id })
++        if (error && error.code !== '23505') setMsg('Đã lưu mẫu nhưng chưa đăng được: ' + error.message)      // 23505: mẫu này đã đăng rồi
++      }
++      setDlg(null); await loadTpls()
++      setMsg(pub ? `Đã lưu mẫu “${name}” và đăng lên Góc Photobooth 💞` : `Đã lưu mẫu “${name}”. Lần sau chỉ cần chọn mẫu rồi thêm ảnh.`)
++    } catch (e: any) { if (made) await removePb([made.image_path, made.thumb_path]); setMsg('Không lưu được mẫu: ' + (e?.message ?? '')) } finally { setBusy(false) }
++  }
++  const delTpl = async (t: any) => {
++    if (!confirm(`Xóa mẫu “${t.name}”? Bài đăng của mẫu này ở Góc Photobooth và các bình luận cũng sẽ mất.`)) return
++    const mine = (x: any) => [x.data?.overlay, x.data?.bgImg].filter((r: any) => r && !r.startsWith('/'))
++    const others = new Set(tpls.filter(x => x.id !== t.id).flatMap(mine))      // frame tự tải lên có thể đang dùng chung với mẫu khác
++    const { error } = await sb.from('pb_templates').delete().eq('id', t.id)
++    if (error) { setMsg('Không xóa được mẫu: ' + error.message); return }
++    await removePb([t.thumb_path, t.preview_path, ...mine(t).filter((r: string) => !others.has(r))])
++    if (tpl?.id === t.id) leaveTpl()
++    loadTpls()
++  }
++  const postResult = async () => {
++    const title = nm.trim(); if (!title) { setMsg('Đặt tên cho bài đăng nhé.'); return }
++    if (items.some(i => i.k === 'photo' && !i.src) && !confirm('Còn ô ảnh trống. Vẫn đăng?')) return
++    setBusy(true)
++    let made: { image_path: string; thumb_path: string } | null = null
++    try {
++      made = await putPair(me.space_id, me.id, await render(frame.W, frame.H, bg, bgImg, overlay, items, 1400))
++      const { error } = await sb.from('pb_posts').insert({ space_id: me.space_id, kind: 'result', title, caption: cap.trim(), ...made }); if (error) throw error
++      made = null; setDlg(null); setMsg('Đã đăng lên Góc Photobooth 💞')
++    } catch (e: any) { if (made) await removePb([made.image_path, made.thumb_path]); setMsg('Không đăng được: ' + (e?.message ?? '')) } finally { setBusy(false) }
++  }
++
+   const hs = 30 / sc  // kích thước nút kéo luôn ~30px trên màn hình
+   const photos = useMemo(() => items.filter(i => i.k === 'photo'), [items]), rest = useMemo(() => items.filter(i => i.k !== 'photo'), [items])
+   const node = (it: Item) => {
+     const on = it.id === sel, f = it.k === 'photo' ? fit(it) : null, card = !!f && (f.bd > 0 || f.bb > 0)
+     return <div key={it.id} className={`pb-it${on ? ' on' : ''}`} onPointerDown={e => down(e, it, 'move')} onDoubleClick={() => it.k === 'photo' && slotIn.current?.click()}
+-      style={{ left: it.x - it.w / 2, top: it.y - it.h / 2, width: it.w, height: it.h, transform: `rotate(${it.r}deg)`, outlineWidth: 3 / sc, cursor: on && pan && it.k === 'photo' ? 'grab' : 'move',
++      style={{ left: it.x - it.w / 2, top: it.y - it.h / 2, width: it.w, height: it.h, transform: `rotate(${it.r}deg)`, outlineWidth: 3 / sc, cursor: (on && pan || locked) && it.k === 'photo' ? 'grab' : 'move', pointerEvents: locked && it.k !== 'photo' ? 'none' : undefined,
+         ...(card ? { background: '#fff', boxShadow: '0 6px 18px rgba(74,29,53,.25)', borderRadius: it.rd } : {}) }}>
+       {f && <div className="pb-ar" style={{ left: f.bd, top: f.bd, width: f.aw, height: f.ah, borderRadius: card ? 0 : it.rd }}>
+         {it.src ? <img src={it.src} alt="" draggable={false} style={{ left: f.aw / 2 - f.dw / 2 + f.ox, top: f.ah / 2 - f.dh / 2 + f.oy, width: f.dw, height: f.dh }} />
+@@ -123,24 +219,36 @@ export default function Photobooth() {
+       </div>}
+       {it.k === 'sticker' && <img src={it.src} alt="" draggable={false} style={{ width: '100%', height: '100%' }} />}
+       {it.k === 'text' && <span className="pb-tx" style={{ fontSize: it.fs, color: it.color, fontFamily: FONT }}>{it.text}</span>}
+-      {on && <>
++      {on && !locked && <>
+         <i className="pb-h pb-rot" style={{ width: hs, height: hs, top: -hs * 1.7, left: it.w / 2 - hs / 2 }} onPointerDown={e => down(e, it, 'rot')} />
+         <i className="pb-h pb-sz" style={{ width: hs, height: hs, right: -hs / 2, bottom: -hs / 2 }} onPointerDown={e => down(e, it, 'size')} />
+       </>}
+     </div>
+   }
+ 
++  const who = (t: any) => t.owner === me.id ? 'Mình' : partner?.display_name ?? 'Người ấy'
+   return <div className="pb">
+-    <div className="k pb-box"><b>1. Chọn frame</b>
++    <div className="k pb-box"><div className="pb-row"><b style={{ flex: 1 }}>Mẫu của hai đứa</b><Link href="/photobooth/gallery" className="pill">💞 Góc chung</Link></div>
++      {tplOff ? <div className="s">Chưa bật được mẫu đã lưu. Hãy chạy supabase/phase26.sql trong Supabase SQL Editor.</div>
++        : !tpls.length ? <div className="s">Làm xong một bố cục ưng ý, bấm “Lưu làm mẫu” ở cuối trang. Lần sau chỉ cần chọn mẫu rồi thêm ảnh.</div>
++        : <div className="pb-tpls">{tpls.map(t => <div key={t.id} className={`pb-tp${tpl?.id === t.id ? ' on' : ''}`}>
++          <button onClick={() => openTpl(t)} disabled={busy} aria-label={`Dùng mẫu ${t.name}`}>{tth[t.thumb_path] ? <img src={tth[t.thumb_path]} alt="" draggable={false} /> : <span className="pb-tph">🖼️</span>}<b>{t.name}</b><small>{who(t)}</small></button>
++          {t.owner === me.id && <button className="pb-tdel" onClick={() => delTpl(t)} aria-label={`Xóa mẫu ${t.name}`}>×</button>}</div>)}</div>}
++    </div>
++    {tpl && <div className="k pk pb-box" role="status"><b>Đang dùng mẫu “{tpl.name}”</b>
++      <div className="s">{adv ? 'Đang mở khóa để chỉnh mẫu: sửa xong bấm “Khóa lại”, hoặc lưu thành mẫu mới ở cuối trang.' : 'Chỉ cần thêm ảnh vào các ô. Kéo ảnh trong ô để chọn phần muốn giữ. Khung và sticker đã được khóa.'}</div>
++      <div className="pb-row"><button className={`pill${adv ? ' on' : ''}`} onClick={() => { setAdv(a => !a); setSel(null) }}>{adv ? 'Khóa lại' : 'Chỉnh sửa mẫu'}</button><button className="pill" onClick={leaveTpl}>Thoát chế độ mẫu</button></div></div>}
++
++    {!locked && <div className="k pb-box"><b>1. Chọn frame</b>
+       <div className="pb-row">{FRAMES.map(f => <button key={f.id} className={`pill${frame.id === f.id ? ' on' : ''}`} onClick={() => pickFrame(f)}>{f.name}</button>)}
+         <label className="pill">Frame PNG của mình<input type="file" accept="image/*" hidden onChange={e => { onFrameFile(e.target.files?.[0]); e.target.value = '' }} /></label></div>
+       <div className="pb-row">{BGS.map(c => <button key={c} aria-label={`Nền ${c}`} className={`pb-sw${bg === c ? ' on' : ''}`} style={{ background: c }} onClick={() => setBg(c)} />)}
+-        <input type="color" aria-label="Chọn màu nền" value={bg} onChange={e => setBg(e.target.value)} className="pb-sw" /></div></div>
++        <input type="color" aria-label="Chọn màu nền" value={bg} onChange={e => setBg(e.target.value)} className="pb-sw" /></div></div>}
+ 
+-    <div className="k pb-box"><b>2. Ảnh của hai đứa</b>
++    <div className="k pb-box"><b>{tpl ? '1. Ảnh của hai đứa' : '2. Ảnh của hai đứa'}</b>
+       <div className="s">Chọn nhiều ảnh một lúc, app tự điền vào các ô trống. Ảnh to nhỏ, dọc hay ngang đều tự phủ kín ô; kéo ảnh bên trong ô để chọn phần muốn giữ.</div>
+       <div className="pb-row"><label className="pill on">＋ Thêm ảnh<input type="file" accept="image/*" multiple hidden onChange={e => { addPhotos(e.target.files); e.target.value = '' }} /></label>
+-        <button className="pill" onClick={addSlot}>+ Ô ảnh</button></div>
++        {!locked && <button className="pill" onClick={addSlot}>+ Ô ảnh</button>}</div>
+       {pics.length > 0 && <div className="pb-row pb-tray">{pics.map(p => <img key={p.id} src={p.url} alt="" draggable onDragStart={e => e.dataTransfer.setData('text/pic', p.id)} onClick={() => usePic(p)} />)}</div>}</div>
+ 
+     <div className="pb-stagewrap" ref={wrap}>
+@@ -160,27 +268,41 @@ export default function Photobooth() {
+           <button className="pill" onClick={() => slotIn.current?.click()}>Chọn ảnh</button>
+           {cur.src && <button className={`pill${pan ? ' on' : ''}`} onClick={() => setPan(p => !p)}>{pan ? '✋ Đang dịch ảnh' : '✋ Dịch ảnh'}</button>}
+           {cur.src && <button className="pill" onClick={() => upd(cur.id, { src: undefined })}>Gỡ ảnh</button>}
+-          <button className="pill" onClick={() => upd(cur.id, (cur.bd ?? 0) > 0 ? { bd: 0, bb: 0, rd: 14 } : { bd: 24, bb: 80, rd: 6 })}>Viền polaroid</button>
++          {!locked && <button className="pill" onClick={() => upd(cur.id, (cur.bd ?? 0) > 0 ? { bd: 0, bb: 0, rd: 14 } : { bd: 24, bb: 80, rd: 6 })}>Viền polaroid</button>}
+         </>}
+         {cur.k === 'text' && <>
+           <input className="pb-txt" value={cur.text} maxLength={40} aria-label="Nội dung chữ" onChange={e => { const n = fitText({ ...cur, text: e.target.value }); upd(cur.id, { text: n.text, w: n.w, h: n.h }) }} />
+           <input type="color" className="pb-sw" aria-label="Màu chữ" value={cur.color} onChange={e => upd(cur.id, { color: e.target.value })} />
+         </>}
+-        <button className="pill" onClick={dup}>Nhân đôi</button><button className="pill" onClick={() => z('front')}>Lên trên</button><button className="pill" onClick={() => z('back')}>Xuống dưới</button>
+-        <button className="pill" onClick={del}>Xóa</button>
++        {!locked && <><button className="pill" onClick={dup}>Nhân đôi</button><button className="pill" onClick={() => z('front')}>Lên trên</button><button className="pill" onClick={() => z('back')}>Xuống dưới</button>
++        <button className="pill" onClick={del}>Xóa</button></>}
+       </div>
+       {cur.k === 'photo' && cur.src && <label className="pb-zoom">Phóng to ảnh<input type="range" min={1} max={3} step={0.01} value={cur.z ?? 1} onChange={e => { const f = fit({ ...cur, z: +e.target.value }); upd(cur.id, { z: +e.target.value, ox: f.ox, oy: f.oy }) }} /></label>}
+     </div>}
+     <input ref={slotIn} type="file" accept="image/*" hidden onChange={async e => { const f = e.target.files?.[0]; e.target.value = ''; if (f && cur?.k === 'photo') { const p = await loadPhoto(f); setPics(a => [...a, p]); fill(cur.id, p) } }} />
+ 
+-    <div className="k pb-box"><b>3. Trang trí</b>
++    {!locked && <div className="k pb-box"><b>3. Trang trí</b>
+       <div className="s">Bấm hoặc kéo thả vào khung. Chọn vật rồi kéo nút tròn ở góc để đổi cỡ, nút ở trên để xoay.</div>
+       <div className="pb-row">{CATS.map(k => <button key={k} className={`pill${cat === k ? ' on' : ''}`} onClick={() => setCat(k)}>{k}</button>)}</div>
+       <div className="pb-stk">{STICKERS.filter(s => cat === CATS[0] || s.cat === cat).map(s => <button key={s.id} title={s.name} aria-label={s.name} draggable onDragStart={e => e.dataTransfer.setData('text/sticker', s.id)} onClick={() => addSticker(s)}><img src={s.src} alt="" loading="lazy" decoding="async" draggable={false} /></button>)}</div>
+-      <div className="pb-row"><button className="pill" onClick={addText}>＋ Chữ</button></div></div>
++      <div className="pb-row"><button className="pill" onClick={addText}>＋ Chữ</button></div></div>}
+ 
+     <div className="pb-row pb-act"><button className="btn" disabled={busy} onClick={save}>{busy ? 'Đang xử lý…' : 'Lưu ảnh photobooth'}</button>
+       {canShare && <button className="btn ghost" disabled={busy} onClick={share}>Chia sẻ</button>}</div>
++    <div className="pb-row pb-act">
++      <button className="btn ghost" disabled={busy} onClick={() => openDlg('post', tpl?.name ?? '')}>💞 Đăng lên Góc chung</button>
++      {!locked && <button className="btn ghost" disabled={busy || tplOff} onClick={() => openDlg('tpl', tpl?.name ?? '')}>💾 Lưu làm mẫu</button>}</div>
++    {dlg && <div className="sheet" role="dialog" aria-label={dlg === 'tpl' ? 'Lưu làm mẫu' : 'Đăng thành phẩm'}>
++      <div className="row"><b style={{ flex: 1 }}>{dlg === 'tpl' ? 'Lưu làm mẫu' : 'Đăng thành phẩm'}</b><button className="pill" style={{ flex: 'none' }} onClick={() => setDlg(null)}>Đóng</button></div>
++      <div className="s">{dlg === 'tpl' ? 'Mẫu giữ lại khung, màu nền, sticker và chữ; các ô ảnh để trống. Cả hai đứa đều dùng được.' : 'Ảnh ghép hiện tại sẽ được đăng cho cả hai cùng xem, thả tim và bình luận.'}</div>
++      <input className="pb-txt" maxLength={dlg === 'tpl' ? 60 : 80} placeholder={dlg === 'tpl' ? 'Tên mẫu, ví dụ: Dải 4 ô hồng' : 'Tên bài đăng'} aria-label="Tên" value={nm} onChange={e => setNm(e.target.value)} />
++      {(dlg === 'post' || pub) && <textarea className="pb-txt" rows={3} maxLength={500} placeholder="Ghi chú (không bắt buộc)" aria-label="Ghi chú" value={cap} onChange={e => setCap(e.target.value)} />}
++      {dlg === 'tpl' && <label className="pb-chk"><input type="checkbox" checked={pub} onChange={e => setPub(e.target.checked)} />Đăng mẫu này lên Góc Photobooth để cùng bình luận</label>}
++      <div className="row">
++        {dlg === 'post' && <button className="btn" disabled={busy} onClick={postResult}>{busy ? 'Đang đăng…' : 'Đăng'}</button>}
++        {dlg === 'tpl' && <>{tpl && tpl.owner === me.id && <button className="btn" disabled={busy} onClick={() => saveTpl(true)}>{busy ? 'Đang lưu…' : 'Cập nhật mẫu này'}</button>}
++          <button className={tpl && tpl.owner === me.id ? 'btn ghost' : 'btn'} disabled={busy} onClick={() => saveTpl(false)}>{busy ? 'Đang lưu…' : tpl && tpl.owner === me.id ? 'Lưu thành mẫu mới' : 'Lưu mẫu'}</button></>}</div>
++    </div>}
+     {msg && <div className="k pk s" role="status">{msg}</div>}
+   </div>
+ }
+diff --git a/lib/pbstore.ts b/lib/pbstore.ts
+new file mode 100644
+index 0000000..dceabac
+--- /dev/null
++++ b/lib/pbstore.ts
+@@ -0,0 +1,70 @@
++import { sb } from '@/lib/supabase'
++import { processImage } from '@/lib/media'
++
++// Ảnh của mẫu photobooth và Góc Photobooth nằm trong bucket riêng `pbooth` (phase26.sql), thư mục <space_id>/<user_id>/...
++const BUCKET = 'pbooth'
++const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
++
++export const pbPath = (spaceId: string, uid: string, ext = 'jpg') => `${spaceId}/${uid}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.${ext}`
++
++// Link ký có thời hạn, nhớ tạm để mở lại danh sách không phải ký lại
++const cache = new Map<string, { u: string; exp: number }>()
++export async function signPb(paths: (string | null | undefined)[], ttl = 3600): Promise<Record<string, string>> {
++  const want = Array.from(new Set(paths.filter(Boolean) as string[])), out: Record<string, string> = {}, now = Date.now(), miss: string[] = []
++  for (const p of want) { const c = cache.get(p); if (c && c.exp > now + 60000) out[p] = c.u; else miss.push(p) }
++  if (miss.length) {
++    const { data } = await sb.storage.from(BUCKET).createSignedUrls(miss, ttl)
++    for (const x of data ?? []) if (x.path && x.signedUrl) { out[x.path] = x.signedUrl; cache.set(x.path, { u: x.signedUrl, exp: now + ttl * 1000 }) }
++  }
++  return out
++}
++
++export async function putPb(path: string, b: Blob, type: string) {
++  let last = ''
++  for (let i = 0; i < 3; i++) {
++    const { error } = await sb.storage.from(BUCKET).upload(path, b, { contentType: type, upsert: false })
++    if (!error) return
++    last = error.message; await sleep(1200 * 2 ** i)
++  }
++  throw new Error(last || 'Tải ảnh lên thất bại')
++}
++export async function removePb(paths: (string | null | undefined)[]) {
++  const p = Array.from(new Set(paths.filter((x): x is string => !!x && !x.startsWith('/'))))
++  if (!p.length) return
++  const { error } = await sb.storage.from(BUCKET).remove(p)
++  if (error) console.warn('pbooth remove', error.message)
++}
++
++// Một ảnh -> bản lớn (≤1600px) + bản nhỏ (480px), đã tải lên. Trả về các cột của pb_posts / pb_templates.
++export async function putPair(spaceId: string, uid: string, src: Blob) {
++  const { full, thumb, width, height } = await processImage(src)
++  const image_path = pbPath(spaceId, uid), thumb_path = pbPath(spaceId, uid)
++  try {
++    await putPb(image_path, full, 'image/jpeg'); await putPb(thumb_path, thumb, 'image/jpeg')
++  } catch (e) { await removePb([image_path, thumb_path]); throw e }
++  return { image_path, thumb_path, width, height }
++}
++
++// ---------- Ảnh phụ của mẫu: frame PNG / hình nền tự tải lên ----------
++// Tham chiếu '/...' là tệp có sẵn trong app (frame mẫu); còn lại là đường dẫn trong bucket `pbooth`.
++const blobs = new Map<string, string>()
++export async function assetUrl(ref: string): Promise<string> {
++  if (ref.startsWith('/')) return ref
++  const hit = blobs.get(ref); if (hit) return hit
++  const u = (await signPb([ref]))[ref]; if (!u) throw new Error('Không mở được ảnh frame của mẫu')
++  const r = await fetch(u); if (!r.ok) throw new Error('Không tải được ảnh frame của mẫu')
++  const url = URL.createObjectURL(await r.blob())      // dùng blob nội bộ để vẽ canvas không bị chặn vì khác nguồn
++  blobs.set(ref, url); return url
++}
++// Frame có lỗ trong suốt phải giữ PNG; hình nền thì JPEG cho nhẹ. Thu nhỏ còn ≤1600px.
++export async function assetRef(spaceId: string, uid: string, url: string, kind: 'overlay' | 'bg'): Promise<string> {
++  if (url.startsWith('/')) return url
++  const bmp = await createImageBitmap(await (await fetch(url)).blob())
++  const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height)), c = document.createElement('canvas')
++  c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k)
++  c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height); bmp.close?.()
++  const type = kind === 'overlay' ? 'image/png' : 'image/jpeg'
++  const b = await new Promise<Blob>((ok, no) => c.toBlob(x => x ? ok(x) : no(new Error('Không nén được ảnh frame')), type, 0.88))
++  const path = pbPath(spaceId, uid, kind === 'overlay' ? 'png' : 'jpg')
++  await putPb(path, b, type); blobs.set(path, url); return path
++}
+diff --git a/lib/photobooth.ts b/lib/photobooth.ts
+index 49fe53f..44f503e 100644
+--- a/lib/photobooth.ts
++++ b/lib/photobooth.ts
+@@ -212,7 +212,8 @@ export function findHoles(img: HTMLImageElement, W: number, H: number): Slot[] {
+ }
+ 
+ const rr = (c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => { c.beginPath(); c.roundRect(x, y, w, h, Math.min(r, w / 2, h / 2)) }
+-export async function render(W: number, H: number, bg: string, bgImg: string | null, overlay: string | null, items: Item[], px = 1200) {
++// ph = true: ô ảnh còn trống được vẽ thành ô trắng mờ có chữ "＋ ảnh" (dùng làm ảnh xem trước của mẫu)
++export async function render(W: number, H: number, bg: string, bgImg: string | null, overlay: string | null, items: Item[], px = 1200, ph = false) {
+   await document.fonts?.ready
+   const k = px / W, cv = document.createElement('canvas'); cv.width = px; cv.height = Math.round(H * k)
+   const c = cv.getContext('2d')!; c.scale(k, k); c.fillStyle = bg; c.fillRect(0, 0, W, H)
+@@ -223,13 +224,22 @@ export async function render(W: number, H: number, bg: string, bgImg: string | n
+       const f = fit(it), card = f.bd > 0 || f.bb > 0
+       if (card) { c.shadowColor = 'rgba(74,29,53,.25)'; c.shadowBlur = 18; c.shadowOffsetY = 6; c.fillStyle = '#fff'; rr(c, -it.w / 2, -it.h / 2, it.w, it.h, it.rd ?? 0); c.fill(); c.shadowColor = 'transparent' }
+       const ax = -it.w / 2 + f.bd, ay = -it.h / 2 + f.bd
++      if (!it.src) { c.fillStyle = 'rgba(255,255,255,.62)'; rr(c, ax, ay, f.aw, f.ah, card ? 0 : it.rd ?? 0); c.fill(); c.fillStyle = 'rgba(74,29,53,.42)'; c.font = `700 ${Math.max(14, Math.min(f.aw, f.ah) * 0.16)}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('＋ ảnh', ax + f.aw / 2, ay + f.ah / 2) }
+       if (it.src) { c.save(); rr(c, ax, ay, f.aw, f.ah, card ? 0 : it.rd ?? 0); c.clip(); c.drawImage(await loadImg(it.src), ax + f.aw / 2 - f.dw / 2 + f.ox, ay + f.ah / 2 - f.dh / 2 + f.oy, f.dw, f.dh); c.restore() }
+     } else if (it.k === 'sticker' && it.src) c.drawImage(await loadImg(it.src), -it.w / 2, -it.h / 2, it.w, it.h)
+     else if (it.k === 'text') { c.font = `700 ${it.fs}px ${FONT}`; c.fillStyle = it.color || '#4A1D35'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(it.text || '', 0, 0) }
+     c.restore()
+   }
+-  for (const it of items.filter(i => i.k === 'photo' && i.src)) await draw(it)
++  for (const it of items.filter(i => i.k === 'photo' && (i.src || ph))) await draw(it)
+   if (overlay) c.drawImage(await loadImg(overlay), 0, 0, W, H)
+   for (const it of items.filter(i => i.k !== 'photo')) await draw(it)
+   return new Promise<Blob>(r => cv.toBlob(b => r(b!), 'image/png'))
+ }
++
++// ---------- Mẫu đã lưu (phase26): bố cục không có ảnh, chỉ cần chèn ảnh ----------
++// overlay/bgImg: '/...' là tệp có sẵn trong app; còn lại là đường dẫn trong bucket `pbooth`
++export type Tpl = { v: 1; frame: Frame; bg: string; bgImg: string | null; overlay: string | null; items: Item[] }
++export const toTpl = (frame: Frame, bg: string, bgImg: string | null, overlay: string | null, items: Item[]): Tpl => ({
++  v: 1, frame, bg, bgImg, overlay,
++  items: items.map(i => i.k === 'photo' ? { ...i, src: undefined, iw: undefined, ih: undefined, z: 1, ox: 0, oy: 0 } : i),
++})
+diff --git a/supabase/phase26.sql b/supabase/phase26.sql
+new file mode 100644
+index 0000000..fa208b9
+--- /dev/null
++++ b/supabase/phase26.sql
+@@ -0,0 +1,192 @@
++-- Giai đoạn 26: lưu MẪU photobooth (chỉ cần chèn ảnh) và GÓC PHOTOBOOTH (đăng thành phẩm/mẫu, thả tim, bình luận, thông báo).
++-- Chạy trong Supabase > SQL Editor, một lần, SAU phase25.sql. Chạy lại nhiều lần vẫn an toàn.
++--
++-- Nguyên tắc (giống phase25):
++--  * Mọi bảng đều khóa theo Space của mình (my_space()); người ngoài Space không đọc, không ghi được gì.
++--  * Mẫu là của chung hai người: ai cũng dùng được, nhưng chỉ người tạo mới sửa/xóa mẫu của mình.
++--  * Ảnh nằm trong bucket riêng `pbooth` (private), thư mục <space_id>/<user_id>/...; chỉ ghi/xóa được trong thư mục của chính mình.
++--  * Bài đăng loại 'template' không có ảnh riêng, dùng ảnh xem trước của mẫu; xóa mẫu thì bài đăng của mẫu đó cũng mất.
++--  * Thông báo do trigger (security definer) tạo ra, dùng chung bảng notifications của phase25.
++
++-- ===== 1. Bucket ảnh riêng =====
++insert into storage.buckets(id, name, public, file_size_limit, allowed_mime_types)
++values ('pbooth', 'pbooth', false, 10485760, array['image/jpeg', 'image/png', 'image/webp'])
++on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
++
++drop policy if exists pbooth_read on storage.objects;
++drop policy if exists pbooth_insert on storage.objects;
++drop policy if exists pbooth_delete on storage.objects;
++create policy pbooth_read on storage.objects for select to authenticated
++  using (bucket_id = 'pbooth' and (storage.foldername(name))[1] = my_space()::text);
++create policy pbooth_insert on storage.objects for insert to authenticated
++  with check (bucket_id = 'pbooth' and (storage.foldername(name))[1] = my_space()::text
++              and (storage.foldername(name))[2] = auth.uid()::text);
++create policy pbooth_delete on storage.objects for delete to authenticated
++  using (bucket_id = 'pbooth' and (storage.foldername(name))[1] = my_space()::text
++         and (storage.foldername(name))[2] = auth.uid()::text);
++
++-- ===== 2. Mẫu photobooth =====
++-- data: bố cục đã lưu (khung, màu nền, các ô ảnh để trống, sticker, chữ). Ảnh frame tự tải lên nằm trong data (đường dẫn Storage).
++create table if not exists pb_templates(
++  id uuid primary key default gen_random_uuid(),
++  space_id uuid not null references spaces on delete cascade,
++  owner uuid not null default auth.uid() references auth.users on delete cascade,
++  name text not null check (char_length(btrim(name)) between 1 and 60),
++  data jsonb not null check (jsonb_typeof(data) = 'object' and pg_column_size(data) <= 200000),
++  thumb_path text not null,
++  preview_path text not null,
++  created_at timestamptz not null default now());
++create index if not exists pb_templates_space_idx on pb_templates(space_id, created_at desc);
++
++alter table pb_templates enable row level security;
++drop policy if exists pt_r on pb_templates; drop policy if exists pt_i on pb_templates;
++drop policy if exists pt_u on pb_templates; drop policy if exists pt_d on pb_templates;
++create policy pt_r on pb_templates for select using (space_id = my_space());
++create policy pt_i on pb_templates for insert with check (
++  space_id = my_space() and owner = auth.uid()
++  and thumb_path like my_space()::text || '/' || auth.uid()::text || '/%'
++  and preview_path like my_space()::text || '/' || auth.uid()::text || '/%');
++create policy pt_u on pb_templates for update using (owner = auth.uid() and space_id = my_space()) with check (
++  owner = auth.uid() and space_id = my_space()
++  and thumb_path like my_space()::text || '/' || auth.uid()::text || '/%'
++  and preview_path like my_space()::text || '/' || auth.uid()::text || '/%');
++create policy pt_d on pb_templates for delete using (owner = auth.uid());
++revoke all on pb_templates from anon;
++revoke update on pb_templates from authenticated;
++grant update (name, data, thumb_path, preview_path) on pb_templates to authenticated;
++
++-- ===== 3. Bài đăng ở Góc Photobooth =====
++create table if not exists pb_posts(
++  id uuid primary key default gen_random_uuid(),
++  space_id uuid not null references spaces on delete cascade,
++  author uuid not null default auth.uid() references auth.users on delete cascade,
++  kind text not null check (kind in ('result', 'template')),
++  title text not null check (char_length(btrim(title)) between 1 and 80),
++  caption text not null default '' check (char_length(caption) <= 500),
++  image_path text,
++  thumb_path text,
++  width int check (width is null or width between 1 and 20000),
++  height int check (height is null or height between 1 and 20000),
++  template_id uuid references pb_templates(id) on delete cascade,
++  created_at timestamptz not null default now(),
++  constraint pb_posts_kind_chk check (
++    (kind = 'result' and image_path is not null and thumb_path is not null and template_id is null)
++    or (kind = 'template' and template_id is not null and image_path is null and thumb_path is null)));
++create index if not exists pb_posts_space_idx on pb_posts(space_id, created_at desc);
++create unique index if not exists pb_posts_tpl_uq on pb_posts(template_id) where template_id is not null;   -- mỗi mẫu đăng một lần
++
++alter table pb_posts enable row level security;
++drop policy if exists pp_r on pb_posts; drop policy if exists pp_i on pb_posts;
++drop policy if exists pp_u on pb_posts; drop policy if exists pp_d on pb_posts;
++create policy pp_r on pb_posts for select using (space_id = my_space());
++create policy pp_i on pb_posts for insert with check (
++  space_id = my_space() and author = auth.uid()
++  and (image_path is null or image_path like my_space()::text || '/' || auth.uid()::text || '/%')
++  and (thumb_path is null or thumb_path like my_space()::text || '/' || auth.uid()::text || '/%')
++  and (template_id is null or exists (select 1 from pb_templates t where t.id = pb_posts.template_id and t.space_id = my_space())));
++create policy pp_u on pb_posts for update using (author = auth.uid() and space_id = my_space()) with check (author = auth.uid() and space_id = my_space());
++create policy pp_d on pb_posts for delete using (author = auth.uid());
++revoke all on pb_posts from anon;
++revoke update on pb_posts from authenticated;
++grant update (title, caption) on pb_posts to authenticated;
++
++-- ===== 4. Thả tim =====
++create table if not exists pb_hearts(
++  post_id uuid not null references pb_posts(id) on delete cascade,
++  user_id uuid not null default auth.uid() references auth.users on delete cascade,
++  space_id uuid not null references spaces on delete cascade,
++  created_at timestamptz not null default now(),
++  primary key (post_id, user_id));
++alter table pb_hearts enable row level security;
++drop policy if exists ph_r on pb_hearts; drop policy if exists ph_i on pb_hearts; drop policy if exists ph_d on pb_hearts;
++create policy ph_r on pb_hearts for select using (space_id = my_space());
++create policy ph_i on pb_hearts for insert with check (
++  space_id = my_space() and user_id = auth.uid()
++  and exists (select 1 from pb_posts p where p.id = pb_hearts.post_id and p.space_id = my_space()));
++create policy ph_d on pb_hearts for delete using (user_id = auth.uid());
++revoke all on pb_hearts from anon;
++revoke update on pb_hearts from authenticated;
++
++-- ===== 5. Bình luận (trả lời một cấp, như Khoảnh khắc) =====
++create table if not exists pb_comments(
++  id uuid primary key default gen_random_uuid(),
++  post_id uuid not null references pb_posts(id) on delete cascade,
++  space_id uuid not null references spaces on delete cascade,
++  author uuid not null default auth.uid() references auth.users on delete cascade,
++  parent_id uuid references pb_comments(id) on delete cascade,
++  body text not null check (char_length(btrim(body)) between 1 and 1000),
++  created_at timestamptz not null default now());
++create index if not exists pb_comments_post_idx on pb_comments(post_id, created_at);
++
++-- Chỉ một cấp trả lời: trả lời một câu trả lời thì gắn vào bình luận gốc
++create or replace function pbc_before() returns trigger language plpgsql security definer set search_path=public as $$
++declare gp uuid;
++begin
++  if new.parent_id is not null then
++    select parent_id into gp from pb_comments where id = new.parent_id;
++    if gp is not null then new.parent_id := gp; end if;
++  end if;
++  return new;
++end $$;
++revoke all on function pbc_before() from public, anon, authenticated;
++drop trigger if exists pbc_before_t on pb_comments;
++create trigger pbc_before_t before insert on pb_comments for each row execute function pbc_before();
++
++alter table pb_comments enable row level security;
++drop policy if exists pc_r on pb_comments; drop policy if exists pc_i on pb_comments; drop policy if exists pc_d on pb_comments;
++create policy pc_r on pb_comments for select using (space_id = my_space());
++create policy pc_i on pb_comments for insert with check (
++  space_id = my_space() and author = auth.uid()
++  and exists (select 1 from pb_posts p where p.id = pb_comments.post_id and p.space_id = my_space())
++  and (pb_comments.parent_id is null or exists (
++        select 1 from pb_comments c
++        where c.id = pb_comments.parent_id and c.post_id = pb_comments.post_id and c.space_id = my_space())));
++create policy pc_d on pb_comments for delete using (author = auth.uid());
++revoke all on pb_comments from anon;
++revoke update on pb_comments from authenticated;
++
++-- ===== 6. Thông báo: dùng lại bảng notifications của phase25 =====
++alter table notifications add column if not exists pb_post_id uuid references pb_posts(id) on delete cascade;
++alter table notifications drop constraint if exists notifications_kind_check;
++alter table notifications add constraint notifications_kind_check
++  check (kind in ('moment', 'moment_comment', 'moment_reply', 'pb_post', 'pb_comment', 'pb_reply'));
++create index if not exists notifications_pb_idx on notifications(pb_post_id) where pb_post_id is not null;
++
++-- Có bài mới: báo cho người còn lại
++create or replace function notify_pb_post() returns trigger language plpgsql security definer set search_path=public as $$
++declare r uuid;
++begin
++  for r in select id from profiles where space_id = new.space_id and id <> new.author loop
++    insert into notifications(space_id, user_id, actor, kind, pb_post_id, moment_title, body)
++    values (new.space_id, r, new.author, 'pb_post', new.id, left(new.title, 200), left(new.caption, 200));
++  end loop;
++  return null;
++end $$;
++revoke all on function notify_pb_post() from public, anon, authenticated;
++drop trigger if exists pb_posts_notify_t on pb_posts;
++create trigger pb_posts_notify_t after insert on pb_posts for each row execute function notify_pb_post();
++
++-- Có bình luận mới (hoặc câu trả lời): báo cho người còn lại
++create or replace function notify_pb_comment() returns trigger language plpgsql security definer set search_path=public as $$
++declare r uuid; ttl text;
++begin
++  select title into ttl from pb_posts where id = new.post_id;
++  for r in select id from profiles where space_id = new.space_id and id <> new.author loop
++    insert into notifications(space_id, user_id, actor, kind, pb_post_id, moment_title, body)
++    values (new.space_id, r, new.author, case when new.parent_id is not null then 'pb_reply' else 'pb_comment' end,
++            new.post_id, left(coalesce(ttl, ''), 200), left(new.body, 200));
++  end loop;
++  return null;
++end $$;
++revoke all on function notify_pb_comment() from public, anon, authenticated;
++drop trigger if exists pb_comments_notify_t on pb_comments;
++create trigger pb_comments_notify_t after insert on pb_comments for each row execute function notify_pb_comment();
++
++-- ===== 7. Realtime =====
++do $$ declare t text; begin
++  foreach t in array array['pb_templates', 'pb_posts', 'pb_hearts', 'pb_comments'] loop
++    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
++      execute format('alter publication supabase_realtime add table %I', t);
++    end if;
++  end loop;
++end $$;
+diff --git a/supabase/tests/phase26_test.sql b/supabase/tests/phase26_test.sql
+new file mode 100644
+index 0000000..b7a5f3b
+--- /dev/null
++++ b/supabase/tests/phase26_test.sql
+@@ -0,0 +1,215 @@
++-- Kiểm thử phase26: mẫu photobooth, bài đăng, thả tim, bình luận một cấp, thông báo, quyền theo Space, chạy lại an toàn.
++-- Chạy từ thư mục gốc dự án (database rỗng):
++--   psql -v ON_ERROR_STOP=1 -f supabase/tests/phase25_stub.sql -f supabase/phase25.sql -f supabase/phase26.sql -f supabase/tests/phase26_test.sql
++\set ON_ERROR_STOP on
++grant delete on storage.objects to authenticated;
++
++insert into auth.users(id) values ('aaaaaaaa-0000-0000-0000-000000000001'), ('bbbbbbbb-0000-0000-0000-000000000002'), ('cccccccc-0000-0000-0000-000000000003');
++insert into spaces(id, name) values ('11111111-1111-1111-1111-111111111111', 'ab'), ('22222222-2222-2222-2222-222222222222', 'c');
++insert into profiles(id, space_id, display_name) values
++  ('aaaaaaaa-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'A'),
++  ('bbbbbbbb-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'B'),
++  ('cccccccc-0000-0000-0000-000000000003', '22222222-2222-2222-2222-222222222222', 'C');
++
++-- ===== 1. A lưu mẫu; B thấy, C không thấy =====
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++set role authenticated;
++insert into pb_templates(id, space_id, name, data, thumb_path, preview_path) values
++  ('eeeeeeee-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'Dải 4 ô hồng', '{"v":1,"items":[]}',
++   '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/t.jpg', '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/p.jpg');
++select t_as('bbbbbbbb-0000-0000-0000-000000000002');
++do $$ begin assert (select count(*) from pb_templates) = 1, 'B thấy mẫu của A (cùng Space)'; end $$;
++select t_as('cccccccc-0000-0000-0000-000000000003');
++do $$ begin assert (select count(*) from pb_templates) = 0, 'C (Space khác) không thấy mẫu'; end $$;
++reset role;
++do $$ begin raise notice 'TEMPLATE visible ok'; end $$;
++
++-- ===== 2. Không ghi được sai: lưu mẫu cho Space khác, giả mạo chủ, đường dẫn ảnh của người khác, sửa mẫu của người khác =====
++select t_as('bbbbbbbb-0000-0000-0000-000000000002');
++set role authenticated;
++do $$ begin
++  begin insert into pb_templates(space_id, name, data, thumb_path, preview_path) values ('22222222-2222-2222-2222-222222222222', 'x', '{}', 'a', 'a');
++    raise exception 'phải chặn: ghi vào Space khác'; exception when insufficient_privilege then null; end;
++  begin insert into pb_templates(space_id, owner, name, data, thumb_path, preview_path) values ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000001', 'x', '{}', 'a', 'a');
++    raise exception 'phải chặn: giả mạo chủ mẫu'; exception when insufficient_privilege then null; end;
++  begin insert into pb_templates(space_id, name, data, thumb_path, preview_path) values ('11111111-1111-1111-1111-111111111111', 'x', '{}',
++      '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/t.jpg', '11111111-1111-1111-1111-111111111111/bbbbbbbb-0000-0000-0000-000000000002/p.jpg');
++    raise exception 'phải chặn: ảnh nằm trong thư mục của người khác'; exception when insufficient_privilege then null; end;
++  begin insert into pb_templates(space_id, name, data, thumb_path, preview_path) values ('11111111-1111-1111-1111-111111111111', '   ', '{}',
++      '11111111-1111-1111-1111-111111111111/bbbbbbbb-0000-0000-0000-000000000002/t.jpg', '11111111-1111-1111-1111-111111111111/bbbbbbbb-0000-0000-0000-000000000002/p.jpg');
++    raise exception 'phải chặn: tên rỗng'; exception when check_violation then null; end;
++  begin insert into pb_templates(space_id, name, data, thumb_path, preview_path) values ('11111111-1111-1111-1111-111111111111', 'x', '[]',
++      '11111111-1111-1111-1111-111111111111/bbbbbbbb-0000-0000-0000-000000000002/t.jpg', '11111111-1111-1111-1111-111111111111/bbbbbbbb-0000-0000-0000-000000000002/p.jpg');
++    raise exception 'phải chặn: data không phải object'; exception when check_violation then null; end;
++end $$;
++update pb_templates set name = 'B đổi tên' where id = 'eeeeeeee-0000-0000-0000-00000000000a';
++delete from pb_templates where id = 'eeeeeeee-0000-0000-0000-00000000000a';
++reset role;
++do $$ begin
++  assert (select name from pb_templates where id = 'eeeeeeee-0000-0000-0000-00000000000a') = 'Dải 4 ô hồng', 'B không sửa/xóa được mẫu của A';
++  raise notice 'TEMPLATE guards ok';
++end $$;
++
++-- ===== 3. Chủ mẫu đổi tên được; không đổi được owner/space_id =====
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++set role authenticated;
++update pb_templates set name = 'Dải 4 ô hồng v2' where id = 'eeeeeeee-0000-0000-0000-00000000000a';
++do $$ begin
++  begin update pb_templates set owner = 'bbbbbbbb-0000-0000-0000-000000000002' where id = 'eeeeeeee-0000-0000-0000-00000000000a';
++    raise exception 'phải chặn: đổi owner'; exception when insufficient_privilege then null; end;
++end $$;
++reset role;
++do $$ begin assert (select name from pb_templates) = 'Dải 4 ô hồng v2', 'A đổi tên mẫu của mình'; raise notice 'TEMPLATE owner update ok'; end $$;
++
++-- ===== 4. Bài đăng thành phẩm + bài đăng mẫu; thông báo cho người kia =====
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++set role authenticated;
++insert into pb_posts(id, space_id, kind, title, caption, image_path, thumb_path, width, height) values
++  ('f0000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'result', 'Ảnh Hồ Tây', 'Hôm nay xinh',
++   '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/r.jpg', '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/rt.jpg', 1200, 1600);
++insert into pb_posts(id, space_id, kind, title, template_id) values
++  ('f0000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'template', 'Mẫu dải 4 ô', 'eeeeeeee-0000-0000-0000-00000000000a');
++do $$ begin
++  begin insert into pb_posts(space_id, kind, title, template_id) values ('11111111-1111-1111-1111-111111111111', 'template', 'Đăng lần hai', 'eeeeeeee-0000-0000-0000-00000000000a');
++    raise exception 'phải chặn: đăng một mẫu hai lần'; exception when unique_violation then null; end;
++  begin insert into pb_posts(space_id, kind, title) values ('11111111-1111-1111-1111-111111111111', 'result', 'Thiếu ảnh');
++    raise exception 'phải chặn: thành phẩm không có ảnh'; exception when check_violation then null; end;
++  begin insert into pb_posts(space_id, kind, title, image_path, thumb_path, template_id) values ('11111111-1111-1111-1111-111111111111', 'template', 'Mẫu có ảnh riêng',
++        '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/r.jpg', '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/rt.jpg', 'eeeeeeee-0000-0000-0000-00000000000a');
++    raise exception 'phải chặn: bài mẫu không được có ảnh riêng'; exception when check_violation or unique_violation then null; end;
++end $$;
++reset role;
++do $$ begin
++  assert (select count(*) from notifications where kind = 'pb_post') = 2, 'hai bài đăng = hai thông báo';
++  assert (select count(*) from notifications where kind = 'pb_post' and user_id = 'bbbbbbbb-0000-0000-0000-000000000002') = 2, 'thông báo bài đăng gửi cho B';
++  assert (select count(*) from notifications where kind = 'pb_post' and user_id = 'aaaaaaaa-0000-0000-0000-000000000001') = 0, 'không báo cho người đăng';
++  assert (select moment_title from notifications where pb_post_id = 'f0000000-0000-0000-0000-000000000001') = 'Ảnh Hồ Tây', 'thông báo mang tiêu đề bài';
++  raise notice 'POST + notify ok';
++end $$;
++
++-- ===== 5. C (Space khác) không thấy, không bình luận/thả tim được bài của A và B =====
++select t_as('cccccccc-0000-0000-0000-000000000003');
++set role authenticated;
++do $$ begin
++  assert (select count(*) from pb_posts) = 0, 'C không thấy bài';
++  begin insert into pb_comments(post_id, space_id, body) values ('f0000000-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', 'chen ngang');
++    raise exception 'phải chặn: bình luận bài của Space khác'; exception when insufficient_privilege then null; end;
++  begin insert into pb_hearts(post_id, space_id) values ('f0000000-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222');
++    raise exception 'phải chặn: thả tim bài của Space khác'; exception when insufficient_privilege then null; end;
++end $$;
++reset role;
++do $$ begin raise notice 'ISOLATION ok'; end $$;
++
++-- ===== 6. Bình luận, trả lời, trả lời một câu trả lời (gom về một cấp), thông báo =====
++select t_as('bbbbbbbb-0000-0000-0000-000000000002');
++set role authenticated;
++insert into pb_comments(id, post_id, space_id, body) values ('c0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Đẹp quá');
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++insert into pb_comments(id, post_id, space_id, body, parent_id) values ('c0000000-0000-0000-0000-000000000002', 'f0000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Cảm ơn nha', 'c0000000-0000-0000-0000-000000000001');
++select t_as('bbbbbbbb-0000-0000-0000-000000000002');
++insert into pb_comments(id, post_id, space_id, body, parent_id) values ('c0000000-0000-0000-0000-000000000003', 'f0000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Lần sau chụp nữa', 'c0000000-0000-0000-0000-000000000002');
++do $$ begin
++  begin insert into pb_comments(post_id, space_id, body, parent_id) values ('f0000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'cha ở bài khác', 'c0000000-0000-0000-0000-000000000001');
++    raise exception 'phải chặn: bình luận cha thuộc bài khác'; exception when insufficient_privilege then null; end;
++  begin insert into pb_comments(post_id, space_id, body) values ('f0000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '   ');
++    raise exception 'phải chặn: bình luận rỗng'; exception when check_violation then null; end;
++  begin insert into pb_comments(post_id, space_id, author, body) values ('f0000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000001', 'mạo danh');
++    raise exception 'phải chặn: mạo danh người bình luận'; exception when insufficient_privilege then null; end;
++end $$;
++reset role;
++do $$ begin
++  assert (select parent_id from pb_comments where id = 'c0000000-0000-0000-0000-000000000003') = 'c0000000-0000-0000-0000-000000000001', 'trả lời một câu trả lời phải gắn về bình luận gốc';
++  assert (select kind from notifications where kind like 'pb\_c%' and user_id = 'aaaaaaaa-0000-0000-0000-000000000001' and body = 'Đẹp quá') = 'pb_comment', 'bình luận gốc báo cho chủ bài';
++  assert (select kind from notifications where kind = 'pb_reply' and user_id = 'bbbbbbbb-0000-0000-0000-000000000002' and body = 'Cảm ơn nha') = 'pb_reply', 'trả lời báo cho người bình luận gốc';
++  assert (select count(*) from notifications where user_id = 'cccccccc-0000-0000-0000-000000000003') = 0, 'C không nhận thông báo nào';
++  raise notice 'COMMENTS + notify ok';
++end $$;
++
++-- ===== 7. Thả tim: một người một tim, bỏ tim được, không mạo danh =====
++select t_as('bbbbbbbb-0000-0000-0000-000000000002');
++set role authenticated;
++insert into pb_hearts(post_id, space_id) values ('f0000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111');
++do $$ begin
++  begin insert into pb_hearts(post_id, space_id) values ('f0000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111');
++    raise exception 'phải chặn: thả tim hai lần'; exception when unique_violation then null; end;
++  begin insert into pb_hearts(post_id, space_id, user_id) values ('f0000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000001');
++    raise exception 'phải chặn: thả tim hộ người khác'; exception when insufficient_privilege then null; end;
++end $$;
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++delete from pb_hearts where post_id = 'f0000000-0000-0000-0000-000000000001';      -- tim của B, A không xóa được
++reset role;
++do $$ begin assert (select count(*) from pb_hearts) = 1, 'A không gỡ được tim của B'; raise notice 'HEARTS ok'; end $$;
++
++-- ===== 8. Quyền xóa/sửa bài và bình luận: chỉ chủ của chúng =====
++select t_as('bbbbbbbb-0000-0000-0000-000000000002');
++set role authenticated;
++delete from pb_posts where id = 'f0000000-0000-0000-0000-000000000001';             -- bài của A
++update pb_posts set title = 'B sửa bậy' where id = 'f0000000-0000-0000-0000-000000000001';
++delete from pb_comments where id = 'c0000000-0000-0000-0000-000000000002';         -- bình luận của A
++do $$ begin
++  begin update pb_posts set author = 'bbbbbbbb-0000-0000-0000-000000000002' where id = 'f0000000-0000-0000-0000-000000000001';
++    raise exception 'phải chặn: đổi tác giả'; exception when insufficient_privilege then null; end;
++end $$;
++reset role;
++do $$ begin
++  assert (select count(*) from pb_posts where id = 'f0000000-0000-0000-0000-000000000001' and title = 'Ảnh Hồ Tây') = 1, 'B không xóa/sửa được bài của A';
++  assert (select count(*) from pb_comments where id = 'c0000000-0000-0000-0000-000000000002') = 1, 'B không xóa được bình luận của A';
++  raise notice 'OWNERSHIP ok';
++end $$;
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++set role authenticated;
++update pb_posts set title = 'Ảnh Hồ Tây (sửa)', caption = 'Đã sửa' where id = 'f0000000-0000-0000-0000-000000000001';
++delete from pb_comments where id = 'c0000000-0000-0000-0000-000000000001';         -- không phải của A: không xóa
++do $$ begin assert (select count(*) from pb_comments where id = 'c0000000-0000-0000-0000-000000000001') = 1, 'A không xóa được bình luận của B'; end $$;
++reset role;
++do $$ begin assert (select title from pb_posts where id = 'f0000000-0000-0000-0000-000000000001') = 'Ảnh Hồ Tây (sửa)', 'A sửa được bài của mình'; end $$;
++
++-- ===== 9. Xóa mẫu thì bài đăng của mẫu và thông báo liên quan biến mất; xóa bài thì bình luận/tim/thông báo biến mất =====
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++set role authenticated;
++delete from pb_templates where id = 'eeeeeeee-0000-0000-0000-00000000000a';
++delete from pb_posts where id = 'f0000000-0000-0000-0000-000000000001';
++reset role;
++do $$ begin
++  assert (select count(*) from pb_posts) = 0, 'xóa mẫu kéo theo bài mẫu; xóa bài xong không còn bài';
++  assert (select count(*) from pb_comments) = 0 and (select count(*) from pb_hearts) = 0, 'bình luận và tim đi theo bài';
++  assert (select count(*) from notifications where pb_post_id is not null) = 0, 'thông báo đi theo bài';
++  raise notice 'CASCADE ok';
++end $$;
++
++-- ===== 10. Storage: chỉ ghi/xóa trong thư mục của mình, chỉ đọc trong Space =====
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++set role authenticated;
++insert into storage.objects(bucket_id, name) values ('pbooth', '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/x.jpg');
++do $$ begin
++  begin insert into storage.objects(bucket_id, name) values ('pbooth', '11111111-1111-1111-1111-111111111111/bbbbbbbb-0000-0000-0000-000000000002/y.jpg');
++    raise exception 'phải chặn: ghi vào thư mục người khác'; exception when insufficient_privilege then null; end;
++  begin insert into storage.objects(bucket_id, name) values ('pbooth', '22222222-2222-2222-2222-222222222222/aaaaaaaa-0000-0000-0000-000000000001/z.jpg');
++    raise exception 'phải chặn: ghi vào Space khác'; exception when insufficient_privilege then null; end;
++end $$;
++select t_as('bbbbbbbb-0000-0000-0000-000000000002');
++do $$ begin assert (select count(*) from storage.objects where bucket_id = 'pbooth') = 1, 'B đọc được ảnh của A (cùng Space)'; end $$;
++delete from storage.objects where bucket_id = 'pbooth';                              -- không phải của B
++do $$ begin assert (select count(*) from storage.objects where bucket_id = 'pbooth') = 1, 'B không xóa được ảnh của A'; end $$;
++select t_as('cccccccc-0000-0000-0000-000000000003');
++do $$ begin assert (select count(*) from storage.objects where bucket_id = 'pbooth') = 0, 'C không thấy ảnh Space khác'; end $$;
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++delete from storage.objects where bucket_id = 'pbooth';
++do $$ begin assert (select count(*) from storage.objects where bucket_id = 'pbooth') = 0, 'A xóa được ảnh của mình'; end $$;
++reset role;
++do $$ begin raise notice 'STORAGE ok'; end $$;
++
++-- ===== 11. Quyền bảng + chạy lại phase26 không nhân đôi trigger/policy =====
++do $$ begin
++  assert not has_table_privilege('anon', 'pb_posts', 'select') and not has_table_privilege('anon', 'pb_templates', 'select')
++     and not has_table_privilege('anon', 'pb_comments', 'select') and not has_table_privilege('anon', 'pb_hearts', 'select'), 'anon không đụng được bảng nào';
++  assert not has_table_privilege('authenticated', 'pb_comments', 'update'), 'không sửa được bình luận';
++  assert has_column_privilege('authenticated', 'pb_posts', 'title', 'update') and not has_column_privilege('authenticated', 'pb_posts', 'author', 'update'), 'chỉ sửa tiêu đề/ghi chú bài';
++end $$;
++\i supabase/phase26.sql
++do $$ begin
++  assert (select count(*) from pg_trigger where tgname in ('pb_posts_notify_t', 'pb_comments_notify_t', 'pbc_before_t') and not tgisinternal) = 3, 'chạy lại không nhân đôi trigger';
++  assert (select count(*) from pg_policies where tablename in ('pb_templates', 'pb_posts', 'pb_hearts', 'pb_comments')) = 4 + 4 + 3 + 3, 'chạy lại không nhân đôi policy';
++  assert (select count(*) from pg_publication_tables where pubname = 'supabase_realtime' and tablename like 'pb\_%') = 4, 'bật realtime đủ 4 bảng, một lần';
++  raise notice 'ALL phase26 tests passed';
++end $$;

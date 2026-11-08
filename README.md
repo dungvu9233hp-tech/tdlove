@@ -218,3 +218,17 @@ Thiết kế:
 - Dùng GIPHY nghĩa là trình duyệt gọi `api.giphy.com` và tải ảnh từ `media*.giphy.com` (kèm chữ "Powered by GIPHY" theo điều khoản của họ). Chỉ gửi từ khóa tìm, không gửi gì khác của hai đứa.
 
 Chạy thử SQL trên Postgres thường (không cần Supabase): tạo một database rỗng rồi chạy `psql -v ON_ERROR_STOP=1 -f supabase/tests/phase25_stub.sql -f supabase/phase25.sql -f supabase/tests/phase25_test.sql` từ thư mục gốc dự án. Kiểm tra trigger thông báo, trả lời một cấp, ràng buộc GIF, quyền truy cập bảng/Storage, và chạy lại không nhân đôi trigger; cuối cùng in `ALL phase25 tests passed`.
+
+## Mẫu photobooth và Góc Photobooth (phase26)
+
+**Mẫu đã lưu.** Ở Photobooth, làm xong một bố cục (frame, màu nền, sticker, chữ, các ô ảnh) thì bấm "💾 Lưu làm mẫu". Mẫu là của chung hai người. Lần sau chọn mẫu ở mục "Mẫu của hai đứa" là vào **chế độ mẫu**: khung và sticker bị khóa, chỉ cần thêm ảnh vào các ô (ảnh đang chọn tự điền theo thứ tự, kéo ảnh trong ô để chọn phần giữ). Bấm "Chỉnh sửa mẫu" để mở khóa, rồi "Cập nhật mẫu này" hoặc "Lưu thành mẫu mới". Chỉ người tạo mới sửa/xóa được mẫu của mình.
+
+**Góc Photobooth** (`/photobooth/gallery`, có ở Trang chủ và đầu trang Photobooth). Đăng thành phẩm bằng "💞 Đăng lên Góc chung", hoặc đăng mẫu khi lưu mẫu (tích ô "Đăng mẫu này…"). Mỗi bài có thả tim, bình luận và trả lời một cấp. Bài mẫu có nút "Dùng mẫu này" mở thẳng Photobooth ở chế độ mẫu; bài thành phẩm có nút "Tải ảnh". Người đăng sửa tên/ghi chú, xóa bài của mình. Có thông báo trong app (chuông) khi người kia đăng bài hoặc bình luận.
+
+Cách bật:
+1. Supabase > SQL Editor, chạy `supabase/phase26.sql` (sau phase25, chạy lại nhiều lần vẫn an toàn). File này: tạo bucket riêng `pbooth` (private, thư mục `<space_id>/<user_id>/`), bảng `pb_templates`, `pb_posts`, `pb_hearts`, `pb_comments` (RLS theo Space), mở rộng `notifications` với 3 loại mới và bật realtime.
+2. Triển khai lại app. Chưa chạy SQL thì Photobooth vẫn dùng bình thường, chỉ báo "chưa bật được mẫu đã lưu".
+
+Lưu ý: thông báo đẩy (push) ra máy chưa có cho phần này vì Edge Function `push` chỉ biết các loại thông báo cũ; thông báo trong app (chuông, toast) thì có.
+
+Chạy thử SQL trên Postgres thường: tạo database rỗng rồi chạy `psql -v ON_ERROR_STOP=1 -f supabase/tests/phase25_stub.sql -f supabase/phase25.sql -f supabase/phase26.sql -f supabase/tests/phase26_test.sql` từ thư mục gốc dự án; cuối cùng in `ALL phase26 tests passed`.

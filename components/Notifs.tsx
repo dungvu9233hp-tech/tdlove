@@ -8,7 +8,7 @@ import { useApp } from '@/lib/ctx'
 // Thông báo trong app (phase25.sql): khoảnh khắc mới, bình luận mới, trả lời bình luận.
 // Dòng thông báo do trigger ở cơ sở dữ liệu tạo ra cho người còn lại; ở đây chỉ đọc, nghe realtime và đánh dấu đã đọc.
 export type Notif = {
-  id: string; kind: 'moment' | 'moment_comment' | 'moment_reply'; moment_id: string | null; comment_id: string | null
+  id: string; kind: 'moment' | 'moment_comment' | 'moment_reply' | 'pb_post' | 'pb_comment' | 'pb_reply'; moment_id: string | null; comment_id: string | null; pb_post_id?: string | null
   actor: string | null; moment_title: string; body: string; read_at: string | null; created_at: string
 }
 type Ctx = {
@@ -21,10 +21,12 @@ const Ctx = createContext<Ctx>({ items: [], unread: 0, unreadMoments: new Set(),
 export const useNotifs = () => useContext(Ctx)
 
 const LIMIT = 60
-const VERB: Record<Notif['kind'], string> = { moment: 'đã đăng khoảnh khắc mới', moment_comment: 'đã bình luận ở', moment_reply: 'đã trả lời bình luận ở' }
-const ICON: Record<Notif['kind'], string> = { moment: '🖼️', moment_comment: '💬', moment_reply: '↩️' }
+const VERB: Record<Notif['kind'], string> = { moment: 'đã đăng khoảnh khắc mới', moment_comment: 'đã bình luận ở', moment_reply: 'đã trả lời bình luận ở', pb_post: 'đã đăng lên Góc Photobooth', pb_comment: 'đã bình luận ở', pb_reply: 'đã trả lời bình luận ở' }
+const ICON: Record<Notif['kind'], string> = { moment: '🖼️', moment_comment: '💬', moment_reply: '↩️', pb_post: '🎞️', pb_comment: '💬', pb_reply: '↩️' }
+const isNew = (k: Notif['kind']) => k === 'moment' || k === 'pb_post'      // thông báo "có bài mới" (không phải bình luận)
 export const MOMENTS_CHANGED = 'tdlove-moments-changed'
 export const OPEN_MOMENT = 'tdlove-open-moment'
+export const OPEN_PBPOST = 'tdlove-open-pbpost'
 
 function ago(s: string) {
   const d = (Date.now() - new Date(s).getTime()) / 1000
@@ -57,7 +59,7 @@ export function NotifProvider({ children }: { children: React.ReactNode }) {
           const n = p.new as Notif
           setItems(a => a.some(x => x.id === n.id) ? a : [n, ...a].slice(0, LIMIT))
           window.dispatchEvent(new Event(MOMENTS_CHANGED))                 // trang Khoảnh khắc đang mở thì nạp lại danh sách / số bình luận
-          if (document.visibilityState === 'visible' && !(n.moment_id && viewing.current === n.moment_id)) {
+          if (document.visibilityState === 'visible' && !((n.moment_id || n.pb_post_id) && viewing.current === (n.moment_id || n.pb_post_id))) {
             setToast(n); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(null), 6000)
           }
         } else if (p.eventType === 'UPDATE') { const n = p.new as Notif; setItems(a => a.map(x => x.id === n.id ? n : x)) }
@@ -81,6 +83,11 @@ export function NotifProvider({ children }: { children: React.ReactNode }) {
 
   const go = useCallback((n: Notif) => {
     markRead([n.id]); setOpen(false); setToast(null)
+    if (n.pb_post_id) {      // bài ở Góc Photobooth
+      if (path.startsWith('/photobooth/gallery')) window.dispatchEvent(new CustomEvent(OPEN_PBPOST, { detail: { id: n.pb_post_id } }))
+      else router.push('/photobooth/gallery?open=' + n.pb_post_id)
+      return
+    }
     if (!n.moment_id) return
     if (path === '/moments') window.dispatchEvent(new CustomEvent(OPEN_MOMENT, { detail: { id: n.moment_id } }))
     else router.push('/moments?open=' + n.moment_id)
@@ -95,7 +102,7 @@ export function NotifProvider({ children }: { children: React.ReactNode }) {
     {toast && !open && <div className="k pk ntoast" role="status">
       <button className="ntoast-main" onClick={() => go(toast)}>
         <b>{ICON[toast.kind]} {who(toast)} {VERB[toast.kind]}</b>
-        <span className="nclamp s">{toast.kind === 'moment' ? toast.moment_title : toast.body || toast.moment_title}</span>
+        <span className="nclamp s">{isNew(toast.kind) ? toast.moment_title : toast.body || toast.moment_title}</span>
       </button>
       <button className="pill" style={{ flex: 'none', padding: '0 10px' }} onClick={() => setToast(null)} aria-label="Đóng thông báo">×</button>
     </div>}
@@ -106,8 +113,8 @@ export function NotifProvider({ children }: { children: React.ReactNode }) {
       {!items.length && <div className="k pe"><b>Chưa có thông báo</b><div className="s">Khi {pn} đăng khoảnh khắc hay bình luận, thông báo sẽ hiện ở đây.</div></div>}
       {items.map(n => <button key={n.id} className={`k nitem ${n.read_at ? '' : 'pk'}`} onClick={() => go(n)}>
         <span className="s">{ICON[n.kind]} {ago(n.created_at)}{!n.read_at && <span className="ndot" aria-label="Chưa đọc"> ●</span>}</span>
-        <b>{who(n)} {VERB[n.kind]}{n.kind !== 'moment' && ` “${n.moment_title}”`}</b>
-        {(n.kind === 'moment' ? n.moment_title : n.body) && <span className="nclamp">{n.kind === 'moment' ? `“${n.moment_title}”` : n.body}</span>}
+        <b>{who(n)} {VERB[n.kind]}{!isNew(n.kind) && ` “${n.moment_title}”`}</b>
+        {(isNew(n.kind) ? n.moment_title : n.body) && <span className="nclamp">{isNew(n.kind) ? `“${n.moment_title}”` : n.body}</span>}
       </button>)}
     </div>}
   </Ctx.Provider>
