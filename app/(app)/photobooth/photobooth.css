@@ -19,7 +19,7 @@
 .pb-tool input[type=range]{width:100%}
 .pb-zoom{display:flex;flex-direction:column;gap:4px;font:700 14px var(--f2)}
 .pb-txt{flex:1 1 140px;min-width:0;border:1px solid var(--line2);border-radius:12px;padding:8px 10px;font:600 15px var(--f2)}
-.pb-stk{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px}
+.pb-stk{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px;max-height:320px;overflow-y:auto;overscroll-behavior:contain;padding:2px}
 .pb-stk button{aspect-ratio:1;background:#fff;border:1.5px solid var(--stitch);border-radius:14px;padding:6px;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .pb-stk img{max-width:100%;max-height:100%;object-fit:contain}
 .pb-act .btn{flex:1 1 160px}

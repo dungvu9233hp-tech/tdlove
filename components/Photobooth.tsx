@@ -176,7 +176,7 @@ export default function Photobooth() {
     <div className="k pb-box"><b>3. Trang trí</b>
       <div className="s">Bấm hoặc kéo thả vào khung. Chọn vật rồi kéo nút tròn ở góc để đổi cỡ, nút ở trên để xoay.</div>
       <div className="pb-row">{CATS.map(k => <button key={k} className={`pill${cat === k ? ' on' : ''}`} onClick={() => setCat(k)}>{k}</button>)}</div>
-      <div className="pb-stk">{STICKERS.filter(s => cat === CATS[0] || s.cat === cat).map(s => <button key={s.id} title={s.name} aria-label={s.name} draggable onDragStart={e => e.dataTransfer.setData('text/sticker', s.id)} onClick={() => addSticker(s)}><img src={s.src} alt="" draggable={false} /></button>)}</div>
+      <div className="pb-stk">{STICKERS.filter(s => cat === CATS[0] || s.cat === cat).map(s => <button key={s.id} title={s.name} aria-label={s.name} draggable onDragStart={e => e.dataTransfer.setData('text/sticker', s.id)} onClick={() => addSticker(s)}><img src={s.src} alt="" loading="lazy" decoding="async" draggable={false} /></button>)}</div>
       <div className="pb-row"><button className="pill" onClick={addText}>＋ Chữ</button></div></div>
 
     <div className="pb-row pb-act"><button className="btn" disabled={busy} onClick={save}>{busy ? 'Đang xử lý…' : 'Lưu ảnh photobooth'}</button>
