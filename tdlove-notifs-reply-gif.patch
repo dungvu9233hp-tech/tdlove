@@ -1,0 +1,1362 @@
+From 7cb643eb9e48e1dc395579caae77ff16b8aa13a6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 8 Nov 2026 11:02:34 +0700
+Subject: [PATCH] =?UTF-8?q?Th=C3=B4ng=20b=C3=A1o=20kho=E1=BA=A3nh=20kh?=
+ =?UTF-8?q?=E1=BA=AFc/b=C3=ACnh=20lu=E1=BA=ADn,=20tr=E1=BA=A3=20l=E1=BB=9D?=
+ =?UTF-8?q?i=20b=C3=ACnh=20lu=E1=BA=ADn,=20GIF=20cho=20chat=20v=C3=A0=20b?=
+ =?UTF-8?q?=C3=ACnh=20lu=E1=BA=ADn=20(phase25)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Thông báo trong app (chuông, thẻ nổi, nhãn "Mới") do trigger DB tạo khi có
+  khoảnh khắc mới hoặc bình luận mới; thông báo đẩy qua Edge Function push.
+- Trả lời bình luận một cấp, có nút hủy, thu gọn luồng dài.
+- GIF: bộ sưu tập chung, tải lên từ máy, tìm GIPHY (tùy chọn) cho Chat và bình luận.
+- Service worker không hiện thông báo máy khi app đang mở (đã có thẻ nổi).
+- Mở thông báo của khoảnh khắc đã xóa thì báo rõ thay vì im lặng.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01QgiWNAm3bCoDrYWwbbHpi1
+---
+ .env.example                     |   3 +
+ README.md                        |  23 ++++
+ app/(app)/chat/page.tsx          |  18 ++-
+ app/(app)/layout.tsx             |   3 +-
+ app/(app)/moments/page.tsx       |  27 ++++-
+ app/(app)/page.tsx               |   3 +-
+ app/(app)/settings/page.tsx      |   2 +-
+ components/Gif.tsx               | 127 ++++++++++++++++++++
+ components/MomentForm.tsx        |   4 +
+ components/MomentView.tsx        |  81 +++++++++++--
+ components/Notifs.tsx            | 122 +++++++++++++++++++
+ components/gif.css               |  12 ++
+ components/notifs.css            |  10 ++
+ lib/gif.ts                       |  68 +++++++++++
+ lib/push.ts                      |   7 +-
+ public/sw.js                     |   9 +-
+ supabase/functions/README.md     |   2 +
+ supabase/functions/push/index.ts |   9 +-
+ supabase/phase25.sql             | 172 +++++++++++++++++++++++++++
+ supabase/tests/phase25_stub.sql  |  70 +++++++++++
+ supabase/tests/phase25_test.sql  | 195 +++++++++++++++++++++++++++++++
+ 21 files changed, 939 insertions(+), 28 deletions(-)
+ create mode 100644 components/Gif.tsx
+ create mode 100644 components/Notifs.tsx
+ create mode 100644 components/gif.css
+ create mode 100644 components/notifs.css
+ create mode 100644 lib/gif.ts
+ create mode 100644 supabase/phase25.sql
+ create mode 100644 supabase/tests/phase25_stub.sql
+ create mode 100644 supabase/tests/phase25_test.sql
+
+diff --git a/.env.example b/.env.example
+index 4a117d2..df7b999 100644
+--- a/.env.example
++++ b/.env.example
+@@ -11,3 +11,6 @@ NEXT_PUBLIC_VAPID_PUBLIC_KEY=
+ 
+ # Giới hạn dung lượng video (MB). Gói Supabase miễn phí: 50. Gói Pro đã nâng giới hạn tệp: 200 (đúng SRS MOM-03)
+ NEXT_PUBLIC_MAX_VIDEO_MB=50
++
++# Tìm GIF trên GIPHY trong Chat và bình luận (không bắt buộc; thiếu thì vẫn dùng được GIF tải lên từ máy). Tạo khóa miễn phí tại developers.giphy.com
++NEXT_PUBLIC_GIPHY_KEY=
+diff --git a/README.md b/README.md
+index 5ee4309..a96c466 100644
+--- a/README.md
++++ b/README.md
+@@ -195,3 +195,26 @@ Thiết kế:
+ - Thêm trò mới: thêm tên vào `check` của `games.kind` và các hàm luật trong SQL, viết một component trong `components/games/`, đăng ký ở `lib/games/types.ts` và `app/(app)/games/[id]/page.tsx`. Nội dung (câu hỏi, từ, thẻ, gợi ý quà) nằm ở `lib/games/content.ts`, sửa không cần đụng máy chủ.
+ 
+ Chạy thử luật chơi trên Postgres thường (không cần Supabase): tạo một database rỗng rồi chạy lần lượt `supabase/tests/phase24_stub.sql`, `supabase/phase24.sql`, `phase24_test_1.sql`, `phase24_test_2.sql`, `phase24_test_rls.sql` bằng `psql -v ON_ERROR_STOP=1 -f`. Mỗi bài kiểm tra in `NOTICE: ... ok` khi qua.
++
++## Thông báo, trả lời bình luận, GIF (phase25)
++
++Ba thứ mới cho Khoảnh khắc và Chat:
++
++- **Thông báo khi người ấy đăng khoảnh khắc mới hoặc bình luận**: có chuông 🔔 ở Trang chủ và Khoảnh khắc (hiện số chưa đọc), bấm vào là mở thẳng khoảnh khắc đó. Đang mở app thì có thẻ thông báo nổi ở đầu màn hình; khoảnh khắc chưa xem có nhãn "Mới" trong danh sách. Đóng app thì có thông báo đẩy (cần bật ở Cài đặt > Bật thông báo như trước). Đang xem đúng khoảnh khắc đó thì không báo thừa.
++- **Chế độ trả lời bình luận**: bấm "Trả lời" dưới một bình luận, ô nhập chuyển sang "Trả lời …" (có nút × để hủy). Câu trả lời hiện thụt vào dưới bình luận gốc; chỉ có **một cấp**, trả lời một câu trả lời thì tự gắn về bình luận gốc. Luồng dài chỉ hiện 2 câu mới nhất, bấm để xem hết. Xóa bình luận gốc thì các câu trả lời xóa theo (có hỏi lại).
++- **GIF cho tin nhắn và bình luận**: nút **GIF** cạnh ô nhập (Chat và bình luận). Có **bộ sưu tập GIF chung** của hai người ("Của tụi mình"), bấm "＋ Tải GIF lên" để thêm GIF/WebP động từ máy (tối đa 8 MB, 5 tệp mỗi lần). Muốn tìm GIF có sẵn thì thêm khóa GIPHY (bên dưới), sẽ có tab "Tìm GIF", bấm ★ trên một GIF để lưu vào bộ sưu tập.
++
++Cài đặt (theo thứ tự, **trước khi** đưa bản app mới lên Vercel):
++
++1. Supabase > SQL Editor, chạy `supabase/phase25.sql` (sau phase24, chạy lại nhiều lần vẫn an toàn). File này: thêm cột trả lời/GIF cho `moment_comments` và `messages`; tạo bảng `gifs` và bucket riêng `gifs`; tạo bảng `notifications` cùng hai trigger (khoảnh khắc mới, bình luận mới) và bật realtime cho nó.
++2. Deploy lại Edge Function `push` để có thông báo đẩy cho khoảnh khắc và bình luận: `supabase functions deploy push`. Chưa deploy thì thông báo trong app (chuông, thẻ nổi) vẫn chạy, chỉ không có thông báo đẩy khi đóng app.
++3. (Không bắt buộc) Tìm GIF trên GIPHY: tạo khóa tại developers.giphy.com, đặt `NEXT_PUBLIC_GIPHY_KEY` ở Vercel và `.env.local`, rồi deploy lại. Khóa này nằm trong mã chạy ở trình duyệt nên đặt đúng loại khóa web của GIPHY, đừng dùng khóa riêng tư. Thiếu khóa thì ẩn tab "Tìm GIF".
++
++Thiết kế:
++
++- Thông báo trong app do **trigger ở cơ sở dữ liệu** tạo, nên không phụ thuộc trình duyệt người gửi có kịp gọi hàm hay không. Trình duyệt chỉ được đọc, đánh dấu đã đọc (cột `read_at`) và xóa thông báo của chính mình; không ai tự tạo hay sửa nội dung thông báo được.
++- GIF có hai nguồn: tệp tải lên (`gif_path`, nằm trong bucket private `gifs`, đọc bằng link ký 6 giờ) hoặc link GIPHY (`gif_url`). Cơ sở dữ liệu chỉ nhận link `https` đúng tên miền `media*.giphy.com` / `i.giphy.com`, và đường dẫn tệp phải nằm trong thư mục Space của người gửi, nên không chèn được link hay tệp tùy ý vào tin nhắn.
++- Bucket `gifs` chỉ cho đọc và thêm, **không sửa/xóa**, để tin nhắn cũ không bị mất GIF. Gỡ một GIF khỏi bộ sưu tập chỉ bỏ nó khỏi danh sách chọn; tệp vẫn nằm trong Storage (mỗi tệp ≤ 8 MB).
++- Dùng GIPHY nghĩa là trình duyệt gọi `api.giphy.com` và tải ảnh từ `media*.giphy.com` (kèm chữ "Powered by GIPHY" theo điều khoản của họ). Chỉ gửi từ khóa tìm, không gửi gì khác của hai đứa.
++
++Chạy thử SQL trên Postgres thường (không cần Supabase): tạo một database rỗng rồi chạy `psql -v ON_ERROR_STOP=1 -f supabase/tests/phase25_stub.sql -f supabase/phase25.sql -f supabase/tests/phase25_test.sql` từ thư mục gốc dự án. Kiểm tra trigger thông báo, trả lời một cấp, ràng buộc GIF, quyền truy cập bảng/Storage, và chạy lại không nhân đôi trigger; cuối cùng in `ALL phase25 tests passed`.
+diff --git a/app/(app)/chat/page.tsx b/app/(app)/chat/page.tsx
+index 4e294f7..1a2ff7f 100644
+--- a/app/(app)/chat/page.tsx
++++ b/app/(app)/chat/page.tsx
+@@ -6,17 +6,19 @@ import { ok, shrink } from '@/lib/util'
+ import Head from '@/components/Head'
+ import Avatar from '@/components/Avatar'
+ import { notifyPartner } from '@/lib/push'
++import { gifCols, gifOf, type GifRef } from '@/lib/gif'
++import { GifImg, GifPanel } from '@/components/Gif'
+ 
+ const PAGE = 50
+ const MAX_VIDEO = 50 * 1048576          // gói Supabase miễn phí chỉ nhận tối đa 50 MB mỗi file
+ const MAX_VOICE = 120                   // giây
+ const REACT = ['❤️', '😂', '😮', '😢', '👍']
+ const EMOJI = ['😀', '😂', '🥰', '😍', '😘', '😊', '🥺', '😭', '😡', '😴', '🤗', '😋', '🙈', '👍', '🙏', '💪', '❤️', '💕', '💖', '🌹', '🎉', '🍜', '☕', '🏠']
+-const KIND_NOTE: Record<string, string> = { image: 'Đã gửi một ảnh', video: 'Đã gửi một video', voice: 'Đã gửi một tin nhắn thoại', location: 'Đã gửi một vị trí' }
++const KIND_NOTE: Record<string, string> = { image: 'Đã gửi một ảnh', video: 'Đã gửi một video', voice: 'Đã gửi một tin nhắn thoại', location: 'Đã gửi một vị trí', gif: 'Đã gửi một GIF' }
+ const hhmm = (s: string) => new Date(s).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+ const dmy = (s: string) => new Date(s).toLocaleDateString('vi-VN')
+ const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+-const snippet = (m: any) => m?.kind === 'image' ? 'Ảnh' : m?.kind === 'video' ? 'Video' : m?.kind === 'voice' ? 'Tin nhắn thoại' : m?.lat ? 'Vị trí' : String(m?.body ?? '').slice(0, 60)
++const snippet = (m: any) => m?.kind === 'image' ? 'Ảnh' : m?.kind === 'video' ? 'Video' : m?.kind === 'voice' ? 'Tin nhắn thoại' : m?.kind === 'gif' ? 'GIF' : m?.lat ? 'Vị trí' : String(m?.body ?? '').slice(0, 60)
+ const micMime = () => ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac'].find(t => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) ?? ''
+ 
+ export default function Chat() {
+@@ -26,7 +28,7 @@ export default function Chat() {
+   const [urls, setUrls] = useState<Record<string, string>>({})
+   const [sel, setSel] = useState<string | null>(null)          // tin đang chọn (hiện thả cảm xúc, trả lời)
+   const [reply, setReply] = useState<any>(null)
+-  const [emoji, setEmoji] = useState(false); const [busy, setBusy] = useState('')
++  const [emoji, setEmoji] = useState(false); const [gifOpen, setGifOpen] = useState(false); const [busy, setBusy] = useState('')
+   const [typing, setTyping] = useState(false)
+   const [rec, setRec] = useState<number | null>(null)          // số giây đã ghi âm, null = không ghi
+   const [q, setQ] = useState(''); const [searching, setSearching] = useState(false); const [hits, setHits] = useState<any[] | null>(null)
+@@ -112,6 +114,11 @@ export default function Chat() {
+     setT(''); setEmoji(false)
+     if (!await post({ body }, body)) setT(body)             // gửi lỗi thì trả lại chữ để gửi lại
+   }
++  // Gửi một GIF (tải lên hoặc link GIPHY); đang trả lời một tin thì gắn vào tin đó như mọi tin khác
++  async function sendGif(g: GifRef) {
++    setGifOpen(false)
++    await post({ ...gifCols(g) }, 'Đã gửi một GIF')
++  }
+   const typed = (v: string) => {
+     setT(v)
+     if (Date.now() - lastTyping.current > 2500) { lastTyping.current = Date.now(); tch.current?.send({ type: 'broadcast', event: 'typing', payload: {} }) }
+@@ -179,6 +186,7 @@ export default function Chat() {
+     if (m.kind === 'image') return u ? <a href={u} target="_blank" rel="noreferrer"><img src={u} alt="Ảnh trong tin nhắn" loading="lazy" style={{ display: 'block', maxWidth: '100%', maxHeight: 320, borderRadius: 14 }} /></a> : <span className="s">Đang tải ảnh…</span>
+     if (m.kind === 'video') return u ? <video src={u} controls playsInline preload="metadata" style={{ display: 'block', maxWidth: '100%', maxHeight: 320, borderRadius: 14 }} /> : <span className="s">Đang tải video…</span>
+     if (m.kind === 'voice') return u ? <div><audio src={u} controls preload="metadata" style={{ width: '100%', minWidth: 200 }} /><div className="s">Tin nhắn thoại {m.duration ? clock(m.duration) : ''}</div></div> : <span className="s">Đang tải tin nhắn thoại…</span>
++    const g = gifOf(m); if (g) return <GifImg g={g} />
+     if (m.lat) return <a href={`https://www.google.com/maps?q=${m.lat},${m.lng}`} target="_blank" rel="noreferrer"><b>Vị trí của mình</b> <span className="s">Mở trên bản đồ</span></a>
+     return <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.body}</span>
+   }
+@@ -230,6 +238,7 @@ export default function Chat() {
+     <div style={{ padding: '0 18px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+       {busy && <div className="s" role="status">{busy}</div>}
+       {reply && <div className="k li s" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span style={{ flex: 1 }}>Trả lời {reply.sender === me.id ? 'chính mình' : pn}: {snippet(reply)}</span><button className="pill" onClick={() => setReply(null)} aria-label="Hủy trả lời">×</button></div>}
++      {gifOpen && <GifPanel spaceId={space.id} meId={me.id} onPick={sendGif} onClose={() => setGifOpen(false)} />}
+       {emoji && <div className="k" style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{EMOJI.map(e => <button key={e} className="pill" style={{ border: 0, fontSize: 24, padding: '2px 6px' }} onClick={() => setT(v => v + e)} aria-label={`Chèn ${e}`}>{e}</button>)}</div>}
+       {rec !== null ? <div className="row">
+         <div className="k s" role="status" style={{ flex: 1 }}>● Đang ghi âm {clock(rec)} / {clock(MAX_VOICE)}</div>
+@@ -240,7 +249,8 @@ export default function Chat() {
+           <label className="pill">Ảnh/Video<input ref={file} type="file" accept="image/*,video/*" multiple hidden onChange={e => sendFiles(e.target.files)} /></label>
+           <button className="pill" onClick={startRec}>Ghi âm</button>
+           <button className="pill" onClick={sendLoc}>Vị trí</button>
+-          <button className={`pill ${emoji ? 'on' : ''}`} onClick={() => setEmoji(v => !v)} aria-label="Chọn emoji">😊</button>
++          <button className={`pill ${emoji ? 'on' : ''}`} onClick={() => { setEmoji(v => !v); setGifOpen(false) }} aria-label="Chọn emoji">😊</button>
++          <button className={`pill ${gifOpen ? 'on' : ''}`} onClick={() => { setGifOpen(v => !v); setEmoji(false) }} aria-label="Chọn GIF" aria-expanded={gifOpen}>GIF</button>
+         </div>
+         <div className="row">
+           <label className="k s"><input value={t} onChange={e => typed(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Nhắn gì đó cho người ấy…" aria-label="Nội dung tin nhắn" /></label>
+diff --git a/app/(app)/layout.tsx b/app/(app)/layout.tsx
+index 45f9159..451cf65 100644
+--- a/app/(app)/layout.tsx
++++ b/app/(app)/layout.tsx
+@@ -8,6 +8,7 @@ import Call from '@/components/Call'
+ import LockGate from '@/components/LockGate'
+ import TripBar from '@/components/TripBar'
+ import LocShare from '@/components/LocShare'
++import { NotifProvider } from '@/components/Notifs'
+ 
+ export default function AppLayout({ children }: { children: React.ReactNode }) {
+   const r = useRouter()
+@@ -45,5 +46,5 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
+     return () => data.subscription.unsubscribe()
+   }, [r])
+   if (!s) return <div className="p"><div className="b s">Đang mở góc nhỏ của hai đứa…</div></div>
+-  return <C.Provider value={{ ...s, reload: load }}><div className="p"><LockGate uid={s.me.id}><TripBar /><LocShare />{children}<Nav /><Call /></LockGate></div></C.Provider>
++  return <C.Provider value={{ ...s, reload: load }}><div className="p"><LockGate uid={s.me.id}><NotifProvider><TripBar /><LocShare />{children}<Nav /><Call /></NotifProvider></LockGate></div></C.Provider>
+ }
+diff --git a/app/(app)/moments/page.tsx b/app/(app)/moments/page.tsx
+index 93a3ac0..e45ca62 100644
+--- a/app/(app)/moments/page.tsx
++++ b/app/(app)/moments/page.tsx
+@@ -11,6 +11,7 @@ import Head from '@/components/Head'
+ import MomentForm from '@/components/MomentForm'
+ import MomentView from '@/components/MomentView'
+ import Slideshow from '@/components/Slideshow'
++import { NotifBell, MOMENTS_CHANGED, OPEN_MOMENT, useNotifs } from '@/components/Notifs'
+ 
+ const PAGE = 30
+ const SEL = '*, media(id,kind,path,thumb_path,sort,size,duration), moment_hearts(user_id), moment_comments(count), album_moments(album_id)'
+@@ -22,6 +23,7 @@ const NOF: Filter = { year: '', place: '', tag: '', album: '' }
+ 
+ export default function Moments() {
+   const { me, partner, space } = useApp()
++  const { unreadMoments } = useNotifs()
+   const [list, setList] = useState<any[]>([]); const [thumbs, setThumbs] = useState<Record<string, string>>({})
+   const [more, setMore] = useState(true); const [loading, setLoading] = useState(false)
+   const [flt, setFlt] = useState<Filter>(NOF); const [showF, setShowF] = useState(false)
+@@ -88,11 +90,18 @@ export default function Moments() {
+   }, [attach])
+   useEffect(() => { purgeOld().finally(loadMeta) }, [loadMeta])
+   useEffect(() => { if (new URLSearchParams(location.search).get('memories')) setShow(true) }, [])
+-  // mở thẳng một khoảnh khắc từ ghim trên bản đồ: /moments?open=<id>
+-  useEffect(() => {
+-    const id = new URLSearchParams(location.search).get('open'); if (!id) return
+-    sb.from('moments').select(SEL).eq('id', id).is('deleted_at', null).maybeSingle().then(r => { if (r.data) { attach([r.data]); setView(r.data) } })
++  // mở thẳng một khoảnh khắc từ ghim trên bản đồ hoặc từ thông báo: /moments?open=<id>
++  const openMoment = useCallback((id: string) => {
++    sb.from('moments').select(SEL).eq('id', id).is('deleted_at', null).maybeSingle().then(r => { if (r.data) { attach([r.data]); setView(r.data) } else if (!r.error) alert('Khoảnh khắc này đã bị xóa hoặc không còn nữa.') })
+   }, [attach])
++  useEffect(() => {
++    const id = new URLSearchParams(location.search).get('open'); if (id) openMoment(id)
++  }, [openMoment])
++  // đang ở trang này mà bấm thông báo thì mở ngay, không cần chuyển trang
++  useEffect(() => {
++    const h = (e: Event) => { const id = (e as CustomEvent).detail?.id; if (id) openMoment(id) }
++    window.addEventListener(OPEN_MOMENT, h); return () => window.removeEventListener(OPEN_MOMENT, h)
++  }, [openMoment])
+ 
+   // mở form sửa từ liên kết /moments?edit=<id> (sau khi tạo nhanh từ Kế hoạch)
+   useEffect(() => {
+@@ -102,6 +111,12 @@ export default function Moments() {
+   }, [attach])
+ 
+   const refresh = async () => { await Promise.all([load(), loadMeta()]) }
++  // người kia đăng khoảnh khắc mới / bình luận thì nạp lại danh sách (có thông báo realtime báo hiệu)
++  const refreshRef = useRef(refresh); refreshRef.current = refresh
++  useEffect(() => {
++    let t: any; const h = () => { clearTimeout(t); t = setTimeout(() => refreshRef.current(), 600) }
++    window.addEventListener(MOMENTS_CHANGED, h); return () => { window.removeEventListener(MOMENTS_CHANGED, h); clearTimeout(t) }
++  }, [])
+   // nếu đang xem chi tiết thì cập nhật số tim/bình luận trong danh sách
+   const changed = async () => { await refresh() }
+ 
+@@ -138,7 +153,7 @@ export default function Moments() {
+   for (const m of list) { const g = groups[groups.length - 1]; if (g && g[0] === m.taken_on) g[1].push(m); else groups.push([m.taken_on, [m]]) }
+ 
+   return <>
+-    <Head t="Khoảnh khắc"><Link href="/map?layer=moments" className="pill">Bản đồ</Link></Head>
++    <Head t="Khoảnh khắc"><NotifBell /><Link href="/map?layer=moments" className="pill">Bản đồ</Link></Head>
+     <div className="b moments-page">
+       <section className="moments-hero" aria-label="Kho lưu niệm">
+         <div className="moments-hero-copy">
+@@ -183,7 +198,7 @@ export default function Moments() {
+                   {x.kind === 'video' && t && <span style={{ position: 'absolute', fontSize: 30 }}>▶️</span>}
+                   {i === 3 && md.length > 4 && <span className="more">+{md.length - 4}</span>}</span>
+               })}</div>}
+-            <b>{m.title}</b>
++            <b>{m.title}{unreadMoments.has(m.id) && <span className="pill on" style={{ padding: '0 8px', marginLeft: 8, fontSize: 12 }}>Mới</span>}</b>
+             {m.description && <div style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{m.description}</div>}
+             <div className="s">{[md.length ? `${md.length} ảnh/video` : '', m.place && `📍 ${m.place}`, ...(m.tags ?? []).map((t: string) => `${TAG_EMOJI[t] ?? '🏷️'} ${t}`)].filter(Boolean).join(' · ')}</div>
+             {(nh > 0 || nc > 0) && <div className="s">{nh > 0 && `${myHeart ? '💗' : '🤍'} ${nh}`}{nh > 0 && nc > 0 && '  '}{nc > 0 && `💬 ${nc}`}</div>}
+diff --git a/app/(app)/page.tsx b/app/(app)/page.tsx
+index 3f8dbd8..e5f46a0 100644
+--- a/app/(app)/page.tsx
++++ b/app/(app)/page.tsx
+@@ -7,6 +7,7 @@ import Head, { Heart } from '@/components/Head'
+ import Avatar from '@/components/Avatar'
+ import LoveHeart from '@/components/LoveHeart'
+ import Mascot from '@/components/Mascot'
++import { NotifBell } from '@/components/Notifs'
+ import { daysTogether, ok, MILESTONES, nextMonthAnniv, nextYearlyDate } from '@/lib/util'
+ import { startDateError, todayStr } from '@/lib/profile'
+ 
+@@ -79,7 +80,7 @@ export default function Home() {
+   const setDate = async (v: string) => { const bad = startDateError(v); if (bad) { alert(bad); return }; if (await ok(sb.from('spaces').update({ start_date: v }).eq('id', space.id), 'Không lưu được ngày bắt đầu')) reload() }
+ 
+   return <>
+-    <Head t="tdlove"><Link href="/settings" className="pill">Cài đặt</Link></Head>
++    <Head t="tdlove"><NotifBell /><Link href="/settings" className="pill">Cài đặt</Link></Head>
+     <div className="b stagger">
+       <Link href="/level" className="lh-link" aria-label={`${day ? `${day} ngày bên nhau. ` : ''}Mở khu cấp độ của hai đứa`}>
+         <LoveHeart days={day} />
+diff --git a/app/(app)/settings/page.tsx b/app/(app)/settings/page.tsx
+index 5081ec5..0bf70b2 100644
+--- a/app/(app)/settings/page.tsx
++++ b/app/(app)/settings/page.tsx
+@@ -137,7 +137,7 @@ export default function Settings() {
+         {sdMsg && <div className="s" role={sdMsg.good ? 'status' : 'alert'}>{sdMsg.good ? '✓ ' : ''}{sdMsg.text}</div>}
+         <button className="pill" onClick={saveDate} disabled={sdBusy || !sd || !!sdErr || sd === space.start_date} style={{ alignSelf: 'flex-start' }}>{sdBusy ? 'Đang lưu…' : 'Lưu ngày'}</button></div>
+       <div className="k"><b>Thông báo</b>
+-        <div className="s">{push === 'unsupported' ? 'Máy hoặc bản cài này chưa hỗ trợ thông báo đẩy.' : push === 'denied' ? 'Bạn đã chặn thông báo. Hãy cho phép lại trong cài đặt trình duyệt.' : push === 'on' ? 'Đang bật: nhận tin nhắn, cuộc gọi và nhắc ngày đặc biệt.' : 'Nhận tin nhắn, cuộc gọi và nhắc ngày đặc biệt khi đang đóng app.'}</div>
++        <div className="s">{push === 'unsupported' ? 'Máy hoặc bản cài này chưa hỗ trợ thông báo đẩy.' : push === 'denied' ? 'Bạn đã chặn thông báo. Hãy cho phép lại trong cài đặt trình duyệt.' : push === 'on' ? 'Đang bật: nhận tin nhắn, cuộc gọi, khoảnh khắc mới, bình luận và nhắc ngày đặc biệt.' : 'Nhận tin nhắn, cuộc gọi, khoảnh khắc mới, bình luận và nhắc ngày đặc biệt khi đang đóng app.'}</div>
+         {push === 'off' && <button className="pill" onClick={enablePush}>Bật thông báo</button>}
+         {push === 'on' && <button className="pill" onClick={disablePush}>Tắt thông báo</button>}
+         {pushMsg && <div className="s" role="alert">{pushMsg}</div>}</div>
+diff --git a/components/Gif.tsx b/components/Gif.tsx
+new file mode 100644
+index 0000000..9528a52
+--- /dev/null
++++ b/components/Gif.tsx
+@@ -0,0 +1,127 @@
++'use client'
++import './gif.css'
++import { useEffect, useRef, useState } from 'react'
++import { sb } from '@/lib/supabase'
++import { ok } from '@/lib/util'
++import { GIF_TYPES, GIPHY_KEY, MAX_GIF, giphySearch, gifSrc, signGif, type GifRef, type GiphyHit } from '@/lib/gif'
++
++// Hiển thị một GIF trong tin nhắn hoặc bình luận. Link ký hết hạn thì tự xin link mới một lần.
++export function GifImg({ g, size = 'md' }: { g: GifRef; size?: 'sm' | 'md' }) {
++  const key = g.path ?? g.url ?? ''
++  const [src, setSrc] = useState<string | null | undefined>(undefined)   // undefined: đang tải, null: không tải được
++  const retried = useRef(false)
++  useEffect(() => {
++    let off = false; retried.current = false; setSrc(undefined)
++    gifSrc(g).then(u => { if (!off) setSrc(u) })
++    return () => { off = true }
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [key])
++  if (src === undefined) return <span className="gif gif-load s" role="status">Đang tải GIF…</span>
++  if (!src) return <span className="gif gif-load s">Không tải được GIF</span>
++  return <img className={`gif ${size}`} src={src} alt="GIF" loading="lazy" onError={() => {
++    if (!g.path || retried.current) return setSrc(null)
++    retried.current = true; gifSrc(g, true).then(u => setSrc(u))
++  }} />
++}
++
++const MAX_BATCH = 5
++
++// Bảng chọn GIF dùng chung cho Chat và bình luận: bộ sưu tập chung của hai người, tải GIF lên, và (nếu có khóa) tìm trên GIPHY.
++export function GifPanel({ spaceId, meId, onPick, onClose }: { spaceId: string; meId: string; onPick: (g: GifRef) => void; onClose: () => void }) {
++  const [tab, setTab] = useState<'mine' | 'find'>('mine')
++  const [lib, setLib] = useState<{ id: string; path: string | null; url: string | null }[] | null>(null)
++  const [srcs, setSrcs] = useState<Record<string, string>>({})
++  const [busy, setBusy] = useState(''); const [err, setErr] = useState('')
++  const [q, setQ] = useState(''); const [hits, setHits] = useState<GiphyHit[] | null>(null); const [finding, setFinding] = useState(false)
++  const file = useRef<HTMLInputElement>(null)
++
++  async function loadLib() {
++    const { data, error } = await sb.from('gifs').select('id,path,url').order('created_at', { ascending: false }).limit(120)
++    if (error) { setErr('Chưa tải được bộ sưu tập GIF. Đã chạy supabase/phase25.sql chưa?'); return setLib([]) }
++    setErr(''); setLib(data ?? [])
++  }
++  useEffect(() => { loadLib() }, [])
++  // ký link cho các GIF tải lên (gộp thành một lần gọi); GIF giphy dùng thẳng link
++  useEffect(() => {
++    let off = false
++    for (const x of lib ?? []) if (x.path && !srcs[x.id]) signGif(x.path).then(u => { if (u && !off) setSrcs(a => ({ ...a, [x.id]: u })) })
++    return () => { off = true }
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [lib])
++
++  // GIPHY: gõ xong 0,4 giây mới tìm; ô trống thì hiện GIF đang thịnh hành
++  useEffect(() => {
++    if (tab !== 'find' || !GIPHY_KEY) return
++    const ac = new AbortController()
++    const h = setTimeout(async () => {
++      setFinding(true); setErr('')
++      try { setHits(await giphySearch(q, ac.signal)) }
++      catch (e: any) { if (e?.name !== 'AbortError') { setErr(e?.message ?? 'Không tìm được GIF'); setHits([]) } }
++      finally { if (!ac.signal.aborted) setFinding(false) }
++    }, q.trim() ? 400 : 0)
++    return () => { clearTimeout(h); ac.abort() }
++  }, [q, tab])
++
++  async function upload(list: FileList | null) {
++    const files = Array.from(list ?? []); if (file.current) file.current.value = ''
++    if (!files.length) return
++    if (files.length > MAX_BATCH) alert(`Mỗi lần chỉ tải tối đa ${MAX_BATCH} GIF, mình lấy ${MAX_BATCH} cái đầu nhé.`)
++    for (const f of files.slice(0, MAX_BATCH)) {
++      if (!GIF_TYPES.includes(f.type)) { alert(`${f.name}: chỉ nhận ảnh GIF hoặc WebP động`); continue }
++      if (f.size > MAX_GIF) { alert(`${f.name}: lớn hơn ${MAX_GIF / 1048576} MB`); continue }
++      setBusy(`Đang tải ${f.name}…`)
++      const path = `${spaceId}/${meId}/${crypto.randomUUID()}.${f.type === 'image/webp' ? 'webp' : 'gif'}`
++      const up = await sb.storage.from('gifs').upload(path, f, { contentType: f.type, upsert: false })
++      if (up.error) { alert(`Không tải ${f.name} lên được: ${up.error.message}`); continue }
++      const { data, error } = await sb.from('gifs').insert({ space_id: spaceId, path }).select('id,path,url').single()
++      if (error || !data) { alert(`Không lưu được ${f.name}: ${error?.message ?? ''}`); continue }
++      setLib(a => [data, ...(a ?? [])]); setTab('mine')
++    }
++    setBusy('')
++  }
++
++  async function remove(id: string) {
++    if (!confirm('Gỡ GIF này khỏi bộ sưu tập chung? Tin nhắn và bình luận đã gửi vẫn giữ nguyên.')) return
++    if (await ok(sb.from('gifs').delete().eq('id', id), 'Không gỡ được GIF')) setLib(a => (a ?? []).filter(x => x.id !== id))
++  }
++  async function save(h: GiphyHit) {
++    const { error } = await sb.from('gifs').insert({ space_id: spaceId, url: h.url })
++    if (error && error.code !== '23505') return alert('Không lưu được GIF: ' + error.message)   // 23505: đã có trong bộ sưu tập
++    setBusy('Đã lưu vào bộ sưu tập'); setTimeout(() => setBusy(''), 1500); loadLib()
++  }
++
++  return <div className="k gifp" role="region" aria-label="Chọn GIF">
++    <div className="row" style={{ gap: 6 }}>
++      <b style={{ flex: 1 }}>GIF</b>
++      <button className="pill" style={{ flex: 'none' }} onClick={onClose}>Đóng</button>
++    </div>
++    <div className="gifp-tabs" role="tablist">
++      <button role="tab" aria-selected={tab === 'mine'} className={`pill ${tab === 'mine' ? 'on' : ''}`} onClick={() => setTab('mine')}>💗 Của tụi mình</button>
++      {GIPHY_KEY && <button role="tab" aria-selected={tab === 'find'} className={`pill ${tab === 'find' ? 'on' : ''}`} onClick={() => setTab('find')}>🔎 Tìm GIF</button>}
++      <label className="pill">＋ Tải GIF lên<input ref={file} type="file" accept="image/gif,image/webp" multiple hidden onChange={e => upload(e.target.files)} /></label>
++    </div>
++    {tab === 'find' && <input value={q} onChange={e => setQ(e.target.value)} placeholder="Tìm GIF… (ví dụ: ôm, yêu, cười)" aria-label="Tìm GIF" />}
++    {busy && <div className="s" role="status">{busy}</div>}
++    {err && <div className="s" role="alert">{err}</div>}
++
++    {tab === 'mine' && (lib === null ? <div className="s" role="status">Đang tải…</div>
++      : !lib.length ? <div className="s">Chưa có GIF nào. Bấm “Tải GIF lên” để thêm GIF của hai đứa{GIPHY_KEY ? ', hoặc qua “Tìm GIF” rồi bấm ★ để lưu' : ''}.</div>
++      : <div className="gifg">{lib.map(x => {
++        const u = x.url ?? srcs[x.id]
++        return <div key={x.id} className="gif-cell">
++          <button className="gif-pick" onClick={() => onPick({ path: x.path, url: x.url })} aria-label="Gửi GIF này" disabled={!u}>{u ? <img src={u} alt="" loading="lazy" /> : <span className="s">…</span>}</button>
++          <button className="gif-x" onClick={() => remove(x.id)} aria-label="Gỡ khỏi bộ sưu tập">×</button>
++        </div>
++      })}</div>)}
++
++    {tab === 'find' && (finding && !hits ? <div className="s" role="status">Đang tìm…</div>
++      : hits && !hits.length && !err ? <div className="s">Không thấy GIF nào khớp.</div>
++      : <>
++        <div className="gifg">{(hits ?? []).map(h => <div key={h.id} className="gif-cell">
++          <button className="gif-pick" onClick={() => onPick({ url: h.url })} aria-label="Gửi GIF này"><img src={h.preview} alt="" loading="lazy" /></button>
++          <button className="gif-x" onClick={() => save(h)} aria-label="Lưu vào bộ sưu tập">★</button>
++        </div>)}</div>
++        <div className="s" style={{ textAlign: 'right' }}>Powered by GIPHY</div>
++      </>)}
++  </div>
++}
+diff --git a/components/MomentForm.tsx b/components/MomentForm.tsx
+index 0a207d2..71a3336 100644
+--- a/components/MomentForm.tsx
++++ b/components/MomentForm.tsx
+@@ -4,6 +4,7 @@ import { sb } from '@/lib/supabase'
+ import { MAX_FILES, MAX_IMG, MAX_VIDEO, MAX_VIDEO_SEC, MB, TAGS, TAG_EMOJI, localDay, probeVideo, processImage, readExif, reverse, sign, uploadBlob, dropMedia } from '@/lib/media'
+ import PlacePicker from '@/components/PlacePicker'
+ import { todayStr } from '@/lib/profile'
++import { notifyPartner } from '@/lib/push'
+ 
+ type Item = { id: string; file: File; kind: 'image' | 'video'; url: string; status: 'ready' | 'up' | 'done' | 'err'; p: number; err?: string; meta: any }
+ const uid = () => crypto.randomUUID()
+@@ -27,6 +28,7 @@ export default function MomentForm({ space, moment, plans, albums, onClose, onDo
+   const [notes, setNotes] = useState<string[]>([]); const [busy, setBusy] = useState(false); const [check, setCheck] = useState(false)
+   const [pick, setPick] = useState(false); const [tag, setTag] = useState(''); const [alb, setAlb] = useState('')
+   const savedId = useRef<string | null>(moment?.id ?? null)
++  const notified = useRef(!!moment?.id)   // chỉ báo người kia một lần khi đăng mới (sửa hoặc thử lại tệp lỗi thì không báo lại)
+   const synced = useRef<string[]>(moment?.albumIds ?? [])   // album đã ghi vào DB (để thử lại không ghi trùng)
+   const touched = useRef({ date: edit, place: edit })
+   const itemsRef = useRef<Item[]>([]); itemsRef.current = items
+@@ -142,6 +144,8 @@ export default function MomentForm({ space, moment, plans, albums, onClose, onDo
+         if (it.status === 'done') continue
+         if (!await uploadOne(it, sort++)) fail++
+       }
++      // Báo cho người kia sau khi ảnh/video đã lên (thông báo trong app do cơ sở dữ liệu tạo ngay lúc đăng; đây là thông báo đẩy)
++      if (!notified.current) { notified.current = true; notifyPartner('moment', body.title, id) }
+       if (fail) { setNotes([`${fail} tệp chưa tải lên được. Khoảnh khắc đã được lưu; bấm lại nút bên dưới để thử lại các tệp lỗi.`]); return }
+       onDone()
+     } finally { setBusy(false) }
+diff --git a/components/MomentView.tsx b/components/MomentView.tsx
+index 1dba361..a0b25ac 100644
+--- a/components/MomentView.tsx
++++ b/components/MomentView.tsx
+@@ -4,17 +4,27 @@ import Link from 'next/link'
+ import { sb } from '@/lib/supabase'
+ import { sign, TAG_EMOJI } from '@/lib/media'
+ import { ok } from '@/lib/util'
++import { notifyPartner } from '@/lib/push'
++import { gifCols, gifOf, type GifRef } from '@/lib/gif'
+ import Lightbox from '@/components/Lightbox'
++import { GifImg, GifPanel } from '@/components/Gif'
++import { useNotifs } from '@/components/Notifs'
+ 
+ const fmt = (d: string) => new Date(d).toLocaleDateString('vi-VN', { weekday: 'long', day: 'numeric', month: 'numeric', year: 'numeric' })
++const when = (d: string) => new Date(d).toLocaleString('vi-VN', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })
++const snip = (c: any) => c.body?.trim() ? String(c.body).slice(0, 60) : 'GIF'
++const SHOW_REPLIES = 2          // luồng dài thì chỉ hiện vài câu trả lời mới nhất, bấm để xem hết
+ 
+-// Chi tiết một Moment: ảnh/video, thả tim, bình luận, sửa, xóa (MOM-05, MOM-07)
++// Chi tiết một Moment: ảnh/video, thả tim, bình luận (có trả lời và GIF), sửa, xóa (MOM-05, MOM-07)
+ export default function MomentView({ m, me, partner, plan, albumNames, onClose, onEdit, onDelete, onChanged }: {
+   m: any; me: any; partner: any; plan?: any; albumNames: string[]; onClose: () => void; onEdit: () => void; onDelete: () => void; onChanged: () => void
+ }) {
+   const media = (m.media ?? []).slice().sort((a: any, b: any) => a.sort - b.sort)
+   const [url, setUrl] = useState<Record<string, string>>({}); const [lb, setLb] = useState<number | null>(null)
+   const [hearts, setHearts] = useState<string[]>([]); const [cm, setCm] = useState<any[]>([]); const [text, setText] = useState(''); const [sending, setSending] = useState(false)
++  const [replyTo, setReplyTo] = useState<any>(null); const [gifOpen, setGifOpen] = useState(false); const [expanded, setExpanded] = useState<string[]>([])
++  const inp = useRef<HTMLInputElement>(null)
++  const { viewing } = useNotifs()
+   const name = (id: string) => id === me.id ? 'Mình' : partner?.display_name ?? 'Người ấy'
+ 
+   useEffect(() => { sign(media.flatMap((x: any) => [x.path, x.thumb_path])).then(setUrl) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [m.id])
+@@ -44,19 +54,64 @@ export default function MomentView({ m, me, partner, plan, albumNames, onClose,
+     return () => { sb.removeChannel(ch) }
+   }, [m.id, load])
+ 
++  // Đang xem khoảnh khắc này thì thông báo về nó coi như đã đọc (và không hiện thông báo nổi thừa)
++  useEffect(() => { viewing.current = m.id; return () => { if (viewing.current === m.id) viewing.current = null } }, [m.id, viewing])
++  useEffect(() => {
++    sb.from('notifications').update({ read_at: new Date().toISOString() }).eq('moment_id', m.id).is('read_at', null)
++      .then(r => { if (r.error) console.warn('notifications', r.error.message) })
++  }, [m.id, cm.length])
++  // câu đang trả lời bị xóa (ví dụ người kia xóa) thì bỏ chế độ trả lời
++  useEffect(() => { if (replyTo && !cm.some(c => c.id === replyTo.id)) setReplyTo(null) }, [cm, replyTo])
++
+   const mine = hearts.includes(me.id)
+   const heart = async () => {
+     setHearts(a => mine ? a.filter(x => x !== me.id) : [...a, me.id])   // hiện ngay, lỗi thì tải lại
+     const q = mine ? sb.from('moment_hearts').delete().eq('moment_id', m.id).eq('user_id', me.id) : sb.from('moment_hearts').insert({ moment_id: m.id, space_id: m.space_id })
+     if (!await ok(q, 'Không thả tim được')) load(); else onChanged()
+   }
++
++  // Gửi một bình luận (chữ hoặc GIF). Đang trả lời thì gắn vào bình luận gốc của luồng (chỉ có một cấp)
++  const post = async (row: Record<string, unknown>, preview: string): Promise<boolean> => {
++    const root = replyTo ? (replyTo.parent_id ?? replyTo.id) : null
++    if (!await ok(sb.from('moment_comments').insert({ moment_id: m.id, space_id: m.space_id, parent_id: root, ...row }), 'Không gửi được bình luận')) return false
++    if (root) setExpanded(a => a.includes(root) ? a : [...a, root])
++    setReplyTo(null); await load(); onChanged()
++    notifyPartner(root ? 'moment-reply' : 'moment-comment', preview.slice(0, 80), m.id)
++    return true
++  }
+   const send = async () => {
+     const body = text.trim(); if (!body || sending) return
+     setSending(true)
+-    if (await ok(sb.from('moment_comments').insert({ moment_id: m.id, space_id: m.space_id, body }), 'Không gửi được bình luận')) { setText(''); await load(); onChanged() }
++    if (await post({ body }, body)) setText('')
++    setSending(false)
++  }
++  const sendGif = async (g: GifRef) => {
++    if (sending) return
++    setGifOpen(false); setSending(true)
++    await post({ body: '', ...gifCols(g) }, 'Đã gửi một GIF')
+     setSending(false)
+   }
+-  const delCm = async (id: string) => { if (await ok(sb.from('moment_comments').delete().eq('id', id), 'Không xóa được bình luận')) { await load(); onChanged() } }
++  const startReply = (c: any) => { setReplyTo(c); inp.current?.focus() }
++  const kids = (id: string) => cm.filter(c => c.parent_id === id)
++  const delCm = async (c: any) => {
++    const n = kids(c.id).length
++    if (n && !confirm(`Xóa bình luận này và ${n} câu trả lời của nó?`)) return
++    if (await ok(sb.from('moment_comments').delete().eq('id', c.id), 'Không xóa được bình luận')) { await load(); onChanged() }
++  }
++
++  const row = (c: any, isReply: boolean) => {
++    const g = gifOf(c)
++    return <div key={c.id} className={isReply ? 'cm-reply' : undefined} style={isReply ? { marginLeft: 12, paddingLeft: 10, borderLeft: '3px solid var(--ink2)' } : undefined}>
++      <span className="s">{name(c.author)} · {when(c.created_at)}</span>
++      {c.body && <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{c.body}</div>}
++      {g && <div style={{ margin: '4px 0' }}><GifImg g={g} size="sm" /></div>}
++      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
++        <button className="pill" style={{ padding: '0 10px' }} onClick={() => startReply(c)} aria-label={`Trả lời bình luận của ${name(c.author)}`}>Trả lời</button>
++        {c.author === me.id && <button className="pill" style={{ padding: '0 10px' }} onClick={() => delCm(c)}>Xóa</button>}
++      </div>
++    </div>
++  }
++  const tops = cm.filter(c => !c.parent_id)
+ 
+   const lbItems = media.map((x: any) => ({ kind: x.kind, url: url[x.path] })).filter((x: any) => x.url)
+   return <div className="sheet" role="dialog" aria-label={m.title}>
+@@ -81,14 +136,24 @@ export default function MomentView({ m, me, partner, plan, albumNames, onClose,
+     </div>
+     <div className="row"><button className={'pill heartbtn' + (mine ? ' on' : '')} style={{ flex: 'none' }} onClick={heart} aria-pressed={mine}>{mine ? '💗' : '🤍'} {hearts.length || ''} Thả tim</button>
+       {hearts.length > 0 && <div className="s">{hearts.map(name).join(' và ')} đã thả tim</div>}</div>
+-    <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++    <div className="k li" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+       <b>Bình luận ({cm.length})</b>
+-      {cm.map(c => <div key={c.id}><span className="s">{name(c.author)} · {new Date(c.created_at).toLocaleString('vi-VN', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+-        <div style={{ whiteSpace: 'pre-wrap' }}>{c.body}</div>
+-        {c.author === me.id && <button className="pill" style={{ padding: '0 10px' }} onClick={() => delCm(c.id)}>Xóa</button>}</div>)}
++      {tops.map(c => {
++        const rs = kids(c.id), all = expanded.includes(c.id), hidden = all ? 0 : Math.max(0, rs.length - SHOW_REPLIES)
++        return <div key={c.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
++          {row(c, false)}
++          {hidden > 0 && <button className="pill" style={{ alignSelf: 'flex-start', marginLeft: 12 }} onClick={() => setExpanded(a => [...a, c.id])}>Xem {hidden} trả lời trước đó</button>}
++          {rs.slice(hidden).map(r => row(r, true))}
++        </div>
++      })}
++      {replyTo && <div className="k s" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 14px', background: '#fff' }} role="status">
++        <span style={{ flex: 1, overflowWrap: 'anywhere' }}>Đang trả lời {name(replyTo.author)}: {snip(replyTo)}</span>
++        <button className="pill" style={{ flex: 'none' }} onClick={() => setReplyTo(null)} aria-label="Hủy trả lời">×</button></div>}
+       <div className="row k" style={{ padding: '6px 14px', background: '#fff' }}>
+-        <input placeholder="Viết bình luận…" maxLength={1000} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} aria-label="Bình luận" />
++        <input ref={inp} placeholder={replyTo ? `Trả lời ${name(replyTo.author)}…` : 'Viết bình luận…'} maxLength={1000} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} aria-label="Bình luận" />
++        <button className={'pill' + (gifOpen ? ' on' : '')} style={{ flex: 'none' }} onClick={() => setGifOpen(v => !v)} aria-label="Chọn GIF" aria-expanded={gifOpen}>GIF</button>
+         <button className="pill on" style={{ flex: 'none' }} onClick={send} disabled={sending}>Gửi</button></div>
++      {gifOpen && <GifPanel spaceId={m.space_id} meId={me.id} onPick={sendGif} onClose={() => setGifOpen(false)} />}
+     </div>
+     <div className="row"><button className="btn" onClick={onEdit}>Sửa</button><button className="pill" onClick={onDelete}>Xóa</button></div>
+     {lb != null && lbItems.length > 0 && <Lightbox items={lbItems} start={Math.max(0, lb)} caption={m.title} onClose={() => setLb(null)} />}
+diff --git a/components/Notifs.tsx b/components/Notifs.tsx
+new file mode 100644
+index 0000000..9844d03
+--- /dev/null
++++ b/components/Notifs.tsx
+@@ -0,0 +1,122 @@
++'use client'
++import './notifs.css'
++import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
++import { usePathname, useRouter } from 'next/navigation'
++import { sb } from '@/lib/supabase'
++import { useApp } from '@/lib/ctx'
++
++// Thông báo trong app (phase25.sql): khoảnh khắc mới, bình luận mới, trả lời bình luận.
++// Dòng thông báo do trigger ở cơ sở dữ liệu tạo ra cho người còn lại; ở đây chỉ đọc, nghe realtime và đánh dấu đã đọc.
++export type Notif = {
++  id: string; kind: 'moment' | 'moment_comment' | 'moment_reply'; moment_id: string | null; comment_id: string | null
++  actor: string | null; moment_title: string; body: string; read_at: string | null; created_at: string
++}
++type Ctx = {
++  items: Notif[]; unread: number; unreadMoments: Set<string>
++  open: boolean; setOpen: (v: boolean) => void
++  go: (n: Notif) => void; markAll: () => Promise<void>
++  viewing: MutableRefObject<string | null>      // khoảnh khắc đang mở trong màn hình chi tiết (không báo thừa về nó)
++}
++const Ctx = createContext<Ctx>({ items: [], unread: 0, unreadMoments: new Set(), open: false, setOpen: () => { }, go: () => { }, markAll: async () => { }, viewing: { current: null } })
++export const useNotifs = () => useContext(Ctx)
++
++const LIMIT = 60
++const VERB: Record<Notif['kind'], string> = { moment: 'đã đăng khoảnh khắc mới', moment_comment: 'đã bình luận ở', moment_reply: 'đã trả lời bình luận ở' }
++const ICON: Record<Notif['kind'], string> = { moment: '🖼️', moment_comment: '💬', moment_reply: '↩️' }
++export const MOMENTS_CHANGED = 'tdlove-moments-changed'
++export const OPEN_MOMENT = 'tdlove-open-moment'
++
++function ago(s: string) {
++  const d = (Date.now() - new Date(s).getTime()) / 1000
++  if (d < 60) return 'vừa xong'
++  if (d < 3600) return `${Math.floor(d / 60)} phút trước`
++  if (d < 86400) return `${Math.floor(d / 3600)} giờ trước`
++  if (d < 7 * 86400) return `${Math.floor(d / 86400)} ngày trước`
++  return new Date(s).toLocaleDateString('vi-VN')
++}
++
++export function NotifProvider({ children }: { children: React.ReactNode }) {
++  const { me, partner } = useApp()
++  const router = useRouter(), path = usePathname()
++  const [items, setItems] = useState<Notif[]>([]); const [open, setOpen] = useState(false); const [toast, setToast] = useState<Notif | null>(null)
++  const viewing = useRef<string | null>(null), toastTimer = useRef<any>(null)
++  const pn = partner?.display_name ?? 'Người ấy'
++  const who = (n: Notif) => n.actor === me.id ? 'Mình' : pn
++
++  const load = useCallback(async () => {
++    const { data, error } = await sb.from('notifications').select('*').order('created_at', { ascending: false }).limit(LIMIT)
++    if (error) return console.warn('notifications', error.message)      // chưa chạy phase25.sql thì chỉ không có thông báo trong app
++    setItems((data ?? []) as Notif[])
++  }, [])
++
++  useEffect(() => {
++    load()
++    const ch = sb.channel('notif-' + me.id)
++      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${me.id}` }, p => {
++        if (p.eventType === 'INSERT') {
++          const n = p.new as Notif
++          setItems(a => a.some(x => x.id === n.id) ? a : [n, ...a].slice(0, LIMIT))
++          window.dispatchEvent(new Event(MOMENTS_CHANGED))                 // trang Khoảnh khắc đang mở thì nạp lại danh sách / số bình luận
++          if (document.visibilityState === 'visible' && !(n.moment_id && viewing.current === n.moment_id)) {
++            setToast(n); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(null), 6000)
++          }
++        } else if (p.eventType === 'UPDATE') { const n = p.new as Notif; setItems(a => a.map(x => x.id === n.id ? n : x)) }
++        else if (p.eventType === 'DELETE') { const o: any = p.old; setItems(a => a.filter(x => x.id !== o.id)) }
++      }).subscribe()
++    const onVis = () => { if (document.visibilityState === 'visible') load() }
++    document.addEventListener('visibilitychange', onVis)
++    return () => { sb.removeChannel(ch); document.removeEventListener('visibilitychange', onVis); clearTimeout(toastTimer.current) }
++  }, [me.id, load])
++
++  useEffect(() => { if (open) load() }, [open, load])
++
++  const markRead = useCallback(async (ids: string[]) => {
++    if (!ids.length) return
++    const at = new Date().toISOString()
++    setItems(a => a.map(x => ids.includes(x.id) && !x.read_at ? { ...x, read_at: at } : x))     // hiện ngay, lỗi thì nạp lại
++    const { error } = await sb.from('notifications').update({ read_at: at }).in('id', ids).is('read_at', null)
++    if (error) { console.warn('notifications', error.message); load() }
++  }, [load])
++  const markAll = useCallback(() => markRead(items.filter(x => !x.read_at).map(x => x.id)), [items, markRead])
++
++  const go = useCallback((n: Notif) => {
++    markRead([n.id]); setOpen(false); setToast(null)
++    if (!n.moment_id) return
++    if (path === '/moments') window.dispatchEvent(new CustomEvent(OPEN_MOMENT, { detail: { id: n.moment_id } }))
++    else router.push('/moments?open=' + n.moment_id)
++  }, [markRead, path, router])
++
++  const unread = useMemo(() => items.filter(x => !x.read_at).length, [items])
++  const unreadMoments = useMemo(() => new Set(items.filter(x => !x.read_at && x.moment_id).map(x => x.moment_id as string)), [items])
++  const value = useMemo(() => ({ items, unread, unreadMoments, open, setOpen, go, markAll, viewing }), [items, unread, unreadMoments, open, go, markAll])
++
++  return <Ctx.Provider value={value}>
++    {children}
++    {toast && !open && <div className="k pk ntoast" role="status">
++      <button className="ntoast-main" onClick={() => go(toast)}>
++        <b>{ICON[toast.kind]} {who(toast)} {VERB[toast.kind]}</b>
++        <span className="nclamp s">{toast.kind === 'moment' ? toast.moment_title : toast.body || toast.moment_title}</span>
++      </button>
++      <button className="pill" style={{ flex: 'none', padding: '0 10px' }} onClick={() => setToast(null)} aria-label="Đóng thông báo">×</button>
++    </div>}
++    {open && <div className="sheet" role="dialog" aria-label="Thông báo">
++      <div className="row"><b style={{ flex: 1 }}>Thông báo</b>
++        {unread > 0 && <button className="pill" style={{ flex: 'none' }} onClick={markAll}>Đọc hết</button>}
++        <button className="pill" style={{ flex: 'none' }} onClick={() => setOpen(false)}>Đóng</button></div>
++      {!items.length && <div className="k pe"><b>Chưa có thông báo</b><div className="s">Khi {pn} đăng khoảnh khắc hay bình luận, thông báo sẽ hiện ở đây.</div></div>}
++      {items.map(n => <button key={n.id} className={`k nitem ${n.read_at ? '' : 'pk'}`} onClick={() => go(n)}>
++        <span className="s">{ICON[n.kind]} {ago(n.created_at)}{!n.read_at && <span className="ndot" aria-label="Chưa đọc"> ●</span>}</span>
++        <b>{who(n)} {VERB[n.kind]}{n.kind !== 'moment' && ` “${n.moment_title}”`}</b>
++        {(n.kind === 'moment' ? n.moment_title : n.body) && <span className="nclamp">{n.kind === 'moment' ? `“${n.moment_title}”` : n.body}</span>}
++      </button>)}
++    </div>}
++  </Ctx.Provider>
++}
++
++// Chuông ở đầu trang, có số thông báo chưa đọc
++export function NotifBell() {
++  const { unread, setOpen } = useNotifs()
++  return <button className="pill nbell" onClick={() => setOpen(true)} aria-label={unread ? `Thông báo, ${unread} chưa đọc` : 'Thông báo'}>
++    🔔{unread > 0 && <span className="nbadge" aria-hidden="true">{unread > 9 ? '9+' : unread}</span>}
++  </button>
++}
+diff --git a/components/gif.css b/components/gif.css
+new file mode 100644
+index 0000000..ba95208
+--- /dev/null
++++ b/components/gif.css
+@@ -0,0 +1,12 @@
++/* GIF trong tin nhắn / bình luận và bảng chọn GIF (components/Gif.tsx) */
++.gif{display:block;max-width:100%;max-height:220px;border-radius:14px;background:#F6E6EC}
++.gif.sm{max-height:140px}
++.gif-load{display:flex;align-items:center;justify-content:center;min-width:140px;min-height:90px;padding:8px;box-sizing:border-box}
++.gifp{display:flex;flex-direction:column;gap:8px}
++.gifp-tabs{display:flex;flex-wrap:wrap;gap:6px}
++.gifg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-height:240px;overflow-y:auto;overscroll-behavior:contain}
++.gif-cell{position:relative;aspect-ratio:1;border-radius:12px;overflow:hidden;background:#F6E6EC;box-shadow:inset 0 0 0 1px var(--line)}
++.gif-pick{position:absolute;inset:0;width:100%;height:100%;padding:0;border:0;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center}
++.gif-pick img{width:100%;height:100%;object-fit:cover;display:block}
++.gif-x{position:absolute;top:3px;right:3px;width:26px;height:26px;padding:0;border:0;border-radius:50%;background:rgba(59,26,43,.66);color:#fff;font:700 15px/1 var(--f2);cursor:pointer;display:flex;align-items:center;justify-content:center}
++.gif-x:focus-visible,.gif-pick:focus-visible{outline:3px solid var(--rose-d);outline-offset:-3px}
+diff --git a/components/notifs.css b/components/notifs.css
+new file mode 100644
+index 0000000..2254cbb
+--- /dev/null
++++ b/components/notifs.css
+@@ -0,0 +1,10 @@
++/* Thông báo trong app (components/Notifs.tsx) */
++.nbell{position:relative}
++.nbadge{position:absolute;top:-7px;right:-6px;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:999px;background:var(--rose-d);color:#fff;font:700 11px/18px var(--f2);text-align:center;box-shadow:0 0 0 2px #fff}
++.ndot{color:var(--rose-d)}
++.ntoast{position:absolute;top:calc(8px + env(safe-area-inset-top));left:12px;right:12px;z-index:900;display:flex;gap:8px;align-items:center;padding:10px 12px;animation:ntoast-in .35s cubic-bezier(.34,1.35,.5,1)}
++.ntoast-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;text-align:left;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer}
++.nitem{display:flex;flex-direction:column;gap:3px;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer}
++.nclamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
++@keyframes ntoast-in{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:none}}
++@media (prefers-reduced-motion:reduce){.ntoast{animation:none}}
+diff --git a/lib/gif.ts b/lib/gif.ts
+new file mode 100644
+index 0000000..f08d409
+--- /dev/null
++++ b/lib/gif.ts
+@@ -0,0 +1,68 @@
++import { sb } from '@/lib/supabase'
++
++// GIF cho chat và bình luận (phase25.sql). Hai nguồn:
++//  - path: tệp người dùng tải lên bucket riêng `gifs` (đọc bằng link ký có thời hạn)
++//  - url:  link GIPHY (chỉ nhận đúng tên miền giphy.com; cơ sở dữ liệu cũng kiểm tra lại)
++export type GifRef = { path?: string | null; url?: string | null }
++
++export const GIPHY_KEY = process.env.NEXT_PUBLIC_GIPHY_KEY
++export const MAX_GIF = 8 * 1048576
++export const GIF_TYPES = ['image/gif', 'image/webp']
++const GIPHY_RE = /^https:\/\/(?:media\d*|i)\.giphy\.com\/[^\s<>"']+$/
++export const giphyOk = (u: unknown): u is string => typeof u === 'string' && u.length <= 600 && GIPHY_RE.test(u)
++
++// Hai cột gif_path / gif_url của một dòng tin nhắn hoặc bình luận
++export const gifOf = (row: any): GifRef | null => row?.kind === 'gif' && (row.gif_path || row.gif_url) ? { path: row.gif_path, url: row.gif_url } : null
++// Cột để ghi vào cơ sở dữ liệu
++export const gifCols = (g: GifRef) => ({ kind: 'gif', gif_path: g.path ?? null, gif_url: g.url ?? null })
++export const sameGif = (a: GifRef, b: GifRef) => (a.path ?? a.url) === (b.path ?? b.url)
++
++// ---------- Link ký có nhớ tạm, gộp nhiều yêu cầu trong cùng một nhịp thành một lần gọi ----------
++const TTL = 6 * 3600
++const cache = new Map<string, { u: string; exp: number }>()
++let pending = new Map<string, ((u: string | null) => void)[]>()
++let timer: ReturnType<typeof setTimeout> | null = null
++
++// Link ký là "chìa khóa": đăng xuất thì bỏ sạch để tài khoản khác dùng chung trình duyệt không nhận nhầm
++if (typeof window !== 'undefined') sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_OUT') cache.clear() })
++
++async function flush() {
++  timer = null
++  const batch = pending; pending = new Map()
++  const got = new Map<string, string>()
++  try {
++    const { data } = await sb.storage.from('gifs').createSignedUrls(Array.from(batch.keys()), TTL)
++    for (const x of data ?? []) if (x.path && x.signedUrl) { got.set(x.path, x.signedUrl); cache.set(x.path, { u: x.signedUrl, exp: Date.now() + TTL * 1000 }) }
++  } catch { /* để từng nơi hiện "không tải được" */ }
++  for (const [p, cbs] of batch) for (const cb of cbs) cb(got.get(p) ?? null)
++}
++
++export function signGif(path: string, fresh = false): Promise<string | null> {
++  const c = cache.get(path)
++  if (!fresh && c && c.exp > Date.now() + 60000) return Promise.resolve(c.u)
++  return new Promise(res => {
++    const list = pending.get(path) ?? []; list.push(res); pending.set(path, list)
++    if (!timer) timer = setTimeout(flush, 25)
++  })
++}
++
++// Địa chỉ hiển thị được của một GIF (null nếu không ký được)
++export const gifSrc = (g: GifRef, fresh = false): Promise<string | null> =>
++  g.url ? Promise.resolve(giphyOk(g.url) ? g.url : null) : g.path ? signGif(g.path, fresh) : Promise.resolve(null)
++
++// ---------- Tìm trên GIPHY (chỉ khi có NEXT_PUBLIC_GIPHY_KEY) ----------
++export type GiphyHit = { id: string; preview: string; url: string }
++export async function giphySearch(q: string, signal?: AbortSignal): Promise<GiphyHit[]> {
++  if (!GIPHY_KEY) return []
++  const k = q.trim()
++  const u = `https://api.giphy.com/v1/gifs/${k ? 'search' : 'trending'}?api_key=${encodeURIComponent(GIPHY_KEY)}${k ? `&q=${encodeURIComponent(k)}` : ''}&limit=24&rating=g&lang=vi`
++  const r = await fetch(u, { signal })
++  if (!r.ok) throw new Error(r.status === 429 ? 'GIPHY đang giới hạn lượt tìm, thử lại sau một lúc' : `GIPHY lỗi ${r.status}`)
++  const j = await r.json()
++  const out: GiphyHit[] = []
++  for (const x of j.data ?? []) {
++    const preview = x.images?.fixed_height_small?.url ?? x.images?.fixed_height?.url, url = x.images?.fixed_height?.url ?? x.images?.original?.url
++    if (giphyOk(preview) && giphyOk(url)) out.push({ id: x.id, preview, url })
++  }
++  return out
++}
+diff --git a/lib/push.ts b/lib/push.ts
+index 4532f5f..fb5e9e4 100644
+--- a/lib/push.ts
++++ b/lib/push.ts
+@@ -1,9 +1,10 @@
+ import { sb } from '@/lib/supabase'
+ 
+-export type PushKind = 'message' | 'call' | 'clip-react' | 'clip-comment' | 'together' | 'game'
++export type PushKind = 'message' | 'call' | 'clip-react' | 'clip-comment' | 'together' | 'game' | 'moment' | 'moment-comment' | 'moment-reply'
+ 
+-// Nhờ Edge Function `push` gửi thông báo đến máy người kia (chat, cuộc gọi, tương tác ở mục Giải trí).
+-// `clip` dùng cho 'together' (mở đúng clip) và 'game' (mở đúng ván trò chơi, phase24.sql) khi người kia bấm vào thông báo. Lỗi thì bỏ qua, không làm hỏng việc chính.
++// Nhờ Edge Function `push` gửi thông báo đến máy người kia (chat, cuộc gọi, tương tác ở mục Giải trí, khoảnh khắc).
++// `clip` là mã (uuid) của thứ cần mở khi người kia bấm vào thông báo: clip cho 'together', ván chơi cho 'game' (phase24.sql),
++// khoảnh khắc cho 'moment', 'moment-comment', 'moment-reply' (mở thẳng /moments?open=<id>). Lỗi thì bỏ qua, không làm hỏng việc chính.
+ export const notifyPartner = (kind: PushKind, text?: string, clip?: string) => {
+   sb.functions.invoke('push', { body: { kind, text, clip } }).then(r => { if (r.error) console.warn('push', r.error.message) }, () => { })
+ }
+diff --git a/public/sw.js b/public/sw.js
+index e837aa9..92520d1 100644
+--- a/public/sw.js
++++ b/public/sw.js
+@@ -15,10 +15,15 @@ self.addEventListener('fetch', e => {
+ 
+ self.addEventListener('push', e => {
+   let d = {}; try { d = e.data ? e.data.json() : {} } catch { }
+-  e.waitUntil(self.registration.showNotification(d.title || 'tdlove', {
++  const show = () => self.registration.showNotification(d.title || 'tdlove', {
+     body: d.body || '', icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', tag: d.tag || d.kind || 'tdlove', renotify: true,
+     requireInteraction: d.kind === 'call', vibrate: d.kind === 'call' ? [400, 200, 400, 200, 400] : [200, 100, 200], data: { url: d.url || '/' },
+-  }))
++  })
++  // Khoảnh khắc mới / bình luận: đang mở app thì đã có thẻ thông báo nổi và chuông trong app, không hiện thêm thông báo của máy (phase25)
++  const inApp = ['moment', 'moment-comment', 'moment-reply'].includes(d.kind)
++  e.waitUntil(inApp
++    ? self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => cs.some(c => c.visibilityState === 'visible') ? undefined : show())
++    : show())
+ })
+ self.addEventListener('notificationclick', e => {
+   e.notification.close()
+diff --git a/supabase/functions/README.md b/supabase/functions/README.md
+index 24504be..1d97f4d 100644
+--- a/supabase/functions/README.md
++++ b/supabase/functions/README.md
+@@ -1,5 +1,7 @@
+ # Thông báo đẩy (Web Push): CHAT-04, CALL-05, ANNIV-04
+ 
++Hàm `push` còn gửi thông báo khoảnh khắc mới, bình luận và trả lời bình luận (phase25): sau khi cập nhật mã hãy deploy lại `supabase functions deploy push`.
++
+ Cuộc gọi khi app đóng (CALL-05) cần thêm `supabase/phase21.sql`: thông báo đẩy mở app, rồi app hỏi bảng `calls` để hiện cuộc gọi đang đổ chuông.
+ 
+ Phần này **chưa được chạy thử trên Supabase thật**; làm theo từng bước và thử bằng hai máy.
+diff --git a/supabase/functions/push/index.ts b/supabase/functions/push/index.ts
+index 5f372f2..183b58d 100644
+--- a/supabase/functions/push/index.ts
++++ b/supabase/functions/push/index.ts
+@@ -1,11 +1,13 @@
+ // Edge Function `push`: gửi thông báo đẩy đến máy người kia khi có tin nhắn mới, cuộc gọi đến (CHAT-04, CALL-05)
+-// các tương tác ở mục Giải trí: thả cảm xúc, bình luận, rủ xem cùng (phase14) và lời rủ/đến lượt ở khu Trò chơi (phase24).
++// các tương tác ở mục Giải trí: thả cảm xúc, bình luận, rủ xem cùng (phase14), lời rủ/đến lượt ở khu Trò chơi (phase24)
++// và khoảnh khắc mới, bình luận, trả lời bình luận ở mục Khoảnh khắc (phase25).
+ // Gọi từ app bằng supabase.functions.invoke('push', { body: { kind, text, clip } }), kind là một trong KINDS bên dưới.
++// `clip` là uuid của clip / ván chơi / khoảnh khắc, dùng để mở đúng chỗ khi bấm vào thông báo.
+ import { createClient } from 'npm:@supabase/supabase-js@2'
+ import webpush from 'npm:web-push@3.6.7'
+ 
+ const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
+-const KINDS = ['message', 'call', 'clip-react', 'clip-comment', 'together', 'game']
++const KINDS = ['message', 'call', 'clip-react', 'clip-comment', 'together', 'game', 'moment', 'moment-comment', 'moment-reply']
+ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+ const reply = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
+ 
+@@ -34,6 +36,9 @@ Deno.serve(async req => {
+       'clip-comment': { body: t ? `Bình luận clip: ${t}` : 'Có bình luận mới ở một clip', url: '/fun', tag: 'clip-comment' },
+       together: { body: 'Rủ bạn xem clip cùng nhau, vào ngay nhé!', url: cid ? `/fun?together=${cid}` : '/fun', tag: 'together' },
+       game: { body: t || 'Đến lượt bạn trong ván trò chơi, vào chơi nhé!', url: cid ? `/games/${cid}` : '/games', tag: cid ? `game-${cid}` : 'game' },
++      moment: { body: t ? `Đã đăng khoảnh khắc mới: ${t}` : 'Đã đăng một khoảnh khắc mới', url: cid ? `/moments?open=${cid}` : '/moments', tag: cid ? `moment-${cid}` : 'moment' },
++      'moment-comment': { body: t ? `Bình luận: ${t}` : 'Có bình luận mới ở một khoảnh khắc', url: cid ? `/moments?open=${cid}` : '/moments', tag: cid ? `mcm-${cid}` : 'mcm' },
++      'moment-reply': { body: t ? `Trả lời bình luận: ${t}` : 'Có người trả lời bình luận của bạn', url: cid ? `/moments?open=${cid}` : '/moments', tag: cid ? `mcm-${cid}` : 'mcm' },
+     }
+     const payload = JSON.stringify({ kind, title, ...msgs[kind] })
+     let sent = 0
+diff --git a/supabase/phase25.sql b/supabase/phase25.sql
+new file mode 100644
+index 0000000..1b7fdbf
+--- /dev/null
++++ b/supabase/phase25.sql
+@@ -0,0 +1,172 @@
++-- Giai đoạn 25: thông báo trong app (khoảnh khắc mới, bình luận mới), trả lời bình luận, GIF cho chat và bình luận.
++-- Chạy trong Supabase > SQL Editor, một lần, SAU phase24.sql. Chạy lại nhiều lần vẫn an toàn.
++--
++-- Nguyên tắc:
++--  * Bảng notifications chỉ do trigger (security definer) ghi; trình duyệt chỉ đọc, đánh dấu đã đọc (cột read_at) và xóa của chính mình.
++--  * Trả lời bình luận chỉ có MỘT cấp: trả lời một câu trả lời thì tự gắn vào bình luận gốc (trigger mc_before).
++--  * GIF có hai nguồn: tệp người dùng tải lên bucket riêng `gifs` (gif_path) hoặc link GIPHY (gif_url). Link ngoài chỉ nhận
++--    đúng tên miền giphy.com và do chính cơ sở dữ liệu kiểm tra, nên không ai chèn được link bất kỳ vào chat/bình luận.
++
++-- ===== 1. Bình luận Khoảnh khắc: trả lời + GIF =====
++alter table moment_comments
++  add column if not exists parent_id uuid references moment_comments(id) on delete cascade,
++  add column if not exists kind text not null default 'text',
++  add column if not exists gif_path text,
++  add column if not exists gif_url text;
++
++-- Ràng buộc cũ (phase6) bắt buộc có chữ; bình luận GIF được phép không có chữ
++alter table moment_comments drop constraint if exists moment_comments_body_check;
++alter table moment_comments drop constraint if exists mc_content_chk;
++alter table moment_comments add constraint mc_content_chk check (
++  char_length(body) <= 1000 and (
++    (kind = 'text' and gif_path is null and gif_url is null and char_length(body) >= 1)
++    or (kind = 'gif' and ((gif_path is not null) <> (gif_url is not null))
++        and (gif_url is null or (char_length(gif_url) <= 600 and gif_url ~ '^https://(media[0-9]*|i)\.giphy\.com/[^[:space:]<>"'']+$')))));
++create index if not exists moment_comments_parent_idx on moment_comments(parent_id) where parent_id is not null;
++
++-- Chỉ một cấp trả lời: trả lời một câu trả lời thì gắn vào bình luận gốc của nó
++create or replace function mc_before() returns trigger language plpgsql security definer set search_path=public as $$
++declare gp uuid;
++begin
++  if new.parent_id is not null then
++    select parent_id into gp from moment_comments where id = new.parent_id;
++    if gp is not null then new.parent_id := gp; end if;
++  end if;
++  return new;
++end $$;
++revoke all on function mc_before() from public, anon, authenticated;
++drop trigger if exists mc_before_t on moment_comments;
++create trigger mc_before_t before insert on moment_comments for each row execute function mc_before();
++
++-- Viết bình luận: đúng tên mình, vào khoảnh khắc của Space mình; bình luận cha phải cùng khoảnh khắc; tệp GIF nằm trong thư mục Space
++-- (gọi hàng mới bằng tên bảng để không bị nhầm với bảng con cùng tên, xem phase18.sql)
++drop policy if exists mc_i on moment_comments;
++create policy mc_i on moment_comments for insert with check (
++  space_id = my_space() and author = auth.uid()
++  and (gif_path is null or gif_path like my_space()::text || '/%')
++  and exists (select 1 from moments m where m.id = moment_comments.moment_id and m.space_id = my_space())
++  and (moment_comments.parent_id is null or exists (
++        select 1 from moment_comments p
++        where p.id = moment_comments.parent_id and p.moment_id = moment_comments.moment_id and p.space_id = my_space())));
++
++-- ===== 2. Chat: tin nhắn GIF =====
++alter table messages
++  add column if not exists gif_path text,
++  add column if not exists gif_url text;
++alter table messages drop constraint if exists msg_kind_chk;
++alter table messages add constraint msg_kind_chk check (kind in ('text','image','video','voice','location','gif'));
++alter table messages drop constraint if exists msg_gif_chk;
++alter table messages add constraint msg_gif_chk check (
++  (kind = 'gif' and ((gif_path is not null) <> (gif_url is not null))
++     and (gif_url is null or (char_length(gif_url) <= 600 and gif_url ~ '^https://(media[0-9]*|i)\.giphy\.com/[^[:space:]<>"'']+$')))
++  or (kind <> 'gif' and gif_path is null and gif_url is null));
++
++-- Giữ nguyên các điều kiện của phase18, thêm: tệp GIF phải nằm trong thư mục Space
++drop policy if exists ms_i on messages;
++create policy ms_i on messages for insert with check (
++  space_id = my_space() and sender = auth.uid() and reactions = '{}'::jsonb
++  and (media_path is null or media_path like my_space()::text || '/%')
++  and (gif_path is null or gif_path like my_space()::text || '/%')
++  and (messages.reply_to is null or exists (
++        select 1 from messages m
++        where m.id = messages.reply_to and m.space_id = my_space())));
++
++-- ===== 3. Bộ sưu tập GIF chung của hai người =====
++create table if not exists gifs(
++  id uuid primary key default gen_random_uuid(),
++  space_id uuid not null references spaces on delete cascade,
++  owner uuid not null default auth.uid() references auth.users on delete cascade,
++  path text,
++  url text,
++  created_at timestamptz not null default now(),
++  constraint gifs_one_chk check ((path is not null) <> (url is not null)),
++  constraint gifs_url_chk check (url is null or (char_length(url) <= 600 and url ~ '^https://(media[0-9]*|i)\.giphy\.com/[^[:space:]<>"'']+$')));
++create unique index if not exists gifs_uniq on gifs(space_id, coalesce(path, url));
++create index if not exists gifs_space_idx on gifs(space_id, created_at desc);
++
++alter table gifs enable row level security;
++drop policy if exists gf_r on gifs; drop policy if exists gf_i on gifs; drop policy if exists gf_d on gifs;
++create policy gf_r on gifs for select using (space_id = my_space());
++create policy gf_i on gifs for insert with check (
++  space_id = my_space() and owner = auth.uid()
++  and (path is null or path like my_space()::text || '/' || auth.uid()::text || '/%'));
++-- bộ sưu tập là của chung nên ai trong Space cũng gỡ được; tệp trong Storage vẫn giữ để tin cũ không bị mất ảnh
++create policy gf_d on gifs for delete using (space_id = my_space());
++revoke all on gifs from anon;
++revoke update on gifs from authenticated;
++
++-- Bucket riêng, private. Chỉ nhận GIF/WebP tối đa 8 MB. Chỉ đọc và thêm; không sửa/xóa vì tin nhắn cũ còn trỏ tới tệp.
++insert into storage.buckets(id, name, public, file_size_limit, allowed_mime_types)
++values ('gifs', 'gifs', false, 8388608, array['image/gif', 'image/webp'])
++on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
++
++drop policy if exists gifs_read on storage.objects;
++drop policy if exists gifs_insert on storage.objects;
++create policy gifs_read on storage.objects for select to authenticated
++  using (bucket_id = 'gifs' and (storage.foldername(name))[1] = my_space()::text);
++create policy gifs_insert on storage.objects for insert to authenticated
++  with check (bucket_id = 'gifs' and (storage.foldername(name))[1] = my_space()::text
++              and (storage.foldername(name))[2] = auth.uid()::text);
++
++-- ===== 4. Thông báo trong app =====
++create table if not exists notifications(
++  id uuid primary key default gen_random_uuid(),
++  space_id uuid not null references spaces on delete cascade,
++  user_id uuid not null references auth.users on delete cascade,        -- người nhận
++  actor uuid references auth.users on delete set null,                  -- người gây ra thông báo
++  kind text not null check (kind in ('moment', 'moment_comment', 'moment_reply')),
++  moment_id uuid references moments(id) on delete cascade,
++  comment_id uuid references moment_comments(id) on delete cascade,
++  moment_title text not null default '' check (char_length(moment_title) <= 200),
++  body text not null default '' check (char_length(body) <= 200),
++  read_at timestamptz,
++  created_at timestamptz not null default now());
++create index if not exists notifications_user_idx on notifications(user_id, created_at desc);
++create index if not exists notifications_unread_idx on notifications(user_id) where read_at is null;
++create index if not exists notifications_moment_idx on notifications(moment_id) where moment_id is not null;
++
++alter table notifications enable row level security;
++drop policy if exists nt_r on notifications; drop policy if exists nt_u on notifications; drop policy if exists nt_d on notifications;
++create policy nt_r on notifications for select using (user_id = auth.uid());
++create policy nt_u on notifications for update using (user_id = auth.uid()) with check (user_id = auth.uid());
++create policy nt_d on notifications for delete using (user_id = auth.uid());
++revoke all on notifications from anon;
++revoke insert, update on notifications from authenticated;     -- không ai tự tạo thông báo; chỉ trigger bên dưới
++grant update (read_at) on notifications to authenticated;      -- chỉ được đánh dấu đã đọc
++
++-- Có khoảnh khắc mới: báo cho người còn lại trong Space
++create or replace function notify_moment() returns trigger language plpgsql security definer set search_path=public as $$
++declare r uuid;
++begin
++  for r in select id from profiles where space_id = new.space_id and id is distinct from new.author loop
++    insert into notifications(space_id, user_id, actor, kind, moment_id, moment_title, body)
++    values (new.space_id, r, new.author, 'moment', new.id, left(new.title, 200), left(coalesce(new.description, ''), 200));
++  end loop;
++  return null;
++end $$;
++revoke all on function notify_moment() from public, anon, authenticated;
++drop trigger if exists moments_notify_t on moments;
++create trigger moments_notify_t after insert on moments for each row execute function notify_moment();
++
++-- Có bình luận mới (hoặc câu trả lời): báo cho người còn lại
++create or replace function notify_comment() returns trigger language plpgsql security definer set search_path=public as $$
++declare r uuid; ttl text;
++begin
++  select title into ttl from moments where id = new.moment_id;
++  for r in select id from profiles where space_id = new.space_id and id <> new.author loop
++    insert into notifications(space_id, user_id, actor, kind, moment_id, comment_id, moment_title, body)
++    values (new.space_id, r, new.author, case when new.parent_id is not null then 'moment_reply' else 'moment_comment' end,
++            new.moment_id, new.id, left(coalesce(ttl, ''), 200),
++            case when new.kind = 'gif' and btrim(new.body) = '' then 'Đã gửi một GIF' else left(new.body, 200) end);
++  end loop;
++  return null;
++end $$;
++revoke all on function notify_comment() from public, anon, authenticated;
++drop trigger if exists moment_comments_notify_t on moment_comments;
++create trigger moment_comments_notify_t after insert on moment_comments for each row execute function notify_comment();
++
++do $$ begin
++  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'notifications') then
++    alter publication supabase_realtime add table notifications;
++  end if;
++end $$;
+diff --git a/supabase/tests/phase25_stub.sql b/supabase/tests/phase25_stub.sql
+new file mode 100644
+index 0000000..55e2d45
+--- /dev/null
++++ b/supabase/tests/phase25_stub.sql
+@@ -0,0 +1,70 @@
++-- Môi trường giả lập tối thiểu của Supabase để chạy thử phase25.sql trên Postgres thường.
++-- Gồm phần của phase24_stub (auth, realtime, spaces, profiles, my_space) cộng bảng messages, moments, moment_comments
++-- (đúng như schema.sql, phase5.sql, phase6.sql, phase18.sql) và schema storage tối thiểu.
++-- Cách chạy: xem mục "Thông báo, trả lời bình luận, GIF (phase25)" trong README.
++do $$ begin
++  if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
++  if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
++end $$;
++-- giống quyền mặc định của Supabase: bảng mới tạo ra là authenticated/anon có đủ quyền, RLS mới là hàng rào
++alter default privileges in schema public grant all on tables to authenticated, anon;
++create schema auth; create table auth.users(id uuid primary key);
++create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
++create schema realtime;
++create publication supabase_realtime;
++grant usage on schema public, auth to authenticated, anon;
++
++create table spaces(id uuid primary key default gen_random_uuid(), name text, start_date date);
++create table profiles(id uuid primary key references auth.users, space_id uuid references spaces, display_name text);
++create function my_space() returns uuid language sql stable security definer as $$ select space_id from profiles where id=auth.uid() $$;
++alter table spaces enable row level security; alter table profiles enable row level security;
++create policy p1 on profiles for select using (true);
++grant select on spaces, profiles to authenticated;
++
++-- schema.sql + phase5.sql + phase18.sql (messages)
++create table messages(
++  id uuid primary key default gen_random_uuid(),
++  space_id uuid not null, sender uuid default auth.uid(),
++  body text not null, created_at timestamptz default now(), seen_at timestamptz);
++alter table messages
++  add column kind text not null default 'text', add column media_path text, add column duration int,
++  add column reply_to uuid references messages(id) on delete set null, add column reactions jsonb not null default '{}'::jsonb;
++alter table messages add constraint msg_kind_chk check (kind in ('text','image','video','voice','location'));
++alter table messages add constraint msg_media_chk check (kind not in ('image','video','voice') or media_path is not null);
++alter table messages enable row level security;
++create policy ms_r on messages for select using (space_id=my_space());
++create policy ms_i on messages for insert with check (space_id=my_space() and sender=auth.uid());
++
++-- schema.sql + phase6.sql (moments, moment_comments)
++create table moments(
++  id uuid primary key default gen_random_uuid(),
++  space_id uuid not null, author uuid default auth.uid(),
++  title text not null, description text, taken_on date default current_date,
++  place text, photos text[] default '{}', deleted_at timestamptz,
++  created_at timestamptz default now());
++alter table moments enable row level security;
++create policy mo_all on moments for all using (space_id=my_space()) with check (space_id=my_space());
++create table moment_comments(
++  id uuid primary key default gen_random_uuid(),
++  moment_id uuid not null references moments(id) on delete cascade,
++  space_id uuid not null,
++  author uuid not null default auth.uid() references auth.users on delete cascade,
++  body text not null check (char_length(body) between 1 and 1000),
++  created_at timestamptz default now());
++alter table moment_comments enable row level security;
++create policy mc_r on moment_comments for select using (space_id=my_space());
++create policy mc_i on moment_comments for insert with check (space_id=my_space() and author=auth.uid()
++  and exists(select 1 from moments m where m.id=moment_id and m.space_id=my_space()));
++create policy mc_d on moment_comments for delete using (author=auth.uid());
++
++-- storage tối thiểu
++create schema storage;
++create table storage.buckets(id text primary key, name text, public boolean default false, file_size_limit bigint, allowed_mime_types text[]);
++create table storage.objects(id uuid primary key default gen_random_uuid(), bucket_id text, name text, owner_id text);
++alter table storage.objects enable row level security;
++create function storage.foldername(name text) returns text[] language sql immutable as $$
++  select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
++grant usage on schema storage to authenticated, anon;
++grant select, insert on storage.objects to authenticated;
++
++create function t_as(u text) returns text language sql as $$ select set_config('request.jwt.claim.sub', u, false) $$;
+diff --git a/supabase/tests/phase25_test.sql b/supabase/tests/phase25_test.sql
+new file mode 100644
+index 0000000..9163690
+--- /dev/null
++++ b/supabase/tests/phase25_test.sql
+@@ -0,0 +1,195 @@
++-- Kiểm thử phase25: thông báo (trigger), trả lời bình luận một cấp, ràng buộc GIF, quyền truy cập, chạy lại an toàn.
++-- Chạy từ thư mục gốc dự án: psql -v ON_ERROR_STOP=1 -f supabase/tests/phase25_stub.sql -f supabase/phase25.sql -f supabase/tests/phase25_test.sql
++\set ON_ERROR_STOP on
++
++-- Dữ liệu: A và B cùng một Space, C ở Space khác
++insert into auth.users(id) values ('aaaaaaaa-0000-0000-0000-000000000001'), ('bbbbbbbb-0000-0000-0000-000000000002'), ('cccccccc-0000-0000-0000-000000000003');
++insert into spaces(id, name) values ('11111111-1111-1111-1111-111111111111', 'ab'), ('22222222-2222-2222-2222-222222222222', 'c');
++insert into profiles(id, space_id, display_name) values
++  ('aaaaaaaa-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'A'),
++  ('bbbbbbbb-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'B'),
++  ('cccccccc-0000-0000-0000-000000000003', '22222222-2222-2222-2222-222222222222', 'C');
++
++-- ===== 1. Khoảnh khắc mới báo cho người kia, không báo cho người đăng =====
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++set role authenticated;
++insert into moments(id, space_id, title, description) values ('dddddddd-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'Chiều ở Hồ Tây', 'Đi dạo');
++reset role;
++do $$ begin
++  assert (select count(*) from notifications) = 1, 'moment: đúng một thông báo';
++  assert (select user_id from notifications) = 'bbbbbbbb-0000-0000-0000-000000000002', 'moment: gửi cho B';
++  assert (select kind from notifications) = 'moment' and (select moment_title from notifications) = 'Chiều ở Hồ Tây', 'moment: loại và tiêu đề';
++  raise notice 'NOTIFY moment ok';
++end $$;
++
++-- ===== 2. Bình luận, trả lời, trả lời một câu trả lời (gom về một cấp) =====
++select t_as('bbbbbbbb-0000-0000-0000-000000000002');
++set role authenticated;
++insert into moment_comments(id, moment_id, space_id, body) values ('c0000000-0000-0000-0000-000000000001', 'dddddddd-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'Đẹp quá');
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++insert into moment_comments(id, moment_id, space_id, body, parent_id) values ('c0000000-0000-0000-0000-000000000002', 'dddddddd-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'Cảm ơn nha', 'c0000000-0000-0000-0000-000000000001');
++select t_as('bbbbbbbb-0000-0000-0000-000000000002');
++insert into moment_comments(id, moment_id, space_id, body, parent_id) values ('c0000000-0000-0000-0000-000000000003', 'dddddddd-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'Lần sau đi nữa', 'c0000000-0000-0000-0000-000000000002');
++reset role;
++do $$ begin
++  assert (select parent_id from moment_comments where id = 'c0000000-0000-0000-0000-000000000003') = 'c0000000-0000-0000-0000-000000000001', 'trả lời một câu trả lời phải gắn về bình luận gốc';
++  assert (select parent_id from moment_comments where id = 'c0000000-0000-0000-0000-000000000002') = 'c0000000-0000-0000-0000-000000000001', 'trả lời gắn vào gốc';
++  assert (select kind from notifications where comment_id = 'c0000000-0000-0000-0000-000000000001') = 'moment_comment', 'bình luận gốc là moment_comment';
++  assert (select user_id from notifications where comment_id = 'c0000000-0000-0000-0000-000000000001') = 'aaaaaaaa-0000-0000-0000-000000000001', 'bình luận của B báo cho A';
++  assert (select kind from notifications where comment_id = 'c0000000-0000-0000-0000-000000000002') = 'moment_reply', 'câu trả lời là moment_reply';
++  assert (select user_id from notifications where comment_id = 'c0000000-0000-0000-0000-000000000002') = 'bbbbbbbb-0000-0000-0000-000000000002', 'trả lời của A báo cho B';
++  assert (select count(*) from notifications where actor = user_id) = 0, 'không ai tự nhận thông báo của mình';
++  assert (select body from notifications where comment_id = 'c0000000-0000-0000-0000-000000000001') = 'Đẹp quá', 'nội dung thông báo';
++  raise notice 'NOTIFY comment/reply ok';
++end $$;
++
++-- trả lời trỏ sang bình luận của khoảnh khắc khác bị từ chối
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++set role authenticated;
++insert into moments(id, space_id, title) values ('dddddddd-0000-0000-0000-00000000000b', '11111111-1111-1111-1111-111111111111', 'Khoảnh khắc khác');
++do $$ declare failed boolean := false; begin
++  begin insert into moment_comments(moment_id, space_id, body, parent_id) values ('dddddddd-0000-0000-0000-00000000000b', '11111111-1111-1111-1111-111111111111', 'x', 'c0000000-0000-0000-0000-000000000001');
++  exception when insufficient_privilege then failed := true; end;
++  assert failed, 'parent ở moment khác phải bị từ chối';
++  raise notice 'REPLY cross-moment rejected ok';
++end $$;
++
++-- ===== 3. Bình luận GIF =====
++do $$ declare failed boolean; begin
++  insert into moment_comments(moment_id, space_id, body, kind, gif_url) values ('dddddddd-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', '', 'gif', 'https://media2.giphy.com/media/v1.Y2lk/abc/giphy.gif?cid=1&ep=v1&rid=giphy.gif&ct=g');
++  insert into moment_comments(moment_id, space_id, body, kind, gif_path) values ('dddddddd-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'kèm chữ', 'gif', '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/x.gif');
++  failed := false; begin insert into moment_comments(moment_id, space_id, body, kind, gif_url) values ('dddddddd-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', '', 'gif', 'https://evil.example.com/a.gif'); exception when check_violation then failed := true; end;
++  assert failed, 'link ngoài giphy phải bị từ chối';
++  failed := false; begin insert into moment_comments(moment_id, space_id, body, kind, gif_url) values ('dddddddd-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', '', 'gif', 'https://media.giphy.com.evil.example/a.gif'); exception when check_violation then failed := true; end;
++  assert failed, 'tên miền giả giphy.com.evil phải bị từ chối';
++  failed := false; begin insert into moment_comments(moment_id, space_id, body, kind, gif_url) values ('dddddddd-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', '', 'gif', 'http://media.giphy.com/a.gif'); exception when check_violation then failed := true; end;
++  assert failed, 'http (không https) phải bị từ chối';
++  failed := false; begin insert into moment_comments(moment_id, space_id, body, kind, gif_url, gif_path) values ('dddddddd-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', '', 'gif', 'https://i.giphy.com/a.gif', '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/p.gif'); exception when check_violation then failed := true; end;
++  assert failed, 'vừa gif_url vừa gif_path phải bị từ chối';
++  failed := false; begin insert into moment_comments(moment_id, space_id, body, kind) values ('dddddddd-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', '', 'gif'); exception when check_violation then failed := true; end;
++  assert failed, 'gif không có nguồn phải bị từ chối';
++  failed := false; begin insert into moment_comments(moment_id, space_id, body) values ('dddddddd-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', ''); exception when check_violation then failed := true; end;
++  assert failed, 'bình luận chữ rỗng phải bị từ chối';
++  failed := false; begin insert into moment_comments(moment_id, space_id, body, kind, gif_path) values ('dddddddd-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', '', 'gif', '22222222-2222-2222-2222-222222222222/x/x.gif'); exception when insufficient_privilege then failed := true; end;
++  assert failed, 'gif_path ngoài thư mục Space phải bị từ chối';
++  raise notice 'COMMENT gif constraints ok';
++end $$;
++reset role;
++do $$ begin
++  assert (select body from notifications where kind = 'moment_comment' and comment_id in (select id from moment_comments where kind = 'gif' and body = '')) = 'Đã gửi một GIF', 'thông báo cho bình luận GIF không chữ';
++  raise notice 'NOTIFY gif body ok';
++end $$;
++
++-- ===== 4. Tin nhắn GIF =====
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++set role authenticated;
++do $$ declare failed boolean; mid uuid; begin
++  insert into messages(space_id, body, kind, gif_url) values ('11111111-1111-1111-1111-111111111111', '', 'gif', 'https://media3.giphy.com/media/x/giphy.gif') returning id into mid;
++  insert into messages(space_id, body, kind, gif_path) values ('11111111-1111-1111-1111-111111111111', '', 'gif', '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/y.webp');
++  insert into messages(space_id, body, kind, gif_url, reply_to) values ('11111111-1111-1111-1111-111111111111', '', 'gif', 'https://media3.giphy.com/media/x/giphy.gif', mid);   -- trả lời tin vẫn chạy (phase18)
++  insert into messages(space_id, body) values ('11111111-1111-1111-1111-111111111111', 'xin chào');
++  failed := false; begin insert into messages(space_id, body, kind) values ('11111111-1111-1111-1111-111111111111', '', 'gif'); exception when check_violation then failed := true; end;
++  assert failed, 'tin gif không có nguồn phải bị từ chối';
++  failed := false; begin insert into messages(space_id, body, kind, gif_url) values ('11111111-1111-1111-1111-111111111111', 'x', 'text', 'https://media3.giphy.com/media/x/giphy.gif'); exception when check_violation then failed := true; end;
++  assert failed, 'tin chữ mang gif_url phải bị từ chối';
++  failed := false; begin insert into messages(space_id, body, kind, gif_url) values ('11111111-1111-1111-1111-111111111111', '', 'gif', 'https://evil.example.com/a.gif'); exception when check_violation then failed := true; end;
++  assert failed, 'tin gif link lạ phải bị từ chối';
++  failed := false; begin insert into messages(space_id, body, kind, gif_path) values ('11111111-1111-1111-1111-111111111111', '', 'gif', '22222222-2222-2222-2222-222222222222/c/z.gif'); exception when insufficient_privilege then failed := true; end;
++  assert failed, 'tin gif_path ngoài Space phải bị từ chối';
++  failed := false; begin insert into messages(space_id, body, kind, gif_url) values ('22222222-2222-2222-2222-222222222222', '', 'gif', 'https://media3.giphy.com/media/x/giphy.gif'); exception when insufficient_privilege then failed := true; end;
++  assert failed, 'gửi vào Space khác phải bị từ chối';
++  raise notice 'MESSAGE gif ok';
++end $$;
++
++-- ===== 5. Quyền trên notifications =====
++select t_as('bbbbbbbb-0000-0000-0000-000000000002');
++do $$ declare failed boolean; n int; begin
++  select count(*) into n from notifications; assert n > 0, 'B thấy thông báo của mình';
++  assert (select count(*) from notifications where user_id <> auth.uid()) = 0, 'B không thấy thông báo của người khác';
++  failed := false; begin insert into notifications(space_id, user_id, kind) values (my_space(), auth.uid(), 'moment'); exception when insufficient_privilege then failed := true; end;
++  assert failed, 'không được tự chèn thông báo';
++  failed := false; begin update notifications set body = 'sửa' ; exception when insufficient_privilege then failed := true; end;
++  assert failed, 'không được sửa nội dung thông báo';
++  update notifications set read_at = now() where read_at is null;
++  assert (select count(*) from notifications where read_at is null) = 0, 'đánh dấu đã đọc được';
++  delete from notifications where kind = 'moment';
++  raise notice 'NOTIFICATIONS rls ok';
++end $$;
++reset role;
++-- B chỉ sửa được thông báo của chính mình: thông báo của A vẫn chưa đọc
++do $$ begin assert (select count(*) from notifications where user_id = 'aaaaaaaa-0000-0000-0000-000000000001' and read_at is null) > 0, 'thông báo của A không bị B đụng tới'; raise notice 'NOTIFICATIONS isolation ok'; end $$;
++
++-- ===== 6. Bộ sưu tập GIF + Storage =====
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++set role authenticated;
++do $$ declare failed boolean; begin
++  insert into gifs(space_id, path) values ('11111111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/a.gif');
++  insert into gifs(space_id, url) values ('11111111-1111-1111-1111-111111111111', 'https://media1.giphy.com/media/q/giphy.gif');
++  failed := false; begin insert into gifs(space_id, url) values ('11111111-1111-1111-1111-111111111111', 'https://media1.giphy.com/media/q/giphy.gif'); exception when unique_violation then failed := true; end;
++  assert failed, 'không lưu trùng GIF';
++  failed := false; begin insert into gifs(space_id, path) values ('11111111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111/bbbbbbbb-0000-0000-0000-000000000002/a.gif'); exception when insufficient_privilege then failed := true; end;
++  assert failed, 'không đặt đường dẫn vào thư mục của người khác';
++  failed := false; begin insert into gifs(space_id, path, url) values ('11111111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/p.gif', 'https://media1.giphy.com/a'); exception when check_violation then failed := true; end;
++  assert failed, 'vừa path vừa url bị từ chối';
++  failed := false; begin insert into gifs(space_id, url) values ('11111111-1111-1111-1111-111111111111', 'https://evil.example.com/a.gif'); exception when check_violation then failed := true; end;
++  assert failed, 'url lạ bị từ chối';
++  failed := false; begin update gifs set url = url; exception when insufficient_privilege then failed := true; end;
++  assert failed, 'gifs không sửa được';
++  assert (select count(*) from gifs) = 2, 'A thấy 2 GIF';
++  raise notice 'GIFS table ok';
++end $$;
++-- B cùng Space thấy và gỡ được; C Space khác không thấy
++select t_as('cccccccc-0000-0000-0000-000000000003');
++do $$ begin assert (select count(*) from gifs) = 0, 'C không thấy GIF của Space khác'; assert (select count(*) from notifications) = 0, 'C không thấy thông báo'; assert (select count(*) from messages) = 0, 'C không thấy tin nhắn'; raise notice 'GIFS isolation ok'; end $$;
++reset role;
++insert into storage.objects(bucket_id, name, owner_id) values
++  ('gifs', '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/a.gif', 'aaaaaaaa-0000-0000-0000-000000000001'),
++  ('media', '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/m.jpg', 'aaaaaaaa-0000-0000-0000-000000000001');
++select t_as('bbbbbbbb-0000-0000-0000-000000000002');
++set role authenticated;
++do $$ declare failed boolean; begin
++  assert (select count(*) from storage.objects where bucket_id = 'gifs') = 1, 'B đọc được GIF của Space mình';
++  insert into storage.objects(bucket_id, name, owner_id) values ('gifs', '11111111-1111-1111-1111-111111111111/bbbbbbbb-0000-0000-0000-000000000002/b.gif', 'bbbbbbbb-0000-0000-0000-000000000002');
++  failed := false; begin insert into storage.objects(bucket_id, name, owner_id) values ('gifs', '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-000000000001/hack.gif', 'bbbbbbbb-0000-0000-0000-000000000002'); exception when insufficient_privilege then failed := true; end;
++  assert failed, 'không tải vào thư mục của người khác';
++  failed := false; begin insert into storage.objects(bucket_id, name, owner_id) values ('gifs', '22222222-2222-2222-2222-222222222222/bbbbbbbb-0000-0000-0000-000000000002/b.gif', 'bbbbbbbb-0000-0000-0000-000000000002'); exception when insufficient_privilege then failed := true; end;
++  assert failed, 'không tải vào Space khác';
++  raise notice 'STORAGE gifs ok';
++end $$;
++select t_as('cccccccc-0000-0000-0000-000000000003');
++do $$ begin assert (select count(*) from storage.objects where bucket_id = 'gifs') = 0, 'C không đọc được GIF của Space khác'; raise notice 'STORAGE isolation ok'; end $$;
++reset role;
++do $$ begin
++  assert (select public from storage.buckets where id = 'gifs') = false, 'bucket gifs phải private';
++  assert (select file_size_limit from storage.buckets where id = 'gifs') = 8388608, 'giới hạn 8 MB';
++  raise notice 'BUCKET gifs ok';
++end $$;
++
++-- ===== 7. Xóa bình luận gốc thì câu trả lời và thông báo đi theo; xóa khoảnh khắc thì thông báo đi theo =====
++select t_as('bbbbbbbb-0000-0000-0000-000000000002');
++set role authenticated;
++delete from moment_comments where id = 'c0000000-0000-0000-0000-000000000001';
++reset role;
++do $$ begin
++  assert (select count(*) from moment_comments where id in ('c0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000003')) = 0, 'xóa gốc thì trả lời đi theo';
++  assert (select count(*) from notifications where comment_id in ('c0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002')) = 0, 'thông báo của bình luận đã xóa cũng mất';
++  delete from moments where id = 'dddddddd-0000-0000-0000-00000000000a';
++  assert (select count(*) from notifications where moment_id = 'dddddddd-0000-0000-0000-00000000000a') = 0, 'thông báo của khoảnh khắc đã xóa cũng mất';
++  raise notice 'CASCADE ok';
++end $$;
++
++-- ===== 8. Chạy lại phase25.sql lần hai vẫn an toàn và không đổi dữ liệu =====
++select count(*) as before from notifications \gset
++\i supabase/phase25.sql
++do $$ begin raise notice 'RERUN ok'; end $$;
++select t_as('aaaaaaaa-0000-0000-0000-000000000001');
++set role authenticated;
++do $$ begin
++  insert into moments(space_id, title) values ('11111111-1111-1111-1111-111111111111', 'Sau khi chạy lại');
++  raise notice 'TRIGGERS after rerun ok';
++end $$;
++reset role;
++do $$ begin
++  assert (select count(*) from notifications where moment_title = 'Sau khi chạy lại') = 1, 'sau khi chạy lại vẫn chỉ một thông báo mỗi khoảnh khắc (không nhân đôi trigger)';
++  raise notice 'ALL phase25 tests passed';
++end $$;
+-- 
+2.43.0
+

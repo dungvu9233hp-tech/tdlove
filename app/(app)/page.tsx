@@ -105,6 +105,7 @@ export default function Home() {
         <Link href="/games" className="rowl"><div><b>Trò chơi</b><div className="s">{gm ? `${gm} ván đang chờ bạn, vào chơi nhé!` : 'Caro, phá thuyền, bài, vẽ và đoán…'}</div></div>{gm > 0 && <i className="pulse" aria-hidden="true" />}</Link>
         <Link href="/chat" className="rowl"><div><b>{unread ? `${unread} tin mới` : 'Không có tin mới'}</b><div className="s">Từ {partner?.display_name ?? 'người ấy'}</div></div>{unread > 0 && <i className="pulse" aria-hidden="true" />}</Link>
         <Link href="/moments" className="rowl"><div><b>Khoảnh khắc</b><div className="s">Lưu thêm một kỷ niệm</div></div></Link>
+        <Link href="/photobooth" className="rowl"><div><b>Photobooth</b><div className="s">Chọn frame, ghép ảnh, trang trí sticker</div></div></Link>
       </div>
     </div>
   </>
