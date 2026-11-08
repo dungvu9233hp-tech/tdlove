@@ -6,17 +6,19 @@ import { ok, shrink } from '@/lib/util'
 import Head from '@/components/Head'
 import Avatar from '@/components/Avatar'
 import { notifyPartner } from '@/lib/push'
+import { gifCols, gifOf, type GifRef } from '@/lib/gif'
+import { GifImg, GifPanel } from '@/components/Gif'
 
 const PAGE = 50
 const MAX_VIDEO = 50 * 1048576          // gói Supabase miễn phí chỉ nhận tối đa 50 MB mỗi file
 const MAX_VOICE = 120                   // giây
 const REACT = ['❤️', '😂', '😮', '😢', '👍']
 const EMOJI = ['😀', '😂', '🥰', '😍', '😘', '😊', '🥺', '😭', '😡', '😴', '🤗', '😋', '🙈', '👍', '🙏', '💪', '❤️', '💕', '💖', '🌹', '🎉', '🍜', '☕', '🏠']
-const KIND_NOTE: Record<string, string> = { image: 'Đã gửi một ảnh', video: 'Đã gửi một video', voice: 'Đã gửi một tin nhắn thoại', location: 'Đã gửi một vị trí' }
+const KIND_NOTE: Record<string, string> = { image: 'Đã gửi một ảnh', video: 'Đã gửi một video', voice: 'Đã gửi một tin nhắn thoại', location: 'Đã gửi một vị trí', gif: 'Đã gửi một GIF' }
 const hhmm = (s: string) => new Date(s).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
 const dmy = (s: string) => new Date(s).toLocaleDateString('vi-VN')
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-const snippet = (m: any) => m?.kind === 'image' ? 'Ảnh' : m?.kind === 'video' ? 'Video' : m?.kind === 'voice' ? 'Tin nhắn thoại' : m?.lat ? 'Vị trí' : String(m?.body ?? '').slice(0, 60)
+const snippet = (m: any) => m?.kind === 'image' ? 'Ảnh' : m?.kind === 'video' ? 'Video' : m?.kind === 'voice' ? 'Tin nhắn thoại' : m?.kind === 'gif' ? 'GIF' : m?.lat ? 'Vị trí' : String(m?.body ?? '').slice(0, 60)
 const micMime = () => ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac'].find(t => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) ?? ''
 
 export default function Chat() {
@@ -26,7 +28,7 @@ export default function Chat() {
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [sel, setSel] = useState<string | null>(null)          // tin đang chọn (hiện thả cảm xúc, trả lời)
   const [reply, setReply] = useState<any>(null)
-  const [emoji, setEmoji] = useState(false); const [busy, setBusy] = useState('')
+  const [emoji, setEmoji] = useState(false); const [gifOpen, setGifOpen] = useState(false); const [busy, setBusy] = useState('')
   const [typing, setTyping] = useState(false)
   const [rec, setRec] = useState<number | null>(null)          // số giây đã ghi âm, null = không ghi
   const [q, setQ] = useState(''); const [searching, setSearching] = useState(false); const [hits, setHits] = useState<any[] | null>(null)
@@ -112,6 +114,11 @@ export default function Chat() {
     setT(''); setEmoji(false)
     if (!await post({ body }, body)) setT(body)             // gửi lỗi thì trả lại chữ để gửi lại
   }
+  // Gửi một GIF (tải lên hoặc link GIPHY); đang trả lời một tin thì gắn vào tin đó như mọi tin khác
+  async function sendGif(g: GifRef) {
+    setGifOpen(false)
+    await post({ ...gifCols(g) }, 'Đã gửi một GIF')
+  }
   const typed = (v: string) => {
     setT(v)
     if (Date.now() - lastTyping.current > 2500) { lastTyping.current = Date.now(); tch.current?.send({ type: 'broadcast', event: 'typing', payload: {} }) }
@@ -179,6 +186,7 @@ export default function Chat() {
     if (m.kind === 'image') return u ? <a href={u} target="_blank" rel="noreferrer"><img src={u} alt="Ảnh trong tin nhắn" loading="lazy" style={{ display: 'block', maxWidth: '100%', maxHeight: 320, borderRadius: 14 }} /></a> : <span className="s">Đang tải ảnh…</span>
     if (m.kind === 'video') return u ? <video src={u} controls playsInline preload="metadata" style={{ display: 'block', maxWidth: '100%', maxHeight: 320, borderRadius: 14 }} /> : <span className="s">Đang tải video…</span>
     if (m.kind === 'voice') return u ? <div><audio src={u} controls preload="metadata" style={{ width: '100%', minWidth: 200 }} /><div className="s">Tin nhắn thoại {m.duration ? clock(m.duration) : ''}</div></div> : <span className="s">Đang tải tin nhắn thoại…</span>
+    const g = gifOf(m); if (g) return <GifImg g={g} />
     if (m.lat) return <a href={`https://www.google.com/maps?q=${m.lat},${m.lng}`} target="_blank" rel="noreferrer"><b>Vị trí của mình</b> <span className="s">Mở trên bản đồ</span></a>
     return <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.body}</span>
   }
@@ -230,6 +238,7 @@ export default function Chat() {
     <div style={{ padding: '0 18px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
       {busy && <div className="s" role="status">{busy}</div>}
       {reply && <div className="k li s" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span style={{ flex: 1 }}>Trả lời {reply.sender === me.id ? 'chính mình' : pn}: {snippet(reply)}</span><button className="pill" onClick={() => setReply(null)} aria-label="Hủy trả lời">×</button></div>}
+      {gifOpen && <GifPanel spaceId={space.id} meId={me.id} onPick={sendGif} onClose={() => setGifOpen(false)} />}
       {emoji && <div className="k" style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{EMOJI.map(e => <button key={e} className="pill" style={{ border: 0, fontSize: 24, padding: '2px 6px' }} onClick={() => setT(v => v + e)} aria-label={`Chèn ${e}`}>{e}</button>)}</div>}
       {rec !== null ? <div className="row">
         <div className="k s" role="status" style={{ flex: 1 }}>● Đang ghi âm {clock(rec)} / {clock(MAX_VOICE)}</div>
@@ -240,7 +249,8 @@ export default function Chat() {
           <label className="pill">Ảnh/Video<input ref={file} type="file" accept="image/*,video/*" multiple hidden onChange={e => sendFiles(e.target.files)} /></label>
           <button className="pill" onClick={startRec}>Ghi âm</button>
           <button className="pill" onClick={sendLoc}>Vị trí</button>
-          <button className={`pill ${emoji ? 'on' : ''}`} onClick={() => setEmoji(v => !v)} aria-label="Chọn emoji">😊</button>
+          <button className={`pill ${emoji ? 'on' : ''}`} onClick={() => { setEmoji(v => !v); setGifOpen(false) }} aria-label="Chọn emoji">😊</button>
+          <button className={`pill ${gifOpen ? 'on' : ''}`} onClick={() => { setGifOpen(v => !v); setEmoji(false) }} aria-label="Chọn GIF" aria-expanded={gifOpen}>GIF</button>
         </div>
         <div className="row">
           <label className="k s"><input value={t} onChange={e => typed(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Nhắn gì đó cho người ấy…" aria-label="Nội dung tin nhắn" /></label>

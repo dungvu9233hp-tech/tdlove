@@ -1,11 +1,13 @@
 // Edge Function `push`: gửi thông báo đẩy đến máy người kia khi có tin nhắn mới, cuộc gọi đến (CHAT-04, CALL-05)
-// các tương tác ở mục Giải trí: thả cảm xúc, bình luận, rủ xem cùng (phase14) và lời rủ/đến lượt ở khu Trò chơi (phase24).
+// các tương tác ở mục Giải trí: thả cảm xúc, bình luận, rủ xem cùng (phase14), lời rủ/đến lượt ở khu Trò chơi (phase24)
+// và khoảnh khắc mới, bình luận, trả lời bình luận ở mục Khoảnh khắc (phase25).
 // Gọi từ app bằng supabase.functions.invoke('push', { body: { kind, text, clip } }), kind là một trong KINDS bên dưới.
+// `clip` là uuid của clip / ván chơi / khoảnh khắc, dùng để mở đúng chỗ khi bấm vào thông báo.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import webpush from 'npm:web-push@3.6.7'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
-const KINDS = ['message', 'call', 'clip-react', 'clip-comment', 'together', 'game']
+const KINDS = ['message', 'call', 'clip-react', 'clip-comment', 'together', 'game', 'moment', 'moment-comment', 'moment-reply']
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const reply = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
 
@@ -34,6 +36,9 @@ Deno.serve(async req => {
       'clip-comment': { body: t ? `Bình luận clip: ${t}` : 'Có bình luận mới ở một clip', url: '/fun', tag: 'clip-comment' },
       together: { body: 'Rủ bạn xem clip cùng nhau, vào ngay nhé!', url: cid ? `/fun?together=${cid}` : '/fun', tag: 'together' },
       game: { body: t || 'Đến lượt bạn trong ván trò chơi, vào chơi nhé!', url: cid ? `/games/${cid}` : '/games', tag: cid ? `game-${cid}` : 'game' },
+      moment: { body: t ? `Đã đăng khoảnh khắc mới: ${t}` : 'Đã đăng một khoảnh khắc mới', url: cid ? `/moments?open=${cid}` : '/moments', tag: cid ? `moment-${cid}` : 'moment' },
+      'moment-comment': { body: t ? `Bình luận: ${t}` : 'Có bình luận mới ở một khoảnh khắc', url: cid ? `/moments?open=${cid}` : '/moments', tag: cid ? `mcm-${cid}` : 'mcm' },
+      'moment-reply': { body: t ? `Trả lời bình luận: ${t}` : 'Có người trả lời bình luận của bạn', url: cid ? `/moments?open=${cid}` : '/moments', tag: cid ? `mcm-${cid}` : 'mcm' },
     }
     const payload = JSON.stringify({ kind, title, ...msgs[kind] })
     let sent = 0

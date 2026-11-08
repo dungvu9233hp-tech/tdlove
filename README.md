@@ -195,3 +195,26 @@ Thiết kế:
 - Thêm trò mới: thêm tên vào `check` của `games.kind` và các hàm luật trong SQL, viết một component trong `components/games/`, đăng ký ở `lib/games/types.ts` và `app/(app)/games/[id]/page.tsx`. Nội dung (câu hỏi, từ, thẻ, gợi ý quà) nằm ở `lib/games/content.ts`, sửa không cần đụng máy chủ.
 
 Chạy thử luật chơi trên Postgres thường (không cần Supabase): tạo một database rỗng rồi chạy lần lượt `supabase/tests/phase24_stub.sql`, `supabase/phase24.sql`, `phase24_test_1.sql`, `phase24_test_2.sql`, `phase24_test_rls.sql` bằng `psql -v ON_ERROR_STOP=1 -f`. Mỗi bài kiểm tra in `NOTICE: ... ok` khi qua.
+
+## Thông báo, trả lời bình luận, GIF (phase25)
+
+Ba thứ mới cho Khoảnh khắc và Chat:
+
+- **Thông báo khi người ấy đăng khoảnh khắc mới hoặc bình luận**: có chuông 🔔 ở Trang chủ và Khoảnh khắc (hiện số chưa đọc), bấm vào là mở thẳng khoảnh khắc đó. Đang mở app thì có thẻ thông báo nổi ở đầu màn hình; khoảnh khắc chưa xem có nhãn "Mới" trong danh sách. Đóng app thì có thông báo đẩy (cần bật ở Cài đặt > Bật thông báo như trước). Đang xem đúng khoảnh khắc đó thì không báo thừa.
+- **Chế độ trả lời bình luận**: bấm "Trả lời" dưới một bình luận, ô nhập chuyển sang "Trả lời …" (có nút × để hủy). Câu trả lời hiện thụt vào dưới bình luận gốc; chỉ có **một cấp**, trả lời một câu trả lời thì tự gắn về bình luận gốc. Luồng dài chỉ hiện 2 câu mới nhất, bấm để xem hết. Xóa bình luận gốc thì các câu trả lời xóa theo (có hỏi lại).
+- **GIF cho tin nhắn và bình luận**: nút **GIF** cạnh ô nhập (Chat và bình luận). Có **bộ sưu tập GIF chung** của hai người ("Của tụi mình"), bấm "＋ Tải GIF lên" để thêm GIF/WebP động từ máy (tối đa 8 MB, 5 tệp mỗi lần). Muốn tìm GIF có sẵn thì thêm khóa GIPHY (bên dưới), sẽ có tab "Tìm GIF", bấm ★ trên một GIF để lưu vào bộ sưu tập.
+
+Cài đặt (theo thứ tự, **trước khi** đưa bản app mới lên Vercel):
+
+1. Supabase > SQL Editor, chạy `supabase/phase25.sql` (sau phase24, chạy lại nhiều lần vẫn an toàn). File này: thêm cột trả lời/GIF cho `moment_comments` và `messages`; tạo bảng `gifs` và bucket riêng `gifs`; tạo bảng `notifications` cùng hai trigger (khoảnh khắc mới, bình luận mới) và bật realtime cho nó.
+2. Deploy lại Edge Function `push` để có thông báo đẩy cho khoảnh khắc và bình luận: `supabase functions deploy push`. Chưa deploy thì thông báo trong app (chuông, thẻ nổi) vẫn chạy, chỉ không có thông báo đẩy khi đóng app.
+3. (Không bắt buộc) Tìm GIF trên GIPHY: tạo khóa tại developers.giphy.com, đặt `NEXT_PUBLIC_GIPHY_KEY` ở Vercel và `.env.local`, rồi deploy lại. Khóa này nằm trong mã chạy ở trình duyệt nên đặt đúng loại khóa web của GIPHY, đừng dùng khóa riêng tư. Thiếu khóa thì ẩn tab "Tìm GIF".
+
+Thiết kế:
+
+- Thông báo trong app do **trigger ở cơ sở dữ liệu** tạo, nên không phụ thuộc trình duyệt người gửi có kịp gọi hàm hay không. Trình duyệt chỉ được đọc, đánh dấu đã đọc (cột `read_at`) và xóa thông báo của chính mình; không ai tự tạo hay sửa nội dung thông báo được.
+- GIF có hai nguồn: tệp tải lên (`gif_path`, nằm trong bucket private `gifs`, đọc bằng link ký 6 giờ) hoặc link GIPHY (`gif_url`). Cơ sở dữ liệu chỉ nhận link `https` đúng tên miền `media*.giphy.com` / `i.giphy.com`, và đường dẫn tệp phải nằm trong thư mục Space của người gửi, nên không chèn được link hay tệp tùy ý vào tin nhắn.
+- Bucket `gifs` chỉ cho đọc và thêm, **không sửa/xóa**, để tin nhắn cũ không bị mất GIF. Gỡ một GIF khỏi bộ sưu tập chỉ bỏ nó khỏi danh sách chọn; tệp vẫn nằm trong Storage (mỗi tệp ≤ 8 MB).
+- Dùng GIPHY nghĩa là trình duyệt gọi `api.giphy.com` và tải ảnh từ `media*.giphy.com` (kèm chữ "Powered by GIPHY" theo điều khoản của họ). Chỉ gửi từ khóa tìm, không gửi gì khác của hai đứa.
+
+Chạy thử SQL trên Postgres thường (không cần Supabase): tạo một database rỗng rồi chạy `psql -v ON_ERROR_STOP=1 -f supabase/tests/phase25_stub.sql -f supabase/phase25.sql -f supabase/tests/phase25_test.sql` từ thư mục gốc dự án. Kiểm tra trigger thông báo, trả lời một cấp, ràng buộc GIF, quyền truy cập bảng/Storage, và chạy lại không nhân đôi trigger; cuối cùng in `ALL phase25 tests passed`.

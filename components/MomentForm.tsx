@@ -4,6 +4,7 @@ import { sb } from '@/lib/supabase'
 import { MAX_FILES, MAX_IMG, MAX_VIDEO, MAX_VIDEO_SEC, MB, TAGS, TAG_EMOJI, localDay, probeVideo, processImage, readExif, reverse, sign, uploadBlob, dropMedia } from '@/lib/media'
 import PlacePicker from '@/components/PlacePicker'
 import { todayStr } from '@/lib/profile'
+import { notifyPartner } from '@/lib/push'
 
 type Item = { id: string; file: File; kind: 'image' | 'video'; url: string; status: 'ready' | 'up' | 'done' | 'err'; p: number; err?: string; meta: any }
 const uid = () => crypto.randomUUID()
@@ -27,6 +28,7 @@ export default function MomentForm({ space, moment, plans, albums, onClose, onDo
   const [notes, setNotes] = useState<string[]>([]); const [busy, setBusy] = useState(false); const [check, setCheck] = useState(false)
   const [pick, setPick] = useState(false); const [tag, setTag] = useState(''); const [alb, setAlb] = useState('')
   const savedId = useRef<string | null>(moment?.id ?? null)
+  const notified = useRef(!!moment?.id)   // chỉ báo người kia một lần khi đăng mới (sửa hoặc thử lại tệp lỗi thì không báo lại)
   const synced = useRef<string[]>(moment?.albumIds ?? [])   // album đã ghi vào DB (để thử lại không ghi trùng)
   const touched = useRef({ date: edit, place: edit })
   const itemsRef = useRef<Item[]>([]); itemsRef.current = items
@@ -142,6 +144,8 @@ export default function MomentForm({ space, moment, plans, albums, onClose, onDo
         if (it.status === 'done') continue
         if (!await uploadOne(it, sort++)) fail++
       }
+      // Báo cho người kia sau khi ảnh/video đã lên (thông báo trong app do cơ sở dữ liệu tạo ngay lúc đăng; đây là thông báo đẩy)
+      if (!notified.current) { notified.current = true; notifyPartner('moment', body.title, id) }
       if (fail) { setNotes([`${fail} tệp chưa tải lên được. Khoảnh khắc đã được lưu; bấm lại nút bên dưới để thử lại các tệp lỗi.`]); return }
       onDone()
     } finally { setBusy(false) }

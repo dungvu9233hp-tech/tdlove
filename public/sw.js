@@ -15,10 +15,15 @@ self.addEventListener('fetch', e => {
 
 self.addEventListener('push', e => {
   let d = {}; try { d = e.data ? e.data.json() : {} } catch { }
-  e.waitUntil(self.registration.showNotification(d.title || 'tdlove', {
+  const show = () => self.registration.showNotification(d.title || 'tdlove', {
     body: d.body || '', icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', tag: d.tag || d.kind || 'tdlove', renotify: true,
     requireInteraction: d.kind === 'call', vibrate: d.kind === 'call' ? [400, 200, 400, 200, 400] : [200, 100, 200], data: { url: d.url || '/' },
-  }))
+  })
+  // Khoảnh khắc mới / bình luận: đang mở app thì đã có thẻ thông báo nổi và chuông trong app, không hiện thêm thông báo của máy (phase25)
+  const inApp = ['moment', 'moment-comment', 'moment-reply'].includes(d.kind)
+  e.waitUntil(inApp
+    ? self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => cs.some(c => c.visibilityState === 'visible') ? undefined : show())
+    : show())
 })
 self.addEventListener('notificationclick', e => {
   e.notification.close()

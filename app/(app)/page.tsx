@@ -7,6 +7,7 @@ import Head, { Heart } from '@/components/Head'
 import Avatar from '@/components/Avatar'
 import LoveHeart from '@/components/LoveHeart'
 import Mascot from '@/components/Mascot'
+import { NotifBell } from '@/components/Notifs'
 import { daysTogether, ok, MILESTONES, nextMonthAnniv, nextYearlyDate } from '@/lib/util'
 import { startDateError, todayStr } from '@/lib/profile'
 
@@ -79,7 +80,7 @@ export default function Home() {
   const setDate = async (v: string) => { const bad = startDateError(v); if (bad) { alert(bad); return }; if (await ok(sb.from('spaces').update({ start_date: v }).eq('id', space.id), 'Không lưu được ngày bắt đầu')) reload() }
 
   return <>
-    <Head t="tdlove"><Link href="/settings" className="pill">Cài đặt</Link></Head>
+    <Head t="tdlove"><NotifBell /><Link href="/settings" className="pill">Cài đặt</Link></Head>
     <div className="b stagger">
       <Link href="/level" className="lh-link" aria-label={`${day ? `${day} ngày bên nhau. ` : ''}Mở khu cấp độ của hai đứa`}>
         <LoveHeart days={day} />

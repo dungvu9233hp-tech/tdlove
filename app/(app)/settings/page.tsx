@@ -137,7 +137,7 @@ export default function Settings() {
         {sdMsg && <div className="s" role={sdMsg.good ? 'status' : 'alert'}>{sdMsg.good ? '✓ ' : ''}{sdMsg.text}</div>}
         <button className="pill" onClick={saveDate} disabled={sdBusy || !sd || !!sdErr || sd === space.start_date} style={{ alignSelf: 'flex-start' }}>{sdBusy ? 'Đang lưu…' : 'Lưu ngày'}</button></div>
       <div className="k"><b>Thông báo</b>
-        <div className="s">{push === 'unsupported' ? 'Máy hoặc bản cài này chưa hỗ trợ thông báo đẩy.' : push === 'denied' ? 'Bạn đã chặn thông báo. Hãy cho phép lại trong cài đặt trình duyệt.' : push === 'on' ? 'Đang bật: nhận tin nhắn, cuộc gọi và nhắc ngày đặc biệt.' : 'Nhận tin nhắn, cuộc gọi và nhắc ngày đặc biệt khi đang đóng app.'}</div>
+        <div className="s">{push === 'unsupported' ? 'Máy hoặc bản cài này chưa hỗ trợ thông báo đẩy.' : push === 'denied' ? 'Bạn đã chặn thông báo. Hãy cho phép lại trong cài đặt trình duyệt.' : push === 'on' ? 'Đang bật: nhận tin nhắn, cuộc gọi, khoảnh khắc mới, bình luận và nhắc ngày đặc biệt.' : 'Nhận tin nhắn, cuộc gọi, khoảnh khắc mới, bình luận và nhắc ngày đặc biệt khi đang đóng app.'}</div>
         {push === 'off' && <button className="pill" onClick={enablePush}>Bật thông báo</button>}
         {push === 'on' && <button className="pill" onClick={disablePush}>Tắt thông báo</button>}
         {pushMsg && <div className="s" role="alert">{pushMsg}</div>}</div>

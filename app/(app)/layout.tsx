@@ -8,6 +8,7 @@ import Call from '@/components/Call'
 import LockGate from '@/components/LockGate'
 import TripBar from '@/components/TripBar'
 import LocShare from '@/components/LocShare'
+import { NotifProvider } from '@/components/Notifs'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const r = useRouter()
@@ -45,5 +46,5 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => data.subscription.unsubscribe()
   }, [r])
   if (!s) return <div className="p"><div className="b s">Đang mở góc nhỏ của hai đứa…</div></div>
-  return <C.Provider value={{ ...s, reload: load }}><div className="p"><LockGate uid={s.me.id}><TripBar /><LocShare />{children}<Nav /><Call /></LockGate></div></C.Provider>
+  return <C.Provider value={{ ...s, reload: load }}><div className="p"><LockGate uid={s.me.id}><NotifProvider><TripBar /><LocShare />{children}<Nav /><Call /></NotifProvider></LockGate></div></C.Provider>
 }

@@ -11,6 +11,7 @@ import Head from '@/components/Head'
 import MomentForm from '@/components/MomentForm'
 import MomentView from '@/components/MomentView'
 import Slideshow from '@/components/Slideshow'
+import { NotifBell, MOMENTS_CHANGED, OPEN_MOMENT, useNotifs } from '@/components/Notifs'
 
 const PAGE = 30
 const SEL = '*, media(id,kind,path,thumb_path,sort,size,duration), moment_hearts(user_id), moment_comments(count), album_moments(album_id)'
@@ -22,6 +23,7 @@ const NOF: Filter = { year: '', place: '', tag: '', album: '' }
 
 export default function Moments() {
   const { me, partner, space } = useApp()
+  const { unreadMoments } = useNotifs()
   const [list, setList] = useState<any[]>([]); const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const [more, setMore] = useState(true); const [loading, setLoading] = useState(false)
   const [flt, setFlt] = useState<Filter>(NOF); const [showF, setShowF] = useState(false)
@@ -88,11 +90,18 @@ export default function Moments() {
   }, [attach])
   useEffect(() => { purgeOld().finally(loadMeta) }, [loadMeta])
   useEffect(() => { if (new URLSearchParams(location.search).get('memories')) setShow(true) }, [])
-  // mở thẳng một khoảnh khắc từ ghim trên bản đồ: /moments?open=<id>
-  useEffect(() => {
-    const id = new URLSearchParams(location.search).get('open'); if (!id) return
-    sb.from('moments').select(SEL).eq('id', id).is('deleted_at', null).maybeSingle().then(r => { if (r.data) { attach([r.data]); setView(r.data) } })
+  // mở thẳng một khoảnh khắc từ ghim trên bản đồ hoặc từ thông báo: /moments?open=<id>
+  const openMoment = useCallback((id: string) => {
+    sb.from('moments').select(SEL).eq('id', id).is('deleted_at', null).maybeSingle().then(r => { if (r.data) { attach([r.data]); setView(r.data) } else if (!r.error) alert('Khoảnh khắc này đã bị xóa hoặc không còn nữa.') })
   }, [attach])
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get('open'); if (id) openMoment(id)
+  }, [openMoment])
+  // đang ở trang này mà bấm thông báo thì mở ngay, không cần chuyển trang
+  useEffect(() => {
+    const h = (e: Event) => { const id = (e as CustomEvent).detail?.id; if (id) openMoment(id) }
+    window.addEventListener(OPEN_MOMENT, h); return () => window.removeEventListener(OPEN_MOMENT, h)
+  }, [openMoment])
 
   // mở form sửa từ liên kết /moments?edit=<id> (sau khi tạo nhanh từ Kế hoạch)
   useEffect(() => {
@@ -102,6 +111,12 @@ export default function Moments() {
   }, [attach])
 
   const refresh = async () => { await Promise.all([load(), loadMeta()]) }
+  // người kia đăng khoảnh khắc mới / bình luận thì nạp lại danh sách (có thông báo realtime báo hiệu)
+  const refreshRef = useRef(refresh); refreshRef.current = refresh
+  useEffect(() => {
+    let t: any; const h = () => { clearTimeout(t); t = setTimeout(() => refreshRef.current(), 600) }
+    window.addEventListener(MOMENTS_CHANGED, h); return () => { window.removeEventListener(MOMENTS_CHANGED, h); clearTimeout(t) }
+  }, [])
   // nếu đang xem chi tiết thì cập nhật số tim/bình luận trong danh sách
   const changed = async () => { await refresh() }
 
@@ -138,7 +153,7 @@ export default function Moments() {
   for (const m of list) { const g = groups[groups.length - 1]; if (g && g[0] === m.taken_on) g[1].push(m); else groups.push([m.taken_on, [m]]) }
 
   return <>
-    <Head t="Khoảnh khắc"><Link href="/map?layer=moments" className="pill">Bản đồ</Link></Head>
+    <Head t="Khoảnh khắc"><NotifBell /><Link href="/map?layer=moments" className="pill">Bản đồ</Link></Head>
     <div className="b moments-page">
       <section className="moments-hero" aria-label="Kho lưu niệm">
         <div className="moments-hero-copy">
@@ -183,7 +198,7 @@ export default function Moments() {
                   {x.kind === 'video' && t && <span style={{ position: 'absolute', fontSize: 30 }}>▶️</span>}
                   {i === 3 && md.length > 4 && <span className="more">+{md.length - 4}</span>}</span>
               })}</div>}
-            <b>{m.title}</b>
+            <b>{m.title}{unreadMoments.has(m.id) && <span className="pill on" style={{ padding: '0 8px', marginLeft: 8, fontSize: 12 }}>Mới</span>}</b>
             {m.description && <div style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{m.description}</div>}
             <div className="s">{[md.length ? `${md.length} ảnh/video` : '', m.place && `📍 ${m.place}`, ...(m.tags ?? []).map((t: string) => `${TAG_EMOJI[t] ?? '🏷️'} ${t}`)].filter(Boolean).join(' · ')}</div>
             {(nh > 0 || nc > 0) && <div className="s">{nh > 0 && `${myHeart ? '💗' : '🤍'} ${nh}`}{nh > 0 && nc > 0 && '  '}{nc > 0 && `💬 ${nc}`}</div>}

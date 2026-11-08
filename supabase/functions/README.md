@@ -1,5 +1,7 @@
 # Thông báo đẩy (Web Push): CHAT-04, CALL-05, ANNIV-04
 
+Hàm `push` còn gửi thông báo khoảnh khắc mới, bình luận và trả lời bình luận (phase25): sau khi cập nhật mã hãy deploy lại `supabase functions deploy push`.
+
 Cuộc gọi khi app đóng (CALL-05) cần thêm `supabase/phase21.sql`: thông báo đẩy mở app, rồi app hỏi bảng `calls` để hiện cuộc gọi đang đổ chuông.
 
 Phần này **chưa được chạy thử trên Supabase thật**; làm theo từng bước và thử bằng hai máy.
